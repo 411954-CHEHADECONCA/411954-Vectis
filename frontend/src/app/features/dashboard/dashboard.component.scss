@@ -1,0 +1,335 @@
+// ─── Shell layout ─────────────────────────────────────────────────────────────
+
+.shell {
+  display: grid;
+  grid-template-columns: 256px 1fr;
+  grid-template-rows: 64px 1fr;
+  grid-template-areas:
+    "sidebar topbar"
+    "sidebar main";
+  min-height: 100vh;
+  background-color: #0a1514;
+  font-family: 'Inter', sans-serif;
+  color: #d9e5e3;
+}
+
+// ─── Sidebar ──────────────────────────────────────────────────────────────────
+
+.sidebar {
+  grid-area: sidebar;
+  display: flex;
+  flex-direction: column;
+  background-color: #131e1c;
+  border-right: 1px solid #1f2e2c;
+  position: sticky;
+  top: 0;
+  height: 100vh;
+  overflow-y: auto;
+  padding: 0 0 16px;
+}
+
+.sidebar-brand {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 20px 20px 24px;
+  border-bottom: 1px solid #1f2e2c;
+  margin-bottom: 8px;
+}
+
+.brand-icon {
+  width: 28px;
+  height: 28px;
+  color: #52eacd;
+  flex-shrink: 0;
+}
+
+.brand-name {
+  display: block;
+  font-size: 1.125rem;
+  font-weight: 700;
+  color: #52eacd;
+  letter-spacing: -0.02em;
+  line-height: 1.1;
+}
+
+.brand-sub {
+  display: block;
+  font-size: 0.625rem;
+  font-weight: 600;
+  color: #85948f;
+  letter-spacing: 0.15em;
+  text-transform: uppercase;
+}
+
+// ─── Nav items ────────────────────────────────────────────────────────────────
+
+.sidebar-nav {
+  flex: 1;
+  padding: 4px 12px;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.nav-item {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 10px 12px;
+  border-radius: 8px;
+  font-size: 0.875rem;
+  font-weight: 500;
+  color: #85948f;
+  text-decoration: none;
+  background: transparent;
+  border: none;
+  cursor: pointer;
+  width: 100%;
+  text-align: left;
+  font-family: 'Inter', sans-serif;
+  transition: background-color 150ms ease, color 150ms ease;
+
+  &:hover {
+    background-color: #172221;
+    color: #bbcac4;
+  }
+
+  &--active {
+    background-color: rgba(82, 234, 205, 0.12);
+    color: #52eacd;
+    font-weight: 600;
+
+    .nav-icon { color: #52eacd; }
+  }
+
+  &--ghost {
+    color: #727C7A;
+
+    &:hover {
+      background-color: rgba(255, 180, 171, 0.06);
+      color: #ffb4ab;
+    }
+  }
+}
+
+.nav-icon {
+  width: 20px;
+  height: 20px;
+  flex-shrink: 0;
+  color: inherit;
+}
+
+// ─── Sidebar footer ───────────────────────────────────────────────────────────
+
+.sidebar-footer {
+  padding: 0 12px;
+}
+
+.sidebar-divider {
+  height: 1px;
+  background-color: #1f2e2c;
+  margin: 8px 0 12px;
+}
+
+.sidebar-user {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 12px;
+  margin-top: 4px;
+  border-radius: 8px;
+  background-color: #172221;
+  border: 1px solid #1f2e2c;
+}
+
+.user-avatar {
+  width: 36px;
+  height: 36px;
+  border-radius: 8px;
+  background-color: rgba(82, 234, 205, 0.15);
+  color: #52eacd;
+  font-size: 0.875rem;
+  font-weight: 700;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+}
+
+.user-info {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+}
+
+.user-name {
+  font-size: 0.8125rem;
+  font-weight: 600;
+  color: #d9e5e3;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.user-email {
+  font-size: 0.6875rem;
+  color: #727C7A;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+// ─── Topbar ───────────────────────────────────────────────────────────────────
+
+.topbar {
+  grid-area: topbar;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 0 32px;
+  background-color: #212c2b;
+  border-bottom: 1px solid #1f2e2c;
+  position: sticky;
+  top: 0;
+  z-index: 40;
+  backdrop-filter: blur(8px);
+}
+
+.topbar-left {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+}
+
+.page-title {
+  font-size: 1.125rem;
+  font-weight: 600;
+  color: #d9e5e3;
+  letter-spacing: -0.01em;
+  margin: 0;
+}
+
+.topbar-right {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.currency-toggle {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  background-color: #172221;
+  border: 1px solid #3c4a46;
+  border-radius: 9999px;
+  padding: 4px 14px;
+  font-size: 0.75rem;
+  font-weight: 600;
+  font-family: 'Inter', sans-serif;
+  letter-spacing: 0.02em;
+  cursor: pointer;
+  transition: border-color 150ms ease;
+
+  &:hover {
+    border-color: #52eacd;
+  }
+}
+
+.currency-active {
+  color: #52eacd;
+}
+
+.currency-sep {
+  color: #3c4a46;
+}
+
+.currency-inactive {
+  color: #85948f;
+}
+
+.icon-btn {
+  width: 36px;
+  height: 36px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 8px;
+  background: transparent;
+  border: none;
+  cursor: pointer;
+  color: #85948f;
+  transition: background-color 150ms ease, color 150ms ease;
+
+  svg {
+    width: 20px;
+    height: 20px;
+  }
+
+  &:hover {
+    background-color: #172221;
+    color: #d9e5e3;
+  }
+}
+
+// ─── Main content ─────────────────────────────────────────────────────────────
+
+.main-content {
+  grid-area: main;
+  padding: 32px;
+  overflow-y: auto;
+}
+
+// ─── Empty state ──────────────────────────────────────────────────────────────
+
+.empty-state {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  min-height: 400px;
+  gap: 12px;
+
+  svg {
+    width: 64px;
+    height: 64px;
+    color: #3c4a46;
+    margin-bottom: 4px;
+  }
+
+  p {
+    font-size: 1.125rem;
+    font-weight: 600;
+    color: #85948f;
+    margin: 0;
+  }
+
+  span {
+    font-size: 0.875rem;
+    color: #727C7A;
+    text-align: center;
+    max-width: 320px;
+    line-height: 1.6;
+  }
+}
+
+.empty-cta {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  margin-top: 8px;
+  padding: 10px 20px;
+  background-color: transparent;
+  border: 1px solid #3c4a46;
+  border-radius: 8px;
+  color: #85948f;
+  font-size: 0.875rem;
+  font-weight: 500;
+  text-decoration: none;
+  transition: border-color 150ms ease, color 150ms ease;
+
+  &:hover {
+    border-color: #52eacd;
+    color: #52eacd;
+  }
+}

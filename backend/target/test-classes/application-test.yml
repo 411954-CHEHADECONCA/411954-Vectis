@@ -1,0 +1,20 @@
+spring:
+  datasource:
+    url: jdbc:h2:mem:vectis_test;DB_CLOSE_DELAY=-1;DB_CLOSE_ON_EXIT=FALSE
+    driver-class-name: org.h2.Driver
+    username: sa
+    password:
+  jpa:
+    hibernate:
+      ddl-auto: create-drop
+    database-platform: org.hibernate.dialect.H2Dialect
+  flyway:
+    enabled: false
+
+jwt:
+  secret: test-secret-key-must-be-at-least-32-chars-long!!
+  expiration: 900000
+  refresh-expiration: 604800000
+
+cors:
+  allowed-origins: http://localhost:4200
