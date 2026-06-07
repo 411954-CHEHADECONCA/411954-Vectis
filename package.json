@@ -1,0 +1,21 @@
+{
+  "name": "411954-vectis",
+  "version": "1.0.0",
+  "description": "Repositorio del proyecto de tesis.",
+  "main": "index.js",
+  "scripts": {
+    "test": "echo \"Error: no test specified\" && exit 1"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/411954-CHEHADECONCA/411954-Vectis.git"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC",
+  "type": "commonjs",
+  "bugs": {
+    "url": "https://github.com/411954-CHEHADECONCA/411954-Vectis/issues"
+  },
+  "homepage": "https://github.com/411954-CHEHADECONCA/411954-Vectis#readme"
+}

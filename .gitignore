@@ -1,6 +1,7 @@
 # Carpetas y configuraciones locales
 .agents/
 .claude/
+e2e/
 
 # Documentación y recursos locales
 CLAUDE.md

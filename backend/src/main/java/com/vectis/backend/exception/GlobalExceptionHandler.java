@@ -1,5 +1,6 @@
 package com.vectis.backend.exception;
 
+import io.swagger.v3.oas.annotations.media.Schema;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.MethodArgumentNotValidException;
@@ -12,7 +13,11 @@ import java.util.stream.Collectors;
 @RestControllerAdvice
 public class GlobalExceptionHandler {
 
-    public record ErrorResponse(String message, int status) {}
+    @Schema(name = "ErrorResponse", description = "Respuesta de error estándar de la API")
+    public record ErrorResponse(
+        @Schema(description = "Descripción del error", example = "Invalid credentials") String message,
+        @Schema(description = "Código HTTP", example = "401") int status
+    ) {}
 
     @ExceptionHandler(VectisException.class)
     public ResponseEntity<ErrorResponse> handleVectisException(VectisException ex) {

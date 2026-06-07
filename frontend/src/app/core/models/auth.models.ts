@@ -25,3 +25,8 @@ export interface AuthResponse {
 export interface RefreshRequest {
   refreshToken: string;
 }
+
+export interface ErrorResponse {
+  message: string;
+  status: number;
+}
