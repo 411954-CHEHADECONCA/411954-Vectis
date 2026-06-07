@@ -1,10 +1,15 @@
-<?xml version="1.0" encoding="UTF-8"?><!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Strict//EN" "http://www.w3.org/TR/xhtml1/DTD/xhtml1-strict.dtd"><html xmlns="http://www.w3.org/1999/xhtml" lang="es"><head><meta http-equiv="Content-Type" content="text/html;charset=UTF-8"/><link rel="stylesheet" href="../jacoco-resources/report.css" type="text/css"/><link rel="shortcut icon" href="../jacoco-resources/report.gif" type="image/gif"/><title>AuthController.java</title><link rel="stylesheet" href="../jacoco-resources/prettify.css" type="text/css"/><script type="text/javascript" src="../jacoco-resources/prettify.js"></script></head><body onload="window['PR_TAB_WIDTH']=4;prettyPrint()"><div class="breadcrumb" id="breadcrumb"><span class="info"><a href="../jacoco-sessions.html" class="el_session">Sessions</a></span><a href="../index.html" class="el_report">vectis-backend</a> &gt; <a href="index.source.html" class="el_package">com.vectis.backend.controller</a> &gt; <span class="el_source">AuthController.java</span></div><h1>AuthController.java</h1><pre class="source lang-java linenums"><span class="fc" id="L1">package com.vectis.backend.controller;</span>
+<?xml version="1.0" encoding="UTF-8"?><!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Strict//EN" "http://www.w3.org/TR/xhtml1/DTD/xhtml1-strict.dtd"><html xmlns="http://www.w3.org/1999/xhtml" lang="es"><head><meta http-equiv="Content-Type" content="text/html;charset=UTF-8"/><link rel="stylesheet" href="../jacoco-resources/report.css" type="text/css"/><link rel="shortcut icon" href="../jacoco-resources/report.gif" type="image/gif"/><title>AuthController.java</title><link rel="stylesheet" href="../jacoco-resources/prettify.css" type="text/css"/><script type="text/javascript" src="../jacoco-resources/prettify.js"></script></head><body onload="window['PR_TAB_WIDTH']=4;prettyPrint()"><div class="breadcrumb" id="breadcrumb"><span class="info"><a href="../jacoco-sessions.html" class="el_session">Sessions</a></span><a href="../index.html" class="el_report">vectis-backend</a> &gt; <a href="index.source.html" class="el_package">com.vectis.backend.controller</a> &gt; <span class="el_source">AuthController.java</span></div><h1>AuthController.java</h1><pre class="source lang-java linenums">package com.vectis.backend.controller;
 
 import com.vectis.backend.dto.AuthResponse;
 import com.vectis.backend.dto.LoginRequest;
 import com.vectis.backend.dto.RegisterRequest;
+import com.vectis.backend.exception.GlobalExceptionHandler.ErrorResponse;
 import com.vectis.backend.service.AuthService;
 import io.swagger.v3.oas.annotations.Operation;
+import io.swagger.v3.oas.annotations.media.Content;
+import io.swagger.v3.oas.annotations.media.Schema;
+import io.swagger.v3.oas.annotations.responses.ApiResponse;
+import io.swagger.v3.oas.annotations.responses.ApiResponses;
 import io.swagger.v3.oas.annotations.tags.Tag;
 import jakarta.validation.Valid;
 import jakarta.validation.constraints.NotBlank;
@@ -15,37 +20,65 @@ import org.springframework.web.bind.annotation.*;
 @RestController
 @RequestMapping(&quot;/api/auth&quot;)
 @RequiredArgsConstructor
-@Tag(name = &quot;Authentication&quot;, description = &quot;Register, login, token refresh and logout&quot;)
+@Tag(name = &quot;Authentication&quot;, description = &quot;Registro, login, renovación de token y logout&quot;)
 public class AuthController {
 
     private final AuthService authService;
 
     @PostMapping(&quot;/register&quot;)
     @ResponseStatus(HttpStatus.CREATED)
-    @Operation(summary = &quot;Register a new user&quot;)
+    @Operation(summary = &quot;Registrar un nuevo usuario&quot;)
+    @ApiResponses({
+        @ApiResponse(responseCode = &quot;201&quot;, description = &quot;Usuario registrado exitosamente&quot;),
+        @ApiResponse(responseCode = &quot;400&quot;, description = &quot;Datos de entrada inválidos&quot;,
+            content = @Content(schema = @Schema(implementation = ErrorResponse.class))),
+        @ApiResponse(responseCode = &quot;409&quot;, description = &quot;El email ya está registrado&quot;,
+            content = @Content(schema = @Schema(implementation = ErrorResponse.class)))
+    })
     public AuthResponse register(@Valid @RequestBody RegisterRequest request) {
-<span class="fc" id="L27">        return authService.register(request);</span>
+<span class="fc" id="L39">        return authService.register(request);</span>
     }
 
     @PostMapping(&quot;/login&quot;)
-    @Operation(summary = &quot;Authenticate and obtain JWT tokens&quot;)
+    @Operation(summary = &quot;Autenticar usuario y obtener tokens JWT&quot;)
+    @ApiResponses({
+        @ApiResponse(responseCode = &quot;200&quot;, description = &quot;Autenticación exitosa&quot;),
+        @ApiResponse(responseCode = &quot;400&quot;, description = &quot;Datos de entrada inválidos&quot;,
+            content = @Content(schema = @Schema(implementation = ErrorResponse.class))),
+        @ApiResponse(responseCode = &quot;401&quot;, description = &quot;Credenciales incorrectas&quot;,
+            content = @Content(schema = @Schema(implementation = ErrorResponse.class)))
+    })
     public AuthResponse login(@Valid @RequestBody LoginRequest request) {
-<span class="fc" id="L33">        return authService.login(request);</span>
+<span class="fc" id="L52">        return authService.login(request);</span>
     }
 
     @PostMapping(&quot;/refresh&quot;)
-    @Operation(summary = &quot;Obtain a new access token using a refresh token&quot;)
+    @Operation(summary = &quot;Obtener un nuevo access token usando el refresh token&quot;)
+    @ApiResponses({
+        @ApiResponse(responseCode = &quot;200&quot;, description = &quot;Token renovado exitosamente&quot;),
+        @ApiResponse(responseCode = &quot;401&quot;, description = &quot;Refresh token inválido o expirado&quot;,
+            content = @Content(schema = @Schema(implementation = ErrorResponse.class)))
+    })
     public AuthResponse refresh(@RequestBody RefreshRequest request) {
-<span class="fc" id="L39">        return authService.refresh(request.refreshToken());</span>
+<span class="fc" id="L63">        return authService.refresh(request.refreshToken());</span>
     }
 
     @PostMapping(&quot;/logout&quot;)
     @ResponseStatus(HttpStatus.NO_CONTENT)
-    @Operation(summary = &quot;Revoke the refresh token (logout)&quot;)
+    @Operation(summary = &quot;Revocar el refresh token (logout)&quot;)
+    @ApiResponses({
+        @ApiResponse(responseCode = &quot;204&quot;, description = &quot;Logout exitoso&quot;),
+        @ApiResponse(responseCode = &quot;401&quot;, description = &quot;Refresh token inválido&quot;,
+            content = @Content(schema = @Schema(implementation = ErrorResponse.class)))
+    })
     public void logout(@RequestBody RefreshRequest request) {
-<span class="fc" id="L46">        authService.logout(request.refreshToken());</span>
-<span class="fc" id="L47">    }</span>
+<span class="fc" id="L75">        authService.logout(request.refreshToken());</span>
+<span class="fc" id="L76">    }</span>
 
-    public record RefreshRequest(@NotBlank String refreshToken) {}
+    @Schema(description = &quot;Request para refresh o logout&quot;)
+<span class="fc" id="L79">    public record RefreshRequest(</span>
+        @Schema(description = &quot;Refresh token emitido en login&quot;, example = &quot;eyJhbGc...&quot;)
+        @NotBlank String refreshToken
+    ) {}
 }
 </pre><div class="footer"><span class="right">Created with <a href="http://www.jacoco.org/jacoco">JaCoCo</a> 0.8.12.202403310830</span></div></body></html>
