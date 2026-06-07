@@ -1,0 +1,124 @@
+<?xml version="1.0" encoding="UTF-8"?><!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Strict//EN" "http://www.w3.org/TR/xhtml1/DTD/xhtml1-strict.dtd"><html xmlns="http://www.w3.org/1999/xhtml" lang="es"><head><meta http-equiv="Content-Type" content="text/html;charset=UTF-8"/><link rel="stylesheet" href="../jacoco-resources/report.css" type="text/css"/><link rel="shortcut icon" href="../jacoco-resources/report.gif" type="image/gif"/><title>AuthService.java</title><link rel="stylesheet" href="../jacoco-resources/prettify.css" type="text/css"/><script type="text/javascript" src="../jacoco-resources/prettify.js"></script></head><body onload="window['PR_TAB_WIDTH']=4;prettyPrint()"><div class="breadcrumb" id="breadcrumb"><span class="info"><a href="../jacoco-sessions.html" class="el_session">Sessions</a></span><a href="../index.html" class="el_report">vectis-backend</a> &gt; <a href="index.source.html" class="el_package">com.vectis.backend.service</a> &gt; <span class="el_source">AuthService.java</span></div><h1>AuthService.java</h1><pre class="source lang-java linenums">package com.vectis.backend.service;
+
+import com.vectis.backend.domain.entity.RefreshToken;
+import com.vectis.backend.domain.entity.User;
+import com.vectis.backend.dto.AuthResponse;
+import com.vectis.backend.dto.LoginRequest;
+import com.vectis.backend.dto.RegisterRequest;
+import com.vectis.backend.exception.EmailAlreadyExistsException;
+import com.vectis.backend.exception.InvalidCredentialsException;
+import com.vectis.backend.exception.InvalidTokenException;
+import com.vectis.backend.repository.RefreshTokenRepository;
+import com.vectis.backend.repository.UserRepository;
+import lombok.RequiredArgsConstructor;
+import org.springframework.beans.factory.annotation.Value;
+import org.springframework.security.core.userdetails.UserDetails;
+import org.springframework.security.core.userdetails.UserDetailsService;
+import org.springframework.security.core.userdetails.UsernameNotFoundException;
+import org.springframework.security.crypto.password.PasswordEncoder;
+import org.springframework.stereotype.Service;
+import org.springframework.transaction.annotation.Transactional;
+
+import java.time.OffsetDateTime;
+import java.time.ZoneOffset;
+import java.time.temporal.ChronoUnit;
+import java.util.UUID;
+
+@Service
+@RequiredArgsConstructor
+@Transactional
+public class AuthService implements UserDetailsService {
+
+    private final UserRepository userRepository;
+    private final RefreshTokenRepository refreshTokenRepository;
+    private final JwtService jwtService;
+    private final PasswordEncoder passwordEncoder;
+
+    @Value(&quot;${jwt.refresh-expiration}&quot;)
+    private long refreshExpirationMs;
+
+    @Override
+    @Transactional(readOnly = true)
+    public UserDetails loadUserByUsername(String email) throws UsernameNotFoundException {
+<span class="fc" id="L43">        return userRepository.findByEmail(email)</span>
+<span class="fc" id="L44">                .orElseThrow(() -&gt; new UsernameNotFoundException(&quot;User not found: &quot; + email));</span>
+    }
+
+    public AuthResponse register(RegisterRequest request) {
+<span class="fc bfc" id="L48" title="All 2 branches covered.">        if (userRepository.existsByEmail(request.getEmail())) {</span>
+<span class="fc" id="L49">            throw new EmailAlreadyExistsException(request.getEmail());</span>
+        }
+
+<span class="fc" id="L52">        User user = User.builder()</span>
+<span class="fc" id="L53">                .email(request.getEmail())</span>
+<span class="fc" id="L54">                .passwordHash(passwordEncoder.encode(request.getPassword()))</span>
+<span class="fc" id="L55">                .fullName(request.getFullName())</span>
+<span class="fc" id="L56">                .build();</span>
+<span class="fc" id="L57">        user = userRepository.save(user);</span>
+
+<span class="fc" id="L59">        return buildAuthResponse(user);</span>
+    }
+
+    public AuthResponse login(LoginRequest request) {
+<span class="fc" id="L63">        User user = userRepository.findByEmail(request.getEmail())</span>
+<span class="fc" id="L64">                .orElseThrow(InvalidCredentialsException::new);</span>
+
+<span class="fc bfc" id="L66" title="All 2 branches covered.">        if (!passwordEncoder.matches(request.getPassword(), user.getPasswordHash())) {</span>
+<span class="fc" id="L67">            throw new InvalidCredentialsException();</span>
+        }
+
+<span class="fc" id="L70">        return buildAuthResponse(user);</span>
+    }
+
+    public AuthResponse refresh(String rawToken) {
+<span class="fc" id="L74">        RefreshToken stored = refreshTokenRepository.findByToken(rawToken)</span>
+<span class="fc" id="L75">                .orElseThrow(() -&gt; new InvalidTokenException(&quot;Refresh token not found&quot;));</span>
+
+<span class="fc bfc" id="L77" title="All 2 branches covered.">        if (!stored.isValid()) {</span>
+<span class="fc" id="L78">            throw new InvalidTokenException(&quot;Refresh token is expired or revoked&quot;);</span>
+        }
+
+        // Rotate: revoke old, issue new
+<span class="fc" id="L82">        stored.setRevoked(true);</span>
+<span class="fc" id="L83">        refreshTokenRepository.save(stored);</span>
+
+<span class="fc" id="L85">        return buildAuthResponse(stored.getUser());</span>
+    }
+
+    public void logout(String rawToken) {
+<span class="fc" id="L89">        refreshTokenRepository.findByToken(rawToken).ifPresent(token -&gt; {</span>
+<span class="fc" id="L90">            token.setRevoked(true);</span>
+<span class="fc" id="L91">            refreshTokenRepository.save(token);</span>
+<span class="fc" id="L92">        });</span>
+<span class="fc" id="L93">    }</span>
+
+    private AuthResponse buildAuthResponse(User user) {
+<span class="fc" id="L96">        String accessToken = jwtService.generateAccessToken(user);</span>
+<span class="fc" id="L97">        String refreshToken = createRefreshToken(user);</span>
+
+<span class="fc" id="L99">        return AuthResponse.builder()</span>
+<span class="fc" id="L100">                .accessToken(accessToken)</span>
+<span class="fc" id="L101">                .refreshToken(refreshToken)</span>
+<span class="fc" id="L102">                .user(AuthResponse.UserInfo.builder()</span>
+<span class="fc" id="L103">                        .id(user.getId())</span>
+<span class="fc" id="L104">                        .email(user.getEmail())</span>
+<span class="fc" id="L105">                        .fullName(user.getFullName())</span>
+<span class="fc" id="L106">                        .build())</span>
+<span class="fc" id="L107">                .build();</span>
+    }
+
+    private String createRefreshToken(User user) {
+<span class="fc" id="L111">        String raw = UUID.randomUUID().toString();</span>
+
+<span class="fc" id="L113">        RefreshToken token = RefreshToken.builder()</span>
+<span class="fc" id="L114">                .user(user)</span>
+<span class="fc" id="L115">                .token(raw)</span>
+<span class="fc" id="L116">                .expiresAt(OffsetDateTime.now(ZoneOffset.UTC).plus(refreshExpirationMs, ChronoUnit.MILLIS))</span>
+<span class="fc" id="L117">                .revoked(false)</span>
+<span class="fc" id="L118">                .build();</span>
+<span class="fc" id="L119">        refreshTokenRepository.save(token);</span>
+
+<span class="fc" id="L121">        return raw;</span>
+    }
+}
+</pre><div class="footer"><span class="right">Created with <a href="http://www.jacoco.org/jacoco">JaCoCo</a> 0.8.12.202403310830</span></div></body></html>

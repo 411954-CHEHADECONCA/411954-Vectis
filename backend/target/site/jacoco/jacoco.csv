@@ -1,0 +1,16 @@
+GROUP,PACKAGE,CLASS,INSTRUCTION_MISSED,INSTRUCTION_COVERED,BRANCH_MISSED,BRANCH_COVERED,LINE_MISSED,LINE_COVERED,COMPLEXITY_MISSED,COMPLEXITY_COVERED,METHOD_MISSED,METHOD_COVERED
+vectis-backend,com.vectis.backend.domain.entity,RefreshToken,5,16,0,4,2,2,1,4,1,2
+vectis-backend,com.vectis.backend.domain.entity,User,18,3,0,0,6,1,4,1,4,1
+vectis-backend,com.vectis.backend.service,AuthService,0,182,0,6,0,48,0,13,0,10
+vectis-backend,com.vectis.backend.service,JwtService,0,63,0,0,0,20,0,6,0,6
+vectis-backend,com.vectis.backend,VectisApplication,5,3,0,0,2,1,1,1,1,1
+vectis-backend,com.vectis.backend.config,JwtAuthenticationFilter,58,11,7,1,13,4,5,1,1,1
+vectis-backend,com.vectis.backend.config,SecurityConfig,0,145,0,0,0,32,0,9,0,9
+vectis-backend,com.vectis.backend.exception,GlobalExceptionHandler,12,45,0,0,3,9,1,5,1,5
+vectis-backend,com.vectis.backend.exception,InvalidTokenException,0,5,0,0,0,2,0,1,0,1
+vectis-backend,com.vectis.backend.exception,EmailAlreadyExistsException,0,6,0,0,0,2,0,1,0,1
+vectis-backend,com.vectis.backend.exception,GlobalExceptionHandler.ErrorResponse,0,9,0,0,0,1,0,1,0,1
+vectis-backend,com.vectis.backend.exception,InvalidCredentialsException,0,5,0,0,0,2,0,1,0,1
+vectis-backend,com.vectis.backend.exception,VectisException,0,10,0,0,0,4,0,2,0,2
+vectis-backend,com.vectis.backend.controller,AuthController.RefreshRequest,0,6,0,0,0,1,0,1,0,1
+vectis-backend,com.vectis.backend.controller,AuthController,0,22,0,0,0,5,0,4,0,4

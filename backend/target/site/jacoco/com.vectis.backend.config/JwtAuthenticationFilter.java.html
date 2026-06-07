@@ -1,0 +1,62 @@
+<?xml version="1.0" encoding="UTF-8"?><!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Strict//EN" "http://www.w3.org/TR/xhtml1/DTD/xhtml1-strict.dtd"><html xmlns="http://www.w3.org/1999/xhtml" lang="es"><head><meta http-equiv="Content-Type" content="text/html;charset=UTF-8"/><link rel="stylesheet" href="../jacoco-resources/report.css" type="text/css"/><link rel="shortcut icon" href="../jacoco-resources/report.gif" type="image/gif"/><title>JwtAuthenticationFilter.java</title><link rel="stylesheet" href="../jacoco-resources/prettify.css" type="text/css"/><script type="text/javascript" src="../jacoco-resources/prettify.js"></script></head><body onload="window['PR_TAB_WIDTH']=4;prettyPrint()"><div class="breadcrumb" id="breadcrumb"><span class="info"><a href="../jacoco-sessions.html" class="el_session">Sessions</a></span><a href="../index.html" class="el_report">vectis-backend</a> &gt; <a href="index.source.html" class="el_package">com.vectis.backend.config</a> &gt; <span class="el_source">JwtAuthenticationFilter.java</span></div><h1>JwtAuthenticationFilter.java</h1><pre class="source lang-java linenums">package com.vectis.backend.config;
+
+import com.vectis.backend.repository.UserRepository;
+import com.vectis.backend.service.JwtService;
+import jakarta.servlet.FilterChain;
+import jakarta.servlet.ServletException;
+import jakarta.servlet.http.HttpServletRequest;
+import jakarta.servlet.http.HttpServletResponse;
+import lombok.RequiredArgsConstructor;
+import org.springframework.http.HttpHeaders;
+import org.springframework.lang.NonNull;
+import org.springframework.security.authentication.UsernamePasswordAuthenticationToken;
+import org.springframework.security.core.context.SecurityContextHolder;
+import org.springframework.security.web.authentication.WebAuthenticationDetailsSource;
+import org.springframework.stereotype.Component;
+import org.springframework.web.filter.OncePerRequestFilter;
+
+import java.io.IOException;
+import java.util.UUID;
+
+@Component
+@RequiredArgsConstructor
+public class JwtAuthenticationFilter extends OncePerRequestFilter {
+
+    private final JwtService jwtService;
+    private final UserRepository userRepository;
+
+    @Override
+    protected void doFilterInternal(
+            @NonNull HttpServletRequest request,
+            @NonNull HttpServletResponse response,
+            @NonNull FilterChain filterChain
+    ) throws ServletException, IOException {
+
+<span class="fc" id="L35">        String authHeader = request.getHeader(HttpHeaders.AUTHORIZATION);</span>
+
+<span class="pc bpc" id="L37" title="3 of 4 branches missed.">        if (authHeader == null || !authHeader.startsWith(&quot;Bearer &quot;)) {</span>
+<span class="fc" id="L38">            filterChain.doFilter(request, response);</span>
+<span class="fc" id="L39">            return;</span>
+        }
+
+<span class="nc" id="L42">        String token = authHeader.substring(7);</span>
+
+<span class="nc bnc" id="L44" title="All 4 branches missed.">        if (!jwtService.isTokenValid(token) || SecurityContextHolder.getContext().getAuthentication() != null) {</span>
+<span class="nc" id="L45">            filterChain.doFilter(request, response);</span>
+<span class="nc" id="L46">            return;</span>
+        }
+
+<span class="nc" id="L49">        String userId = jwtService.extractUserId(token);</span>
+
+<span class="nc" id="L51">        userRepository.findById(UUID.fromString(userId)).ifPresent(user -&gt; {</span>
+<span class="nc" id="L52">            UsernamePasswordAuthenticationToken auth = new UsernamePasswordAuthenticationToken(</span>
+<span class="nc" id="L53">                    user, null, user.getAuthorities()</span>
+            );
+<span class="nc" id="L55">            auth.setDetails(new WebAuthenticationDetailsSource().buildDetails(request));</span>
+<span class="nc" id="L56">            SecurityContextHolder.getContext().setAuthentication(auth);</span>
+<span class="nc" id="L57">        });</span>
+
+<span class="nc" id="L59">        filterChain.doFilter(request, response);</span>
+<span class="nc" id="L60">    }</span>
+}
+</pre><div class="footer"><span class="right">Created with <a href="http://www.jacoco.org/jacoco">JaCoCo</a> 0.8.12.202403310830</span></div></body></html>
