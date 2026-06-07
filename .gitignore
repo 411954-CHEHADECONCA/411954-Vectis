@@ -1,0 +1,10 @@
+# Carpetas y configuraciones locales
+.agents/
+.claude/
+
+# Documentación y recursos locales
+CLAUDE.md
+DESIGN.md
+ROADMAP.md
+resources/
+skills-lock.json
