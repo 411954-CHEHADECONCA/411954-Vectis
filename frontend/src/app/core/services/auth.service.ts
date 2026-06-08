@@ -6,6 +6,7 @@ import { environment } from '../../../environments/environment';
 import { StorageService } from './storage.service';
 import {
   AuthResponse,
+  ChangePasswordRequest,
   LoginRequest,
   RegisterRequest,
   UserInfo,
@@ -51,6 +52,21 @@ export class AuthService {
           this.storage.setRefreshToken(res.refreshToken);
         })
       );
+  }
+
+  forgotPassword(email: string): Observable<void> {
+    return this.http.post<void>(`${this.baseUrl}/forgot-password`, { email });
+  }
+
+  resetPassword(token: string, newPassword: string): Observable<void> {
+    return this.http.post<void>(`${this.baseUrl}/reset-password`, { token, newPassword });
+  }
+
+  changePassword(request: ChangePasswordRequest): Observable<void> {
+    return this.http.patch<void>(
+      `${environment.apiUrl}/users/me/password`,
+      request
+    );
   }
 
   logout(): void {
