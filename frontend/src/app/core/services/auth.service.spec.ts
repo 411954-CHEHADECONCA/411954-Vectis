@@ -173,4 +173,37 @@ describe('AuthService', () => {
     expect(storageSpy.clear).toHaveBeenCalled();
     expect(routerSpy.navigate).toHaveBeenCalledWith(['/login']);
   });
+
+  // ─── forgotPassword() ────────────────────────────────────────────────────────
+
+  it('forgotPassword() hace POST al endpoint correcto con el email', () => {
+    service.forgotPassword('user@vectis.com').subscribe();
+
+    const req = httpMock.expectOne((r) => r.url.includes('/auth/forgot-password'));
+    expect(req.request.method).toBe('POST');
+    expect(req.request.body).toEqual({ email: 'user@vectis.com' });
+    req.flush(null);
+  });
+
+  // ─── resetPassword() ─────────────────────────────────────────────────────────
+
+  it('resetPassword() hace POST al endpoint correcto con token y nueva contraseña', () => {
+    service.resetPassword('my-token', 'newPass123').subscribe();
+
+    const req = httpMock.expectOne((r) => r.url.includes('/auth/reset-password'));
+    expect(req.request.method).toBe('POST');
+    expect(req.request.body).toEqual({ token: 'my-token', newPassword: 'newPass123' });
+    req.flush(null);
+  });
+
+  // ─── changePassword() ────────────────────────────────────────────────────────
+
+  it('changePassword() hace PATCH al endpoint correcto con las contraseñas', () => {
+    service.changePassword({ currentPassword: 'oldPass', newPassword: 'newPass123' }).subscribe();
+
+    const req = httpMock.expectOne((r) => r.url.includes('/users/me/password'));
+    expect(req.request.method).toBe('PATCH');
+    expect(req.request.body).toEqual({ currentPassword: 'oldPass', newPassword: 'newPass123' });
+    req.flush(null);
+  });
 });
