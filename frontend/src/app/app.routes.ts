@@ -46,6 +46,14 @@ export const routes: Routes = [
         (m) => m.ChangePasswordComponent
       ),
   },
+  {
+    path: 'config/categories',
+    canActivate: [authGuard],
+    loadComponent: () =>
+      import('./features/config/categories/categories.component').then(
+        (m) => m.CategoriesComponent
+      ),
+  },
   { path: '', redirectTo: 'dashboard', pathMatch: 'full' },
   { path: '**', redirectTo: 'dashboard' },
 ];
