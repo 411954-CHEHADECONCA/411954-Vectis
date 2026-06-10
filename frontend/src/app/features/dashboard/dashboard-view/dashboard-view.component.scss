@@ -1,0 +1,300 @@
+.dashboard-content {
+  display: flex;
+  flex-direction: column;
+  gap: 24px;
+  max-width: 1180px;
+}
+
+// ─── Stat cards ───────────────────────────────────────────────────────────────
+
+.stat-grid {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: 16px;
+}
+
+.stat-card {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  background-color: var(--color-surface-container);
+  border: 1px solid var(--color-outline-variant);
+  border-radius: var(--radius-lg);
+  padding: 20px;
+
+  &__header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+  }
+
+  &__label {
+    font-size: var(--text-label);
+    font-weight: 500;
+    color: var(--color-outline);
+    letter-spacing: var(--tracking-wide);
+  }
+
+  &__icon {
+    width: 18px;
+    height: 18px;
+    color: var(--color-primary);
+  }
+
+  &__value-row {
+    display: flex;
+    align-items: baseline;
+    gap: 4px;
+  }
+
+  &__currency {
+    font-size: var(--text-h3);
+    font-weight: 600;
+    color: var(--color-outline);
+  }
+
+  &__value {
+    font-size: var(--text-metric-lg);
+    font-weight: 700;
+    color: var(--color-on-surface);
+    letter-spacing: var(--tracking-tight);
+    line-height: 1;
+    font-variant-numeric: tabular-nums;
+  }
+
+  &__unit {
+    font-size: var(--text-sm);
+    color: var(--color-outline);
+  }
+
+  &__footer {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+  }
+
+  &__delta {
+    display: inline-flex;
+    align-items: center;
+    gap: 3px;
+    font-size: var(--text-caption);
+    font-weight: 600;
+    border-radius: var(--radius-sm);
+    padding: 2px 7px;
+    font-variant-numeric: tabular-nums;
+
+    svg {
+      width: 11px;
+      height: 11px;
+    }
+
+    &--up {
+      color: var(--color-positive);
+      background-color: color-mix(in srgb, var(--color-positive) 12%, transparent);
+    }
+
+    &--down {
+      color: var(--color-negative);
+      background-color: color-mix(in srgb, var(--color-negative) 12%, transparent);
+    }
+  }
+
+  &__caption {
+    font-size: var(--text-caption);
+    color: var(--color-text-muted);
+  }
+}
+
+// ─── Panels ───────────────────────────────────────────────────────────────────
+
+.panels-grid {
+  display: grid;
+  grid-template-columns: 1.3fr 1fr;
+  gap: 20px;
+}
+
+.panel {
+  background-color: var(--color-surface-container);
+  border: 1px solid var(--color-outline-variant);
+  border-radius: var(--radius-lg);
+  padding: 20px;
+
+  &__header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    margin-bottom: 14px;
+  }
+
+  &__title {
+    font-size: var(--text-h3);
+    font-weight: 600;
+    color: var(--color-on-surface);
+    letter-spacing: var(--tracking-snug);
+    margin: 0;
+  }
+}
+
+// ─── Badges ───────────────────────────────────────────────────────────────────
+
+.badge {
+  display: inline-flex;
+  align-items: center;
+  font-size: var(--text-caption);
+  font-weight: 600;
+  letter-spacing: var(--tracking-wide);
+  border-radius: var(--radius-sm);
+  padding: 3px 8px;
+  line-height: 1.2;
+  white-space: nowrap;
+
+  &--accent   { color: var(--color-on-primary-container); background-color: var(--color-primary-container); }
+  &--neutral  { color: var(--color-on-surface-variant); background-color: var(--color-surface-container-high); }
+  &--positive { color: var(--color-positive); background-color: color-mix(in srgb, var(--color-positive) 14%, transparent); }
+}
+
+// ─── Accounts ─────────────────────────────────────────────────────────────────
+
+.account-list {
+  display: flex;
+  flex-direction: column;
+}
+
+.account-row {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 12px 0;
+
+  &--bordered { border-top: 1px solid var(--color-outline-variant); }
+
+  &__icon {
+    width: 36px;
+    height: 36px;
+    border-radius: var(--radius);
+    background-color: var(--color-surface-container-high);
+    color: var(--color-outline);
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    flex-shrink: 0;
+
+    svg { width: 18px; height: 18px; }
+  }
+
+  &__name {
+    font-size: var(--text-sm);
+    color: var(--color-on-surface);
+    flex: 1;
+  }
+
+  &__amount {
+    font-size: var(--text-sm);
+    font-weight: 600;
+    color: var(--color-on-surface);
+    font-variant-numeric: tabular-nums;
+    min-width: 100px;
+    text-align: right;
+  }
+}
+
+// ─── Investments ──────────────────────────────────────────────────────────────
+
+.investment-list {
+  display: flex;
+  flex-direction: column;
+  gap: 20px;
+}
+
+.investment-item {
+  &__header {
+    display: flex;
+    justify-content: space-between;
+    align-items: baseline;
+    margin-bottom: 8px;
+  }
+
+  &__name { font-size: var(--text-sm); color: var(--color-on-surface-variant); }
+
+  &__rate {
+    font-size: var(--text-sm);
+    font-weight: 700;
+    color: var(--color-primary);
+    font-variant-numeric: tabular-nums;
+  }
+}
+
+.progress-track {
+  height: 6px;
+  border-radius: var(--radius-full);
+  background-color: var(--color-surface-container-high);
+  overflow: hidden;
+}
+
+.progress-fill {
+  height: 100%;
+  border-radius: var(--radius-full);
+  background-color: var(--color-primary-container);
+}
+
+// ─── Cash flow ────────────────────────────────────────────────────────────────
+
+.secondary-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 8px 14px;
+  background: transparent;
+  border: 1px solid var(--color-outline-variant);
+  border-radius: var(--radius);
+  font-size: var(--text-sm);
+  font-weight: 500;
+  font-family: var(--font-sans);
+  color: var(--color-on-surface);
+  cursor: pointer;
+  transition: border-color var(--dur-base) var(--ease-standard), color var(--dur-base) var(--ease-standard);
+
+  &:hover {
+    border-color: var(--color-primary);
+    color: var(--color-primary);
+  }
+}
+
+.flow-list {
+  display: flex;
+  flex-direction: column;
+}
+
+.flow-row {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 12px 0;
+
+  &--bordered { border-top: 1px solid var(--color-outline-variant); }
+
+  &__date {
+    font-size: var(--text-caption);
+    color: var(--color-text-muted);
+    width: 52px;
+    font-variant-numeric: tabular-nums;
+    flex-shrink: 0;
+  }
+
+  &__desc {
+    font-size: var(--text-sm);
+    color: var(--color-on-surface);
+    flex: 1;
+  }
+
+  &__amount {
+    font-size: var(--text-sm);
+    font-weight: 600;
+    font-variant-numeric: tabular-nums;
+    min-width: 120px;
+    text-align: right;
+
+    &--positive { color: var(--color-positive); }
+    &--negative { color: var(--color-negative); }
+  }
+}

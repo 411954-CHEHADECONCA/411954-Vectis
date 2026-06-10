@@ -1,0 +1,81 @@
+<?xml version="1.0" encoding="UTF-8"?><!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Strict//EN" "http://www.w3.org/TR/xhtml1/DTD/xhtml1-strict.dtd"><html xmlns="http://www.w3.org/1999/xhtml" lang="es"><head><meta http-equiv="Content-Type" content="text/html;charset=UTF-8"/><link rel="stylesheet" href="../jacoco-resources/report.css" type="text/css"/><link rel="shortcut icon" href="../jacoco-resources/report.gif" type="image/gif"/><title>CreditCardService.java</title><link rel="stylesheet" href="../jacoco-resources/prettify.css" type="text/css"/><script type="text/javascript" src="../jacoco-resources/prettify.js"></script></head><body onload="window['PR_TAB_WIDTH']=4;prettyPrint()"><div class="breadcrumb" id="breadcrumb"><span class="info"><a href="../jacoco-sessions.html" class="el_session">Sessions</a></span><a href="../index.html" class="el_report">vectis-backend</a> &gt; <a href="index.source.html" class="el_package">com.vectis.backend.service</a> &gt; <span class="el_source">CreditCardService.java</span></div><h1>CreditCardService.java</h1><pre class="source lang-java linenums">package com.vectis.backend.service;
+
+import com.vectis.backend.domain.entity.CreditCard;
+import com.vectis.backend.domain.entity.User;
+import com.vectis.backend.dto.CardRequest;
+import com.vectis.backend.dto.CardResponse;
+import com.vectis.backend.exception.CreditCardNotFoundException;
+import com.vectis.backend.exception.VectisException;
+import com.vectis.backend.mapper.CreditCardMapper;
+import com.vectis.backend.repository.CreditCardRepository;
+import lombok.RequiredArgsConstructor;
+import org.springframework.http.HttpStatus;
+import org.springframework.stereotype.Service;
+import org.springframework.transaction.annotation.Transactional;
+
+import java.util.List;
+import java.util.UUID;
+
+@Service
+@RequiredArgsConstructor
+@Transactional
+public class CreditCardService {
+
+    private final CreditCardRepository creditCardRepository;
+    private final CreditCardMapper     creditCardMapper;
+
+    @Transactional(readOnly = true)
+    public List&lt;CardResponse&gt; getCards(UUID userId) {
+<span class="fc" id="L29">        return creditCardRepository.findAllByUser_IdOrderByCreatedAtAsc(userId)</span>
+<span class="fc" id="L30">                .stream()</span>
+<span class="fc" id="L31">                .map(creditCardMapper::toResponse)</span>
+<span class="fc" id="L32">                .toList();</span>
+    }
+
+    public CardResponse createCard(CardRequest request, User user) {
+<span class="fc" id="L36">        CreditCard card = CreditCard.builder()</span>
+<span class="fc" id="L37">                .user(user)</span>
+<span class="fc" id="L38">                .bank(request.bank())</span>
+<span class="fc" id="L39">                .network(request.network())</span>
+<span class="fc" id="L40">                .last4(request.last4())</span>
+<span class="fc" id="L41">                .ccy(request.ccy())</span>
+<span class="fc" id="L42">                .creditLimit(request.creditLimit())</span>
+<span class="fc" id="L43">                .closingDay(request.closingDay())</span>
+<span class="fc" id="L44">                .dueDay(request.dueDay())</span>
+<span class="fc" id="L45">                .accent(request.accent())</span>
+<span class="fc" id="L46">                .build();</span>
+<span class="fc" id="L47">        return creditCardMapper.toResponse(creditCardRepository.save(card));</span>
+    }
+
+    public CardResponse updateCard(UUID id, CardRequest request, User user) {
+<span class="fc" id="L51">        CreditCard card = creditCardRepository.findById(id)</span>
+<span class="fc" id="L52">                .orElseThrow(() -&gt; new CreditCardNotFoundException(id));</span>
+
+<span class="fc bfc" id="L54" title="All 2 branches covered.">        if (!card.getUser().getId().equals(user.getId())) {</span>
+<span class="fc" id="L55">            throw new VectisException(&quot;No tenés permiso para modificar esta tarjeta&quot;, HttpStatus.FORBIDDEN);</span>
+        }
+
+<span class="fc" id="L58">        card.setBank(request.bank());</span>
+<span class="fc" id="L59">        card.setNetwork(request.network());</span>
+<span class="fc" id="L60">        card.setLast4(request.last4());</span>
+<span class="fc" id="L61">        card.setCcy(request.ccy());</span>
+<span class="fc" id="L62">        card.setCreditLimit(request.creditLimit());</span>
+<span class="fc" id="L63">        card.setClosingDay(request.closingDay());</span>
+<span class="fc" id="L64">        card.setDueDay(request.dueDay());</span>
+<span class="fc" id="L65">        card.setAccent(request.accent());</span>
+
+<span class="fc" id="L67">        return creditCardMapper.toResponse(creditCardRepository.save(card));</span>
+    }
+
+    public void deleteCard(UUID id, User user) {
+<span class="fc" id="L71">        CreditCard card = creditCardRepository.findById(id)</span>
+<span class="fc" id="L72">                .orElseThrow(() -&gt; new CreditCardNotFoundException(id));</span>
+
+<span class="fc bfc" id="L74" title="All 2 branches covered.">        if (!card.getUser().getId().equals(user.getId())) {</span>
+<span class="fc" id="L75">            throw new VectisException(&quot;No tenés permiso para eliminar esta tarjeta&quot;, HttpStatus.FORBIDDEN);</span>
+        }
+
+<span class="fc" id="L78">        creditCardRepository.delete(card);</span>
+<span class="fc" id="L79">    }</span>
+}
+</pre><div class="footer"><span class="right">Created with <a href="http://www.jacoco.org/jacoco">JaCoCo</a> 0.8.12.202403310830</span></div></body></html>

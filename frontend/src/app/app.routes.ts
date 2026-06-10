@@ -5,47 +5,66 @@ export const routes: Routes = [
   {
     path: 'login',
     loadComponent: () =>
-      import('./features/auth/login/login.component').then(
-        (m) => m.LoginComponent
-      ),
+      import('./features/auth/login/login.component').then(m => m.LoginComponent),
   },
   {
     path: 'register',
     loadComponent: () =>
-      import('./features/auth/register/register.component').then(
-        (m) => m.RegisterComponent
-      ),
+      import('./features/auth/register/register.component').then(m => m.RegisterComponent),
   },
   {
     path: 'forgot-password',
     loadComponent: () =>
       import('./features/auth/forgot-password/forgot-password.component').then(
-        (m) => m.ForgotPasswordComponent
+        m => m.ForgotPasswordComponent
       ),
   },
   {
     path: 'reset-password',
     loadComponent: () =>
       import('./features/auth/reset-password/reset-password.component').then(
-        (m) => m.ResetPasswordComponent
+        m => m.ResetPasswordComponent
       ),
   },
+
+  // ── Authenticated shell ────────────────────────────────────────────────────
   {
-    path: 'dashboard',
+    path: '',
     canActivate: [authGuard],
     loadComponent: () =>
-      import('./features/dashboard/dashboard.component').then(
-        (m) => m.DashboardComponent
-      ),
+      import('./features/dashboard/dashboard.component').then(m => m.DashboardComponent),
+    children: [
+      {
+        path: 'dashboard',
+        loadComponent: () =>
+          import('./features/dashboard/dashboard-view/dashboard-view.component').then(
+            m => m.DashboardViewComponent
+          ),
+      },
+      {
+        path: 'config',
+        loadComponent: () =>
+          import('./features/config/configuracion/configuracion.component').then(
+            m => m.ConfiguracionComponent
+          ),
+      },
+      {
+        path: 'config/categories',
+        loadComponent: () =>
+          import('./features/config/categories/categories.component').then(
+            m => m.CategoriesComponent
+          ),
+      },
+      {
+        path: 'settings/security',
+        loadComponent: () =>
+          import('./features/auth/change-password/change-password.component').then(
+            m => m.ChangePasswordComponent
+          ),
+      },
+      { path: '', redirectTo: 'dashboard', pathMatch: 'full' },
+    ],
   },
-  {
-    path: 'settings/security',
-    canActivate: [authGuard],
-    loadComponent: () =>
-      import('./features/auth/change-password/change-password.component').then(
-        (m) => m.ChangePasswordComponent
-      ),
-  },
-  { path: '', redirectTo: 'dashboard', pathMatch: 'full' },
-  { path: '**', redirectTo: 'dashboard' },
+
+  { path: '**', redirectTo: '/dashboard' },
 ];

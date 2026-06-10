@@ -83,9 +83,73 @@
   --spacing-container-desktop: 32px;
   --spacing-container-mobile:  16px;
 
-  // Sombras glassmórficas
-  --shadow-modal: 0 10px 30px rgba(0, 0, 0, 0.5);
-  --shadow-card:  0 2px 8px rgba(0, 0, 0, 0.3);
+  // Sombras
+  --shadow-modal:    0 10px 30px rgba(0, 0, 0, 0.50);
+  --shadow-card:     0 2px 8px rgba(0, 0, 0, 0.30);
+  --shadow-cta:      0 4px 16px rgba(82, 234, 205, 0.15);
+  --shadow-cta-hover:0 6px 22px rgba(82, 234, 205, 0.22);
+
+  // Glow (auth visual panel)
+  --glow-primary: rgba(82, 234, 205, 0.08);
+  --glow-mint:    rgba(158, 209, 197, 0.04);
+  --glow-blur:    80px;
+
+  // Glass / blur
+  --blur-glass:  blur(12px);
+  --blur-topbar: blur(8px);
+
+  // Borders
+  --border-hairline: 1px solid var(--color-outline-variant);
+  --border-input:    2px solid var(--color-outline-variant);
+
+  // Motion
+  --ease-standard: cubic-bezier(0.4, 0, 0.2, 1);
+  --ease-out:      cubic-bezier(0, 0, 0.2, 1);
+  --dur-fast:      100ms;
+  --dur-base:      150ms;
+  --dur-slow:      200ms;
+  --press-scale:   0.98;
+
+  // Finance signal colors
+  --color-positive: #52eacd;
+  --color-negative: #ffb4ab;
+  --color-warning:  #e8c37a;
+
+  // Tipografía — escala completa
+  --font-mono:    'Inter', ui-monospace, 'SF Mono', monospace;
+  --font-numeric: 'Inter', system-ui, sans-serif;
+  --num-feature:  'tnum' 1, 'cv01' 1;
+
+  --weight-regular:  400;
+  --weight-medium:   500;
+  --weight-semibold: 600;
+  --weight-bold:     700;
+
+  --text-display:   2.5rem;
+  --text-h1:        1.875rem;
+  --text-h2:        1.5rem;
+  --text-h3:        1.125rem;
+  --text-body-lg:   1rem;
+  --text-body:      0.9375rem;
+  --text-sm:        0.875rem;
+  --text-label:     0.8125rem;
+  --text-caption:   0.75rem;
+  --text-overline:  0.625rem;
+  --text-metric-lg: 2rem;
+  --text-metric:    1.5rem;
+
+  --leading-tight:   1.1;
+  --leading-snug:    1.2;
+  --leading-normal:  1.5;
+  --leading-relaxed: 1.7;
+
+  --tracking-display:  -0.03em;
+  --tracking-tight:    -0.02em;
+  --tracking-snug:     -0.01em;
+  --tracking-normal:   0;
+  --tracking-wide:      0.02em;
+  --tracking-overline:  0.15em;
+  --tracking-watermark: 0.2em;
 }
 
 // ─── Estilos base ────────────────────────────────────────────────────────────

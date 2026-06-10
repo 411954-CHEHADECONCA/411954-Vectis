@@ -1,0 +1,49 @@
+<?xml version="1.0" encoding="UTF-8"?><!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Strict//EN" "http://www.w3.org/TR/xhtml1/DTD/xhtml1-strict.dtd"><html xmlns="http://www.w3.org/1999/xhtml" lang="es"><head><meta http-equiv="Content-Type" content="text/html;charset=UTF-8"/><link rel="stylesheet" href="../jacoco-resources/report.css" type="text/css"/><link rel="shortcut icon" href="../jacoco-resources/report.gif" type="image/gif"/><title>AccountRequest.java</title><link rel="stylesheet" href="../jacoco-resources/prettify.css" type="text/css"/><script type="text/javascript" src="../jacoco-resources/prettify.js"></script></head><body onload="window['PR_TAB_WIDTH']=4;prettyPrint()"><div class="breadcrumb" id="breadcrumb"><span class="info"><a href="../jacoco-sessions.html" class="el_session">Sessions</a></span><a href="../index.html" class="el_report">vectis-backend</a> &gt; <a href="index.source.html" class="el_package">com.vectis.backend.dto</a> &gt; <span class="el_source">AccountRequest.java</span></div><h1>AccountRequest.java</h1><pre class="source lang-java linenums">package com.vectis.backend.dto;
+
+import io.swagger.v3.oas.annotations.media.Schema;
+import jakarta.validation.constraints.*;
+
+import java.math.BigDecimal;
+
+@Schema(description = &quot;Datos para crear o editar una cuenta líquida&quot;)
+<span class="fc" id="L9">public record AccountRequest(</span>
+
+    @Schema(description = &quot;Nombre de la cuenta&quot;, example = &quot;Cuenta Galicia&quot;)
+    @NotBlank(message = &quot;El nombre es obligatorio&quot;)
+    @Size(max = 100, message = &quot;El nombre no puede superar los 100 caracteres&quot;)
+    String name,
+
+    @Schema(description = &quot;Tipo de cuenta&quot;, example = &quot;Banco&quot;, allowableValues = {&quot;Banco&quot;, &quot;Billetera&quot;, &quot;Efectivo&quot;})
+    @NotBlank(message = &quot;El tipo de cuenta es obligatorio&quot;)
+    @Pattern(regexp = &quot;^(Banco|Billetera|Efectivo)$&quot;, message = &quot;El tipo debe ser Banco, Billetera o Efectivo&quot;)
+    String kind,
+
+    @Schema(description = &quot;Detalle adicional (banco, alias, etc.)&quot;, example = &quot;Caja de Ahorro $&quot;)
+    @Size(max = 100, message = &quot;El detalle no puede superar los 100 caracteres&quot;)
+    String detail,
+
+    @Schema(description = &quot;Moneda de la cuenta&quot;, example = &quot;ARS&quot;, allowableValues = {&quot;ARS&quot;, &quot;USD&quot;})
+    @NotBlank(message = &quot;La moneda es obligatoria&quot;)
+    @Pattern(regexp = &quot;^(ARS|USD)$&quot;, message = &quot;La moneda debe ser ARS o USD&quot;)
+    String ccy,
+
+    @Schema(description = &quot;Saldo inicial de la cuenta&quot;, example = &quot;150000.00&quot;)
+    @NotNull(message = &quot;El saldo es obligatorio&quot;)
+    @DecimalMin(value = &quot;0&quot;, message = &quot;El saldo no puede ser negativo&quot;)
+    BigDecimal balance,
+
+    @Schema(description = &quot;Indica si la cuenta es remunerada (genera intereses)&quot;, example = &quot;true&quot;)
+    @NotNull(message = &quot;El campo remunerada es obligatorio&quot;)
+    Boolean remunerada,
+
+    @Schema(description = &quot;TNA estimada (solo cuando remunerada=true)&quot;, example = &quot;81.00&quot;)
+    @DecimalMin(value = &quot;0&quot;, message = &quot;La TNA no puede ser negativa&quot;)
+    @DecimalMax(value = &quot;9999.9999&quot;, message = &quot;La TNA excede el máximo permitido&quot;)
+    BigDecimal tna
+) {
+    @AssertTrue(message = &quot;La TNA es obligatoria cuando la cuenta es remunerada&quot;)
+    public boolean isTnaValidForRemunerada() {
+<span class="pc bpc" id="L46" title="1 of 4 branches missed.">        return !Boolean.TRUE.equals(remunerada) || tna != null;</span>
+    }
+}
+</pre><div class="footer"><span class="right">Created with <a href="http://www.jacoco.org/jacoco">JaCoCo</a> 0.8.12.202403310830</span></div></body></html>
