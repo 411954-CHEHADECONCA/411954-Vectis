@@ -2,10 +2,13 @@ spring:
   application:
     name: vectis-backend
 
+  config:
+    import: optional:file:${user.dir}/../.env[.properties]
+
   datasource:
-    url: ${SPRING_DATASOURCE_URL:jdbc:postgresql://localhost:5432/vectis_db}
-    username: ${SPRING_DATASOURCE_USERNAME}
-    password: ${SPRING_DATASOURCE_PASSWORD}
+    url: ${SPRING_DATASOURCE_URL:jdbc:postgresql://localhost:5432/${POSTGRES_DB:vectis_db}}
+    username: ${SPRING_DATASOURCE_USERNAME:${POSTGRES_USER:vectis_admin}}
+    password: ${SPRING_DATASOURCE_PASSWORD:${POSTGRES_PASSWORD:}}
     driver-class-name: org.postgresql.Driver
     hikari:
       connection-timeout: 20000
@@ -63,7 +66,7 @@ management:
       show-details: when-authorized
 
 jwt:
-  secret: ${JWT_SECRET:dev-secret-key-must-be-at-least-32-chars-long!!}
+  secret: ${JWT_SECRET}
   expiration: ${JWT_EXPIRATION:900000}
   refresh-expiration: ${JWT_REFRESH_EXPIRATION:604800000}
 

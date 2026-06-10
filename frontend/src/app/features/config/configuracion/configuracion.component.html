@@ -1,0 +1,584 @@
+<!-- ── Icon renderer template for categories ───────────────────────────── -->
+<ng-template #catIconTpl let-name let-sz="size">
+  @switch (name) {
+    @case ('utensils')         { <svg lucideUtensils         [size]="sz || 18" [strokeWidth]="1.75" /> }
+    @case ('car')              { <svg lucideCar              [size]="sz || 18" [strokeWidth]="1.75" /> }
+    @case ('zap')              { <svg lucideZap              [size]="sz || 18" [strokeWidth]="1.75" /> }
+    @case ('repeat')           { <svg lucideRepeat           [size]="sz || 18" [strokeWidth]="1.75" /> }
+    @case ('music')            { <svg lucideMusic            [size]="sz || 18" [strokeWidth]="1.75" /> }
+    @case ('heart')            { <svg lucideHeart            [size]="sz || 18" [strokeWidth]="1.75" /> }
+    @case ('book')             { <svg lucideBook             [size]="sz || 18" [strokeWidth]="1.75" /> }
+    @case ('shirt')            { <svg lucideShirt            [size]="sz || 18" [strokeWidth]="1.75" /> }
+    @case ('home')             { <svg lucideHome             [size]="sz || 18" [strokeWidth]="1.75" /> }
+    @case ('briefcase')        { <svg lucideBriefcase        [size]="sz || 18" [strokeWidth]="1.75" /> }
+    @case ('monitor')          { <svg lucideMonitor          [size]="sz || 18" [strokeWidth]="1.75" /> }
+    @case ('trending-up')      { <svg lucideTrendingUp       [size]="sz || 18" [strokeWidth]="1.75" /> }
+    @case ('arrow-right-left') { <svg lucideArrowRightLeft   [size]="sz || 18" [strokeWidth]="1.75" /> }
+    @case ('dumbbell')         { <svg lucideDumbbell         [size]="sz || 18" [strokeWidth]="1.75" /> }
+    @default                   { <svg lucideCircle           [size]="sz || 18" [strokeWidth]="1.75" /> }
+  }
+</ng-template>
+
+<!-- ── Page ────────────────────────────────────────────────────────────────── -->
+<div class="page">
+
+  <!-- PageHead -->
+  <div class="page-head">
+    <div>
+      <h1 class="page-head__title">Configuración</h1>
+      <p class="page-head__lead">Administrá tus cuentas, tarjetas y categorías. Todo lo que registres alimenta el resto de Vectis.</p>
+    </div>
+  </div>
+
+  <!-- Tab bar -->
+  <div class="tabs" role="tablist">
+    @for (tab of tabDefs(); track tab.id) {
+      <button
+        class="tab"
+        [class.tab--active]="activeTab() === tab.id"
+        (click)="setTab(tab.id)"
+        role="tab"
+        [attr.aria-selected]="activeTab() === tab.id"
+      >
+        {{ tab.label }}
+        <span class="tab-count" [class.tab-count--active]="activeTab() === tab.id">{{ tab.count }}</span>
+      </button>
+    }
+  </div>
+
+  <!-- ── CUENTAS BANCARIAS ──────────────────────────────────────────────── -->
+  @if (activeTab() === 'cuentas') {
+    <div class="panel">
+      <div class="section-title">
+        <div>
+          <h3>Cuentas bancarias</h3>
+          <p class="section-sub">{{ accounts().length }} cuentas registradas</p>
+        </div>
+        <button class="btn-primary btn-sm" (click)="openCreateAccount()">
+          <svg lucidePlus [size]="15" [strokeWidth]="2.5" />
+          Agregar cuenta
+        </button>
+      </div>
+
+      @if (accounts().length === 0) {
+        <div class="empty-state">
+          <span class="empty-icon"><svg lucidePlus [size]="38" [strokeWidth]="1.2" /></span>
+          <p>No tenés cuentas registradas todavía</p>
+          <button class="btn-secondary btn-sm" (click)="openCreateAccount()">Agregar cuenta</button>
+        </div>
+      } @else {
+        <div class="cfg-list">
+          @for (a of accounts(); track a.id; let i = $index) {
+            <div class="cfg-row" [class.cfg-row--divider]="i > 0">
+              <span
+                class="icon-chip"
+                [class.icon-chip--accent]="a.ccy === 'USD'"
+              >
+                @switch (a.kind) {
+                  @case ('Banco')     { <svg lucideBuilding2 [size]="20" [strokeWidth]="1.5" /> }
+                  @case ('Billetera') { <svg lucideWallet    [size]="20" [strokeWidth]="1.5" /> }
+                  @default            { <svg lucideBanknote  [size]="20" [strokeWidth]="1.5" /> }
+                }
+              </span>
+              <div class="row-info">
+                <div class="row-main">
+                  <span class="row-name">{{ a.name }}</span>
+                  <span class="row-badge" [class.row-badge--accent]="a.ccy === 'USD'" [class.row-badge--neutral]="a.ccy !== 'USD'">{{ a.ccy }}</span>
+                </div>
+                <div class="row-sub">{{ a.kind }} · {{ a.detail }}</div>
+              </div>
+              <span class="row-amount">{{ fmtAmount(a.balance, a.ccy) }}</span>
+              <div class="row-actions">
+                <button class="icon-btn" title="Editar" (click)="openEditAccount(a)">
+                  <svg lucidePencil [size]="16" [strokeWidth]="1.75" />
+                </button>
+                <button class="icon-btn icon-btn--danger" title="Eliminar" (click)="openDeleteAccount(a)">
+                  <svg lucideTrash2 [size]="16" [strokeWidth]="1.75" />
+                </button>
+              </div>
+            </div>
+          }
+        </div>
+      }
+    </div>
+  }
+
+  <!-- ── TARJETAS ────────────────────────────────────────────────────────── -->
+  @if (activeTab() === 'tarjetas') {
+    <div class="panel">
+      <div class="section-title">
+        <div>
+          <h3>Tarjetas de crédito</h3>
+          <p class="section-sub">{{ cards().length }} tarjetas registradas</p>
+        </div>
+        <button class="btn-primary btn-sm" (click)="openCreateCard()">
+          <svg lucidePlus [size]="15" [strokeWidth]="2.5" />
+          Agregar tarjeta
+        </button>
+      </div>
+
+      @if (cards().length === 0) {
+        <div class="empty-state">
+          <span class="empty-icon"><svg lucideCreditCard [size]="38" [strokeWidth]="1.2" /></span>
+          <p>No tenés tarjetas registradas todavía</p>
+          <button class="btn-secondary btn-sm" (click)="openCreateCard()">Agregar tarjeta</button>
+        </div>
+      } @else {
+        <div class="cfg-list">
+          @for (c of cards(); track c.id; let i = $index) {
+            <div class="cfg-row" [class.cfg-row--divider]="i > 0">
+              <span class="card-thumb" [style.background]="cardGradient(c.accent)">
+                {{ c.network.slice(0, 4).toUpperCase() }}
+              </span>
+              <div class="row-info">
+                <div class="row-main">
+                  <span class="row-name">{{ c.bank }}</span>
+                  <span class="row-mono">···· {{ c.last4 }}</span>
+                  <span class="row-badge" [class.row-badge--accent]="c.ccy === 'USD'" [class.row-badge--neutral]="c.ccy !== 'USD'">{{ c.ccy }}</span>
+                </div>
+                <div class="row-sub">{{ c.network }} · Cierra {{ c.closing || '—' }} · Vence {{ c.due || '—' }}</div>
+              </div>
+              <div class="row-amount-block">
+                <span class="row-amount">{{ fmtAmount(c.limit, c.ccy) }}</span>
+                <span class="row-amount-label">Límite</span>
+              </div>
+              <div class="row-actions">
+                <button class="icon-btn" title="Editar" (click)="openEditCard(c)">
+                  <svg lucidePencil [size]="16" [strokeWidth]="1.75" />
+                </button>
+                <button class="icon-btn icon-btn--danger" title="Eliminar" (click)="openDeleteCard(c)">
+                  <svg lucideTrash2 [size]="16" [strokeWidth]="1.75" />
+                </button>
+              </div>
+            </div>
+          }
+        </div>
+      }
+    </div>
+  }
+
+  <!-- ── CATEGORÍAS ─────────────────────────────────────────────────────── -->
+  @if (activeTab() === 'categorias') {
+    @if (loading()) {
+      <div class="cat-grid">
+        @for (i of [0,1]; track i) {
+          <div class="panel">
+            <div class="skeleton-title"></div>
+            @for (j of [0,1,2,3]; track j) {
+              <div class="skeleton-row" [style.animation-delay]="(j * 0.08) + 's'"></div>
+            }
+          </div>
+        }
+      </div>
+    } @else if (catError()) {
+      <div class="error-state">
+        <svg lucideAlertCircle [size]="28" />
+        <p>{{ catError() }}</p>
+        <button class="btn-retry" (click)="loadCategories()">
+          <svg lucideRefreshCw [size]="13" [strokeWidth]="2" /> Reintentar
+        </button>
+      </div>
+    } @else {
+      <div class="cat-actions">
+        <button class="btn-primary btn-sm" (click)="openCreateCategory()">
+          <svg lucidePlus [size]="15" [strokeWidth]="2.5" /> Nueva categoría
+        </button>
+      </div>
+      <div class="cat-grid">
+        <!-- Ingresos panel -->
+        <div class="panel">
+          <div class="section-title">
+            <div>
+              <h3>Ingresos</h3>
+              <p class="section-sub">{{ ingresos().length }} categorías</p>
+            </div>
+          </div>
+          <div class="cfg-list">
+            @if (ingresos().length === 0) {
+              <p class="cat-empty-msg">Sin categorías de ingreso.</p>
+            }
+            @for (cat of ingresos(); track cat.id; let i = $index) {
+              <div class="cfg-row cfg-row--cat" [class.cfg-row--divider]="i > 0">
+                <span class="cat-chip" [style.background]="'color-mix(in srgb, ' + cat.color + ' 15%, transparent)'" [style.color]="cat.color">
+                  <ng-container [ngTemplateOutlet]="catIconTpl" [ngTemplateOutletContext]="{ $implicit: cat.icon, size: 18 }" />
+                </span>
+                <span class="cat-name">{{ cat.name }}</span>
+                @if (cat.isDefault) {
+                  <span class="system-tag">
+                    <svg lucideLock [size]="10" [strokeWidth]="2" /> Sistema
+                  </span>
+                } @else {
+                  <div class="row-actions">
+                    <button class="icon-btn" title="Editar" (click)="openEditCategory(cat)">
+                      <svg lucidePencil [size]="15" [strokeWidth]="1.75" />
+                    </button>
+                    <button class="icon-btn icon-btn--danger" title="Eliminar" (click)="openDeleteCategory(cat)">
+                      <svg lucideTrash2 [size]="15" [strokeWidth]="1.75" />
+                    </button>
+                  </div>
+                }
+              </div>
+            }
+          </div>
+        </div>
+
+        <!-- Egresos panel -->
+        <div class="panel">
+          <div class="section-title">
+            <div>
+              <h3>Egresos</h3>
+              <p class="section-sub">{{ egresos().length }} categorías</p>
+            </div>
+          </div>
+          <div class="cfg-list">
+            @if (egresos().length === 0) {
+              <p class="cat-empty-msg">Sin categorías de egreso.</p>
+            }
+            @for (cat of egresos(); track cat.id; let i = $index) {
+              <div class="cfg-row cfg-row--cat" [class.cfg-row--divider]="i > 0">
+                <span class="cat-chip" [style.background]="'color-mix(in srgb, ' + cat.color + ' 15%, transparent)'" [style.color]="cat.color">
+                  <ng-container [ngTemplateOutlet]="catIconTpl" [ngTemplateOutletContext]="{ $implicit: cat.icon, size: 18 }" />
+                </span>
+                <span class="cat-name">{{ cat.name }}</span>
+                @if (cat.isDefault) {
+                  <span class="system-tag">
+                    <svg lucideLock [size]="10" [strokeWidth]="2" /> Sistema
+                  </span>
+                } @else {
+                  <div class="row-actions">
+                    <button class="icon-btn" title="Editar" (click)="openEditCategory(cat)">
+                      <svg lucidePencil [size]="15" [strokeWidth]="1.75" />
+                    </button>
+                    <button class="icon-btn icon-btn--danger" title="Eliminar" (click)="openDeleteCategory(cat)">
+                      <svg lucideTrash2 [size]="15" [strokeWidth]="1.75" />
+                    </button>
+                  </div>
+                }
+              </div>
+            }
+          </div>
+        </div>
+      </div>
+    }
+  }
+
+</div>
+
+<!-- ══════════════════════════════════════════════════════════════════════════ -->
+<!--  MODALES                                                                  -->
+<!-- ══════════════════════════════════════════════════════════════════════════ -->
+
+<!-- ── Delete confirmation ──────────────────────────────────────────────── -->
+@if (modal()?.mode === 'delete') {
+  <div class="backdrop" (click)="closeModal()">
+    <div class="modal modal--sm" (click)="$event.stopPropagation()">
+      <div class="delete-icon">
+        <svg lucideTrash2 [size]="18" [strokeWidth]="2" />
+      </div>
+      <h3 class="delete-title">Eliminar {{ modal()?.kind === 'account' ? 'cuenta' : modal()?.kind === 'card' ? 'tarjeta' : 'categoría' }}</h3>
+      <p class="delete-body">¿Seguro que querés eliminar <strong>{{ modal()?.label }}</strong>? Esta acción no se puede deshacer.</p>
+      <div class="modal-footer modal-footer--center">
+        <button class="btn-ghost" (click)="closeModal()">Cancelar</button>
+        <button class="btn-danger" [disabled]="submitting()" (click)="confirmDelete()">
+          {{ submitting() ? 'Eliminando...' : 'Eliminar' }}
+        </button>
+      </div>
+    </div>
+  </div>
+}
+
+<!-- ── Account modal ────────────────────────────────────────────────────── -->
+@if (modal()?.kind === 'account' && modal()?.mode !== 'delete') {
+  <div class="backdrop" (click)="closeModal()">
+    <div class="modal" (click)="$event.stopPropagation()">
+      <div class="modal-head">
+        <div>
+          <h3>{{ modal()?.mode === 'create' ? 'Agregar cuenta' : 'Editar cuenta' }}</h3>
+          <p class="modal-sub">{{ modal()?.mode === 'create' ? 'Completá los datos para registrarla.' : 'Actualizá los datos y guardá los cambios.' }}</p>
+        </div>
+        <button class="close-btn" (click)="closeModal()" aria-label="Cerrar">
+          <svg lucideX [size]="17" [strokeWidth]="2" />
+        </button>
+      </div>
+
+      <form [formGroup]="accountForm" class="modal-body" (ngSubmit)="submitAccount()">
+        <!-- Nombre -->
+        <div class="cfg-field">
+          <label class="cfg-label" for="acc-name">Nombre</label>
+          <input id="acc-name" class="text-input" type="text" formControlName="name" placeholder="Ej. Galicia" autocomplete="off" />
+          @if (accountForm.controls.name.invalid && accountForm.controls.name.touched) {
+            <span class="field-error">El nombre es requerido</span>
+          }
+        </div>
+
+        <!-- Tipo de cuenta -->
+        <div class="cfg-field">
+          <span class="cfg-label">Tipo de cuenta</span>
+          <div class="segmented">
+            @for (k of ['Banco', 'Billetera', 'Efectivo']; track k) {
+              <button
+                type="button"
+                class="segmented-btn"
+                [class.segmented-btn--active]="accountForm.controls.kind.value === k"
+                (click)="accountForm.controls.kind.setValue($any(k))"
+              >{{ k }}</button>
+            }
+          </div>
+        </div>
+
+        <!-- Detalle -->
+        <div class="cfg-field">
+          <label class="cfg-label" for="acc-detail">Detalle</label>
+          <input id="acc-detail" class="text-input" type="text" formControlName="detail" placeholder="Caja de ahorro · ****4821" autocomplete="off" />
+        </div>
+
+        <!-- Moneda + Saldo -->
+        <div class="form-grid-2">
+          <div class="cfg-field">
+            <span class="cfg-label">Moneda</span>
+            <div class="segmented">
+              @for (ccy of ['ARS', 'USD']; track ccy) {
+                <button
+                  type="button"
+                  class="segmented-btn"
+                  [class.segmented-btn--active]="accountForm.controls.ccy.value === ccy"
+                  (click)="accountForm.controls.ccy.setValue($any(ccy))"
+                >{{ ccy }}</button>
+              }
+            </div>
+          </div>
+          <div class="cfg-field">
+            <label class="cfg-label" for="acc-balance">Saldo {{ accountForm.controls.ccy.value === 'USD' ? '(US$)' : '($)' }}</label>
+            <input id="acc-balance" class="text-input text-input--mono" type="number" formControlName="balance" placeholder="0" inputmode="numeric" />
+          </div>
+        </div>
+
+        @if (formError()) {
+          <p class="form-error">{{ formError() }}</p>
+        }
+      </form>
+
+      <div class="modal-footer">
+        <button class="btn-ghost" type="button" (click)="closeModal()">Cancelar</button>
+        <button class="btn-confirm" type="button" [disabled]="accountForm.invalid || submitting()" (click)="submitAccount()">
+          {{ submitting() ? 'Guardando...' : (modal()?.mode === 'create' ? 'Crear cuenta' : 'Guardar cambios') }}
+        </button>
+      </div>
+    </div>
+  </div>
+}
+
+<!-- ── Card modal ────────────────────────────────────────────────────────── -->
+@if (modal()?.kind === 'card' && modal()?.mode !== 'delete') {
+  <div class="backdrop" (click)="closeModal()">
+    <div class="modal modal--wide" (click)="$event.stopPropagation()">
+      <div class="modal-head">
+        <div>
+          <h3>{{ modal()?.mode === 'create' ? 'Agregar tarjeta' : 'Editar tarjeta' }}</h3>
+          <p class="modal-sub">{{ modal()?.mode === 'create' ? 'Completá los datos para registrarla.' : 'Actualizá los datos y guardá los cambios.' }}</p>
+        </div>
+        <button class="close-btn" (click)="closeModal()" aria-label="Cerrar">
+          <svg lucideX [size]="17" [strokeWidth]="2" />
+        </button>
+      </div>
+
+      <form [formGroup]="cardForm" class="modal-body" (ngSubmit)="submitCard()">
+        <!-- Banco + Últimos 4 dígitos -->
+        <div class="form-grid-2">
+          <div class="cfg-field">
+            <label class="cfg-label" for="card-bank">Banco</label>
+            <input id="card-bank" class="text-input" type="text" formControlName="bank" placeholder="Ej. Galicia" autocomplete="off" />
+            @if (cardForm.controls.bank.invalid && cardForm.controls.bank.touched) {
+              <span class="field-error">El banco es requerido</span>
+            }
+          </div>
+          <div class="cfg-field">
+            <label class="cfg-label" for="card-last4">Últimos 4 dígitos</label>
+            <input id="card-last4" class="text-input text-input--mono" type="text" formControlName="last4" placeholder="4821" maxlength="4" inputmode="numeric" />
+            @if (cardForm.controls.last4.invalid && cardForm.controls.last4.touched) {
+              <span class="field-error">Ingresá los últimos 4 dígitos</span>
+            }
+          </div>
+        </div>
+
+        <!-- Red -->
+        <div class="cfg-field">
+          <span class="cfg-label">Red</span>
+          <div class="segmented">
+            @for (net of ['Visa', 'Mastercard', 'Amex']; track net) {
+              <button
+                type="button"
+                class="segmented-btn"
+                [class.segmented-btn--active]="cardForm.controls.network.value === net"
+                (click)="cardForm.controls.network.setValue($any(net))"
+              >{{ net }}</button>
+            }
+          </div>
+        </div>
+
+        <!-- Moneda + Límite -->
+        <div class="form-grid-2">
+          <div class="cfg-field">
+            <span class="cfg-label">Moneda</span>
+            <div class="segmented">
+              @for (ccy of ['ARS', 'USD']; track ccy) {
+                <button
+                  type="button"
+                  class="segmented-btn"
+                  [class.segmented-btn--active]="cardForm.controls.ccy.value === ccy"
+                  (click)="cardForm.controls.ccy.setValue($any(ccy))"
+                >{{ ccy }}</button>
+              }
+            </div>
+          </div>
+          <div class="cfg-field">
+            <label class="cfg-label" for="card-limit">Límite {{ cardForm.controls.ccy.value === 'USD' ? '(US$)' : '($)' }}</label>
+            <input id="card-limit" class="text-input text-input--mono" type="number" formControlName="limit" placeholder="0" inputmode="numeric" />
+          </div>
+        </div>
+
+        <!-- Cierre + Vencimiento -->
+        <div class="form-grid-2">
+          <div class="cfg-field">
+            <label class="cfg-label" for="card-closing">Cierre</label>
+            <input id="card-closing" class="text-input" type="text" formControlName="closing" placeholder="24 jun" autocomplete="off" />
+          </div>
+          <div class="cfg-field">
+            <label class="cfg-label" for="card-due">Vencimiento</label>
+            <input id="card-due" class="text-input" type="text" formControlName="due" placeholder="02 jul" autocomplete="off" />
+          </div>
+        </div>
+
+        <!-- Color -->
+        <div class="cfg-field">
+          <span class="cfg-label">Color</span>
+          <div class="swatch-picker">
+            @for (c of cardPalette; track c) {
+              <button
+                type="button"
+                class="swatch"
+                [class.swatch--active]="cardForm.controls.accent.value === c"
+                [style.background-color]="c"
+                (click)="cardForm.controls.accent.setValue(c)"
+                [attr.aria-label]="c"
+              ></button>
+            }
+          </div>
+        </div>
+
+        @if (formError()) {
+          <p class="form-error">{{ formError() }}</p>
+        }
+      </form>
+
+      <div class="modal-footer">
+        <button class="btn-ghost" type="button" (click)="closeModal()">Cancelar</button>
+        <button class="btn-confirm" type="button" [disabled]="cardForm.invalid || submitting()" (click)="submitCard()">
+          {{ submitting() ? 'Guardando...' : (modal()?.mode === 'create' ? 'Crear tarjeta' : 'Guardar cambios') }}
+        </button>
+      </div>
+    </div>
+  </div>
+}
+
+<!-- ── Category modal ───────────────────────────────────────────────────── -->
+@if (modal()?.kind === 'category' && modal()?.mode !== 'delete') {
+  <div class="backdrop" (click)="closeModal()">
+    <div class="modal" (click)="$event.stopPropagation()">
+      <div class="modal-head">
+        <div>
+          <h3>{{ modal()?.mode === 'create' ? 'Agregar categoría' : 'Editar categoría' }}</h3>
+          <p class="modal-sub">{{ modal()?.mode === 'create' ? 'Completá los datos para registrarla.' : 'Actualizá los datos y guardá los cambios.' }}</p>
+        </div>
+        <button class="close-btn" (click)="closeModal()" aria-label="Cerrar">
+          <svg lucideX [size]="17" [strokeWidth]="2" />
+        </button>
+      </div>
+
+      <form [formGroup]="categoryForm" class="modal-body" (ngSubmit)="submitCategory()">
+        <!-- Nombre -->
+        <div class="cfg-field">
+          <label class="cfg-label" for="cat-name">Nombre</label>
+          <input id="cat-name" class="text-input" type="text" formControlName="name" placeholder="Ej. Supermercado" maxlength="100" autocomplete="off" />
+          @if (categoryForm.controls.name.invalid && categoryForm.controls.name.touched) {
+            <span class="field-error">El nombre es requerido</span>
+          }
+        </div>
+
+        <!-- Tipo -->
+        <div class="cfg-field">
+          <span class="cfg-label">Tipo</span>
+          <div class="segmented">
+            @for (t of [{ v: 'INCOME', l: 'Ingreso' }, { v: 'EXPENSE', l: 'Egreso' }, { v: 'BOTH', l: 'Ambos' }]; track t.v) {
+              <button
+                type="button"
+                class="segmented-btn"
+                [class.segmented-btn--active]="categoryForm.controls.type.value === t.v"
+                (click)="categoryForm.controls.type.setValue($any(t.v))"
+              >{{ t.l }}</button>
+            }
+          </div>
+        </div>
+
+        <!-- Color -->
+        <div class="cfg-field">
+          <span class="cfg-label">Color</span>
+          <div class="swatch-picker">
+            @for (c of colorPalette; track c) {
+              <button
+                type="button"
+                class="swatch"
+                [class.swatch--active]="categoryForm.controls.color.value === c"
+                [style.background-color]="c"
+                (click)="categoryForm.controls.color.setValue(c)"
+                [attr.aria-label]="c"
+              ></button>
+            }
+          </div>
+        </div>
+
+        <!-- Ícono -->
+        <div class="cfg-field">
+          <span class="cfg-label">Ícono</span>
+          <div class="icon-grid">
+            @for (icon of categoryIcons; track icon.value) {
+              <button
+                type="button"
+                class="icon-pick-btn"
+                [class.icon-pick-btn--active]="categoryForm.controls.icon.value === icon.value"
+                [style.--cat-color]="categoryForm.controls.color.value"
+                (click)="categoryForm.controls.icon.setValue(icon.value)"
+                [title]="icon.label"
+              >
+                <ng-container [ngTemplateOutlet]="catIconTpl" [ngTemplateOutletContext]="{ $implicit: icon.value, size: 17 }" />
+              </button>
+            }
+          </div>
+        </div>
+
+        <!-- Live preview -->
+        <div class="preview-box">
+          <span class="cat-chip" [style.background]="'color-mix(in srgb, ' + categoryForm.controls.color.value + ' 15%, transparent)'" [style.color]="categoryForm.controls.color.value">
+            <ng-container [ngTemplateOutlet]="catIconTpl" [ngTemplateOutletContext]="{ $implicit: categoryForm.controls.icon.value, size: 18 }" />
+          </span>
+          <div class="preview-info">
+            <span class="preview-name">{{ (categoryForm.controls.name.value.trim()) || 'Nueva categoría' }}</span>
+            <span class="preview-hint">Vista previa</span>
+          </div>
+          <app-category-badge [category]="previewCategory()" />
+        </div>
+
+        @if (formError()) {
+          <p class="form-error">{{ formError() }}</p>
+        }
+      </form>
+
+      <div class="modal-footer">
+        <button class="btn-ghost" type="button" (click)="closeModal()">Cancelar</button>
+        <button class="btn-confirm" type="button" [disabled]="categoryForm.invalid || submitting()" (click)="submitCategory()">
+          {{ submitting() ? 'Guardando...' : (modal()?.mode === 'create' ? 'Crear categoría' : 'Guardar cambios') }}
+        </button>
+      </div>
+    </div>
+  </div>
+}
