@@ -7,6 +7,7 @@ export interface CategoryResponse {
   color: string;
   type: CategoryType;
   isDefault: boolean;
+  estimatedAmount: number | null;
 }
 
 export interface CategoryRequest {
@@ -14,4 +15,5 @@ export interface CategoryRequest {
   icon: string;
   color: string;
   type: CategoryType;
+  estimatedAmount: number | null;
 }

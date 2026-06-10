@@ -4,18 +4,25 @@ import com.vectis.backend.domain.entity.Category;
 import com.vectis.backend.dto.CategoryResponse;
 import org.springframework.stereotype.Component;
 
+import java.math.BigDecimal;
+
 @Component
-<span class="fc" id="L8">public class CategoryMapper {</span>
+<span class="fc" id="L10">public class CategoryMapper {</span>
 
     public CategoryResponse toResponse(Category category) {
-<span class="nc" id="L11">        return CategoryResponse.builder()</span>
-<span class="nc" id="L12">                .id(category.getId())</span>
-<span class="nc" id="L13">                .name(category.getName())</span>
-<span class="nc" id="L14">                .icon(category.getIcon())</span>
-<span class="nc" id="L15">                .color(category.getColor())</span>
-<span class="nc" id="L16">                .type(category.getType())</span>
-<span class="nc" id="L17">                .isDefault(category.isDefault())</span>
-<span class="nc" id="L18">                .build();</span>
+<span class="nc" id="L13">        return toResponse(category, null);</span>
+    }
+
+    public CategoryResponse toResponse(Category category, BigDecimal estimatedAmount) {
+<span class="nc" id="L17">        return CategoryResponse.builder()</span>
+<span class="nc" id="L18">                .id(category.getId())</span>
+<span class="nc" id="L19">                .name(category.getName())</span>
+<span class="nc" id="L20">                .icon(category.getIcon())</span>
+<span class="nc" id="L21">                .color(category.getColor())</span>
+<span class="nc" id="L22">                .type(category.getType())</span>
+<span class="nc" id="L23">                .isDefault(category.isDefault())</span>
+<span class="nc" id="L24">                .estimatedAmount(estimatedAmount)</span>
+<span class="nc" id="L25">                .build();</span>
     }
 }
 </pre><div class="footer"><span class="right">Created with <a href="http://www.jacoco.org/jacoco">JaCoCo</a> 0.8.12.202403310830</span></div></body></html>

@@ -4,6 +4,7 @@ import com.vectis.backend.domain.entity.CategoryType;
 import io.swagger.v3.oas.annotations.media.Schema;
 import lombok.Builder;
 
+import java.math.BigDecimal;
 import java.util.UUID;
 
 @Builder
@@ -26,5 +27,8 @@ public record CategoryResponse(
     CategoryType type,
 
     @Schema(description = "Indica si es una categoría predefinida del sistema", example = "true")
-    boolean isDefault
+    boolean isDefault,
+
+    @Schema(description = "Monto estimado mensual para el mes en curso", example = "50000.00", nullable = true)
+    BigDecimal estimatedAmount
 ) {}

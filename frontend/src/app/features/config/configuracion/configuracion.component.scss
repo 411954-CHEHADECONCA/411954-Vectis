@@ -799,6 +799,56 @@
   margin: 22px auto 14px;
 }
 
+// ── Toggle ────────────────────────────────────────────────────────────────────
+
+.cfg-field--inline {
+  flex-direction: row;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.toggle-label {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.cfg-hint {
+  font-size: var(--text-caption);
+  color: var(--color-text-muted);
+}
+
+.toggle {
+  width: 44px;
+  height: 24px;
+  flex-shrink: 0;
+  border-radius: var(--radius-full);
+  border: none;
+  background: var(--color-outline-variant);
+  cursor: pointer;
+  padding: 0;
+  position: relative;
+  transition: background-color var(--dur-base) var(--ease-standard);
+
+  &.toggle--on { background: var(--color-primary); }
+}
+
+.toggle-thumb {
+  position: absolute;
+  top: 3px;
+  left: 3px;
+  width: 18px;
+  height: 18px;
+  border-radius: var(--radius-full);
+  background: #fff;
+  transition: transform var(--dur-base) var(--ease-standard);
+
+  .toggle--on & { transform: translateX(20px); }
+}
+
+// ── Delete confirm ────────────────────────────────────────────────────────────
+
 .delete-title {
   font-size: var(--text-body-lg);
   font-weight: var(--weight-semibold);

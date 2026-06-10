@@ -790,10 +790,11 @@ export class CategoriesComponent implements OnInit {
   });
 
   form = new FormGroup({
-    name:  new FormControl('',         { nonNullable: true, validators: [Validators.required, Validators.maxLength(100)] }),
-    type:  new FormControl<CategoryType>('EXPENSE', { nonNullable: true }),
-    icon:  new FormControl('circle',   { nonNullable: true }),
-    color: new FormControl('#26CDB2',  { nonNullable: true }),
+    name:            new FormControl('',         { nonNullable: true, validators: [Validators.required, Validators.maxLength(100)] }),
+    type:            new FormControl<CategoryType>('EXPENSE', { nonNullable: true }),
+    icon:            new FormControl('circle',   { nonNullable: true }),
+    color:           new FormControl('#26CDB2',  { nonNullable: true }),
+    estimatedAmount: new FormControl<number | null>(null),
   });
 
   // toSignal converts valueChanges Observable into an Angular signal so computed()
@@ -805,12 +806,13 @@ export class CategoriesComponent implements OnInit {
   previewCategory = computed<CategoryResponse>(() => {
     const v = this.formValues();
     return {
-      id:        'preview',
-      name:      (v.name  as string)?.trim() || 'Mi categoría',
-      icon:      (v.icon  as string)         || 'circle',
-      color:     (v.color as string)         || '#26CDB2',
-      type:      (v.type  as CategoryType)   || 'EXPENSE',
-      isDefault: false,
+      id:              'preview',
+      name:            (v.name  as string)?.trim() || 'Mi categoría',
+      icon:            (v.icon  as string)         || 'circle',
+      color:           (v.color as string)         || '#26CDB2',
+      type:            (v.type  as CategoryType)   || 'EXPENSE',
+      isDefault:       false,
+      estimatedAmount: null,
     };
   });
 
@@ -829,14 +831,14 @@ export class CategoriesComponent implements OnInit {
 
   openCreate(): void {
     this.editingId.set(null);
-    this.form.reset({ name: '', type: 'EXPENSE', icon: 'circle', color: '#26CDB2' });
+    this.form.reset({ name: '', type: 'EXPENSE', icon: 'circle', color: '#26CDB2', estimatedAmount: null });
     this.formError.set(null);
     this.modalOpen.set(true);
   }
 
   openEdit(cat: CategoryResponse): void {
     this.editingId.set(cat.id);
-    this.form.setValue({ name: cat.name, type: cat.type, icon: cat.icon, color: cat.color });
+    this.form.setValue({ name: cat.name, type: cat.type, icon: cat.icon, color: cat.color, estimatedAmount: cat.estimatedAmount ?? null });
     this.formError.set(null);
     this.modalOpen.set(true);
   }

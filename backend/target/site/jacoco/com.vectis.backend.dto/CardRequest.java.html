@@ -1,0 +1,55 @@
+<?xml version="1.0" encoding="UTF-8"?><!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Strict//EN" "http://www.w3.org/TR/xhtml1/DTD/xhtml1-strict.dtd"><html xmlns="http://www.w3.org/1999/xhtml" lang="es"><head><meta http-equiv="Content-Type" content="text/html;charset=UTF-8"/><link rel="stylesheet" href="../jacoco-resources/report.css" type="text/css"/><link rel="shortcut icon" href="../jacoco-resources/report.gif" type="image/gif"/><title>CardRequest.java</title><link rel="stylesheet" href="../jacoco-resources/prettify.css" type="text/css"/><script type="text/javascript" src="../jacoco-resources/prettify.js"></script></head><body onload="window['PR_TAB_WIDTH']=4;prettyPrint()"><div class="breadcrumb" id="breadcrumb"><span class="info"><a href="../jacoco-sessions.html" class="el_session">Sessions</a></span><a href="../index.html" class="el_report">vectis-backend</a> &gt; <a href="index.source.html" class="el_package">com.vectis.backend.dto</a> &gt; <span class="el_source">CardRequest.java</span></div><h1>CardRequest.java</h1><pre class="source lang-java linenums">package com.vectis.backend.dto;
+
+import io.swagger.v3.oas.annotations.media.Schema;
+import jakarta.validation.constraints.*;
+
+import java.math.BigDecimal;
+
+@Schema(description = &quot;Datos para crear o editar una tarjeta de crédito&quot;)
+<span class="fc" id="L9">public record CardRequest(</span>
+
+    @Schema(description = &quot;Nombre del banco emisor&quot;, example = &quot;Galicia&quot;)
+    @NotBlank(message = &quot;El banco es obligatorio&quot;)
+    @Size(max = 100, message = &quot;El banco no puede superar los 100 caracteres&quot;)
+    String bank,
+
+    @Schema(description = &quot;Red de la tarjeta&quot;, example = &quot;Visa&quot;,
+            allowableValues = {&quot;Visa&quot;, &quot;Mastercard&quot;, &quot;Amex&quot;})
+    @NotBlank(message = &quot;La red es obligatoria&quot;)
+    @Pattern(regexp = &quot;^(Visa|Mastercard|Amex)$&quot;,
+             message = &quot;La red debe ser Visa, Mastercard o Amex&quot;)
+    String network,
+
+    @Schema(description = &quot;Últimos 4 dígitos&quot;, example = &quot;1234&quot;)
+    @NotBlank(message = &quot;Los últimos 4 dígitos son obligatorios&quot;)
+    @Pattern(regexp = &quot;^\\d{4}$&quot;, message = &quot;Deben ser exactamente 4 dígitos&quot;)
+    String last4,
+
+    @Schema(description = &quot;Moneda&quot;, example = &quot;ARS&quot;, allowableValues = {&quot;ARS&quot;, &quot;USD&quot;})
+    @NotBlank(message = &quot;La moneda es obligatoria&quot;)
+    @Pattern(regexp = &quot;^(ARS|USD)$&quot;, message = &quot;La moneda debe ser ARS o USD&quot;)
+    String ccy,
+
+    @Schema(description = &quot;Límite de crédito&quot;, example = &quot;500000.00&quot;)
+    @NotNull(message = &quot;El límite de crédito es obligatorio&quot;)
+    @DecimalMin(value = &quot;0&quot;, message = &quot;El límite no puede ser negativo&quot;)
+    BigDecimal creditLimit,
+
+    @Schema(description = &quot;Día de cierre del resumen (1–28)&quot;, example = &quot;15&quot;)
+    @NotNull(message = &quot;El día de cierre es obligatorio&quot;)
+    @Min(value = 1, message = &quot;El día de cierre debe ser al menos 1&quot;)
+    @Max(value = 31, message = &quot;El día de cierre no puede superar 31&quot;)
+    Integer closingDay,
+
+    @Schema(description = &quot;Día de vencimiento del resumen (1–28)&quot;, example = &quot;5&quot;)
+    @NotNull(message = &quot;El día de vencimiento es obligatorio&quot;)
+    @Min(value = 1, message = &quot;El día de vencimiento debe ser al menos 1&quot;)
+    @Max(value = 31, message = &quot;El día de vencimiento no puede superar 31&quot;)
+    Integer dueDay,
+
+    @Schema(description = &quot;Color de acento para el gradiente de la tarjeta&quot;, example = &quot;#52eacd&quot;)
+    @NotBlank(message = &quot;El color de acento es obligatorio&quot;)
+    @Size(max = 20)
+    String accent
+) {}
+</pre><div class="footer"><span class="right">Created with <a href="http://www.jacoco.org/jacoco">JaCoCo</a> 0.8.12.202403310830</span></div></body></html>

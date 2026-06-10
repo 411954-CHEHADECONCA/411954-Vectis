@@ -85,7 +85,7 @@ class CategoryControllerTest {
     @DisplayName("GET /api/categories con token retorna 200 y la lista")
     void getCategories_withToken_returns200WithList() throws Exception {
         CategoryResponse response = new CategoryResponse(
-                UUID.randomUUID(), "Alimentos", "utensils", "#10B981", CategoryType.EXPENSE, true);
+                UUID.randomUUID(), "Alimentos", "utensils", "#10B981", CategoryType.EXPENSE, true, null);
         given(categoryService.getCategories(userId)).willReturn(List.of(response));
 
         mockMvc.perform(get("/api/categories")
@@ -100,9 +100,9 @@ class CategoryControllerTest {
     @Test
     @DisplayName("POST /api/categories con body válido retorna 201")
     void createCategory_validRequest_returns201() throws Exception {
-        CategoryRequest request = new CategoryRequest("Gym", "dumbbell", "#EC4899", CategoryType.EXPENSE);
+        CategoryRequest request = new CategoryRequest("Gym", "dumbbell", "#EC4899", CategoryType.EXPENSE, null);
         CategoryResponse response = new CategoryResponse(
-                UUID.randomUUID(), "Gym", "dumbbell", "#EC4899", CategoryType.EXPENSE, false);
+                UUID.randomUUID(), "Gym", "dumbbell", "#EC4899", CategoryType.EXPENSE, false, null);
 
         given(categoryService.createCategory(any(CategoryRequest.class), any(User.class))).willReturn(response);
 
@@ -118,7 +118,7 @@ class CategoryControllerTest {
     @Test
     @DisplayName("POST /api/categories con nombre en blanco retorna 400")
     void createCategory_blankName_returns400() throws Exception {
-        CategoryRequest request = new CategoryRequest("", "dumbbell", "#EC4899", CategoryType.EXPENSE);
+        CategoryRequest request = new CategoryRequest("", "dumbbell", "#EC4899", CategoryType.EXPENSE, null);
 
         mockMvc.perform(post("/api/categories")
                         .header(HttpHeaders.AUTHORIZATION, AUTH_HEADER)
@@ -130,7 +130,7 @@ class CategoryControllerTest {
     @Test
     @DisplayName("POST /api/categories con nombre duplicado retorna 409")
     void createCategory_duplicateName_returns409() throws Exception {
-        CategoryRequest request = new CategoryRequest("Alimentos", "utensils", "#10B981", CategoryType.EXPENSE);
+        CategoryRequest request = new CategoryRequest("Alimentos", "utensils", "#10B981", CategoryType.EXPENSE, null);
 
         given(categoryService.createCategory(any(CategoryRequest.class), any(User.class)))
                 .willThrow(new VectisException("Ya existe", HttpStatus.CONFLICT));
