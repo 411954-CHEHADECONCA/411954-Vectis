@@ -7,9 +7,9 @@ import { CategoryService } from '../../../core/services/category.service';
 import { CategoryResponse } from '../../../core/models/category.models';
 
 const MOCK_CATEGORIES: CategoryResponse[] = [
-  { id: 'cat-1', name: 'Alimentos',  icon: 'utensils',   color: '#10B981', type: 'EXPENSE', isDefault: true  },
-  { id: 'cat-2', name: 'Sueldo',     icon: 'briefcase',  color: '#10B981', type: 'INCOME',  isDefault: true  },
-  { id: 'cat-3', name: 'Mi ahorro',  icon: 'circle',     color: '#3B82F6', type: 'BOTH',    isDefault: false },
+  { id: 'cat-1', name: 'Alimentos',  icon: 'utensils',   color: '#10B981', type: 'EXPENSE', isDefault: true,  estimatedAmount: null },
+  { id: 'cat-2', name: 'Sueldo',     icon: 'briefcase',  color: '#10B981', type: 'INCOME',  isDefault: true,  estimatedAmount: null },
+  { id: 'cat-3', name: 'Mi ahorro',  icon: 'circle',     color: '#3B82F6', type: 'BOTH',    isDefault: false, estimatedAmount: null },
 ];
 
 describe('CategoriesComponent', () => {
@@ -97,17 +97,17 @@ describe('CategoriesComponent', () => {
   });
 
   it('llama a createCategory al enviar un nuevo formulario', fakeAsync(() => {
-    const newCat: CategoryResponse = { id: 'cat-4', name: 'Gym', icon: 'dumbbell', color: '#EF4444', type: 'EXPENSE', isDefault: false };
+    const newCat: CategoryResponse = { id: 'cat-4', name: 'Gym', icon: 'dumbbell', color: '#EF4444', type: 'EXPENSE', isDefault: false, estimatedAmount: null };
     serviceSpy.createCategory.and.returnValue(of(newCat));
     fixture.detectChanges();
 
     component.openCreate();
-    component.form.setValue({ name: 'Gym', type: 'EXPENSE', icon: 'dumbbell', color: '#EF4444' });
+    component.form.setValue({ name: 'Gym', type: 'EXPENSE', icon: 'dumbbell', color: '#EF4444', estimatedAmount: null });
     component.submit();
     tick();
     fixture.detectChanges();
 
-    expect(serviceSpy.createCategory).toHaveBeenCalledWith({ name: 'Gym', type: 'EXPENSE', icon: 'dumbbell', color: '#EF4444' });
+    expect(serviceSpy.createCategory).toHaveBeenCalledWith({ name: 'Gym', type: 'EXPENSE', icon: 'dumbbell', color: '#EF4444', estimatedAmount: null });
     expect(component.categories().some(c => c.id === 'cat-4')).toBeTrue();
     expect(component.modalOpen()).toBeFalse();
   }));
@@ -167,7 +167,7 @@ describe('CategoriesComponent', () => {
   it('previewCategory refleja los valores actuales del formulario', () => {
     fixture.detectChanges();
     component.openCreate();
-    component.form.setValue({ name: 'Salidas', type: 'EXPENSE', icon: 'music', color: '#EC4899' });
+    component.form.setValue({ name: 'Salidas', type: 'EXPENSE', icon: 'music', color: '#EC4899', estimatedAmount: null });
     fixture.detectChanges();
 
     const preview = component.previewCategory();

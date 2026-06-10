@@ -105,6 +105,15 @@
 
   <!-- ── TARJETAS ────────────────────────────────────────────────────────── -->
   @if (activeTab() === 'tarjetas') {
+    @if (cardsError()) {
+      <div class="error-state">
+        <svg lucideAlertCircle [size]="28" />
+        <p>{{ cardsError() }}</p>
+        <button class="btn-retry" (click)="loadCards()">
+          <svg lucideRefreshCw [size]="13" [strokeWidth]="2" /> Reintentar
+        </button>
+      </div>
+    } @else {
     <div class="panel">
       <div class="section-title">
         <div>
@@ -117,7 +126,13 @@
         </button>
       </div>
 
-      @if (cards().length === 0) {
+      @if (cardsLoading()) {
+        <div class="cfg-list">
+          @for (i of [0,1,2]; track i) {
+            <div class="skeleton-row" [style.animation-delay]="(i * 0.08) + 's'"></div>
+          }
+        </div>
+      } @else if (cards().length === 0) {
         <div class="empty-state">
           <span class="empty-icon"><svg lucideCreditCard [size]="38" [strokeWidth]="1.2" /></span>
           <p>No tenés tarjetas registradas todavía</p>
@@ -136,10 +151,10 @@
                   <span class="row-mono">···· {{ c.last4 }}</span>
                   <span class="row-badge" [class.row-badge--accent]="c.ccy === 'USD'" [class.row-badge--neutral]="c.ccy !== 'USD'">{{ c.ccy }}</span>
                 </div>
-                <div class="row-sub">{{ c.network }} · Cierra {{ c.closing || '—' }} · Vence {{ c.due || '—' }}</div>
+                <div class="row-sub">{{ c.network }} · Cierra día {{ c.closingDay }} · Vence día {{ c.dueDay }}</div>
               </div>
               <div class="row-amount-block">
-                <span class="row-amount">{{ fmtAmount(c.limit, c.ccy) }}</span>
+                <span class="row-amount">{{ fmtAmount(c.creditLimit, c.ccy) }}</span>
                 <span class="row-amount-label">Límite</span>
               </div>
               <div class="row-actions">
@@ -155,6 +170,7 @@
         </div>
       }
     </div>
+    }
   }
 
   <!-- ── CATEGORÍAS ─────────────────────────────────────────────────────── -->
@@ -179,11 +195,6 @@
         </button>
       </div>
     } @else {
-      <div class="cat-actions">
-        <button class="btn-primary btn-sm" (click)="openCreateCategory()">
-          <svg lucidePlus [size]="15" [strokeWidth]="2.5" /> Nueva categoría
-        </button>
-      </div>
       <div class="cat-grid">
         <!-- Ingresos panel -->
         <div class="panel">
@@ -192,6 +203,9 @@
               <h3>Ingresos</h3>
               <p class="section-sub">{{ ingresos().length }} categorías</p>
             </div>
+            <button class="btn-primary btn-sm" (click)="openCreateCategory('INCOME')">
+              <svg lucidePlus [size]="15" [strokeWidth]="2.5" /> Agregar ingreso
+            </button>
           </div>
           <div class="cfg-list">
             @if (ingresos().length === 0) {
@@ -229,6 +243,9 @@
               <h3>Egresos</h3>
               <p class="section-sub">{{ egresos().length }} categorías</p>
             </div>
+            <button class="btn-primary btn-sm" (click)="openCreateCategory('EXPENSE')">
+              <svg lucidePlus [size]="15" [strokeWidth]="2.5" /> Agregar egreso
+            </button>
           </div>
           <div class="cfg-list">
             @if (egresos().length === 0) {
@@ -353,6 +370,32 @@
           </div>
         </div>
 
+        <!-- Remunerada -->
+        <div class="cfg-field cfg-field--inline">
+          <div class="toggle-label">
+            <span class="cfg-label">Cuenta remunerada</span>
+            <span class="cfg-hint">Genera intereses sobre el saldo</span>
+          </div>
+          <button
+            type="button"
+            class="toggle"
+            [class.toggle--on]="accountForm.controls.remunerada.value"
+            (click)="accountForm.controls.remunerada.setValue(!accountForm.controls.remunerada.value)"
+            [attr.aria-checked]="accountForm.controls.remunerada.value"
+            role="switch"
+          >
+            <span class="toggle-thumb"></span>
+          </button>
+        </div>
+
+        <!-- TNA (solo si es remunerada) -->
+        @if (accountForm.controls.remunerada.value) {
+          <div class="cfg-field">
+            <label class="cfg-label" for="acc-tna">TNA estimada (%)</label>
+            <input id="acc-tna" class="text-input text-input--mono" type="number" formControlName="tna" placeholder="81.00" step="0.01" inputmode="decimal" />
+          </div>
+        }
+
         @if (formError()) {
           <p class="form-error">{{ formError() }}</p>
         }
@@ -433,19 +476,25 @@
           </div>
           <div class="cfg-field">
             <label class="cfg-label" for="card-limit">Límite {{ cardForm.controls.ccy.value === 'USD' ? '(US$)' : '($)' }}</label>
-            <input id="card-limit" class="text-input text-input--mono" type="number" formControlName="limit" placeholder="0" inputmode="numeric" />
+            <input id="card-limit" class="text-input text-input--mono" type="number" formControlName="creditLimit" placeholder="0" inputmode="numeric" />
           </div>
         </div>
 
         <!-- Cierre + Vencimiento -->
         <div class="form-grid-2">
           <div class="cfg-field">
-            <label class="cfg-label" for="card-closing">Cierre</label>
-            <input id="card-closing" class="text-input" type="text" formControlName="closing" placeholder="24 jun" autocomplete="off" />
+            <label class="cfg-label" for="card-closing">Día de cierre <span class="cfg-hint">(1–31)</span></label>
+            <input id="card-closing" class="text-input text-input--mono" type="number" formControlName="closingDay" placeholder="15" min="1" max="31" inputmode="numeric" />
+            @if (cardForm.controls.closingDay.invalid && cardForm.controls.closingDay.touched) {
+              <span class="field-error">Ingresá un día entre 1 y 31</span>
+            }
           </div>
           <div class="cfg-field">
-            <label class="cfg-label" for="card-due">Vencimiento</label>
-            <input id="card-due" class="text-input" type="text" formControlName="due" placeholder="02 jul" autocomplete="off" />
+            <label class="cfg-label" for="card-due">Día de vencimiento <span class="cfg-hint">(1–31)</span></label>
+            <input id="card-due" class="text-input text-input--mono" type="number" formControlName="dueDay" placeholder="5" min="1" max="31" inputmode="numeric" />
+            @if (cardForm.controls.dueDay.invalid && cardForm.controls.dueDay.touched) {
+              <span class="field-error">Ingresá un día entre 1 y 31</span>
+            }
           </div>
         </div>
 
@@ -554,6 +603,22 @@
               </button>
             }
           </div>
+        </div>
+
+        <!-- Monto estimado mensual -->
+        <div class="cfg-field">
+          <label class="cfg-label" for="cat-budget">
+            Monto estimado mensual <span class="cfg-hint">(opcional)</span>
+          </label>
+          <input
+            id="cat-budget"
+            class="text-input text-input--mono"
+            type="number"
+            formControlName="estimatedAmount"
+            placeholder="Ej. 50000"
+            min="0"
+            inputmode="decimal"
+          />
         </div>
 
         <!-- Live preview -->

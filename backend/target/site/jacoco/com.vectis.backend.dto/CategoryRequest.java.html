@@ -2,13 +2,16 @@
 
 import com.vectis.backend.domain.entity.CategoryType;
 import io.swagger.v3.oas.annotations.media.Schema;
+import jakarta.validation.constraints.DecimalMin;
 import jakarta.validation.constraints.NotBlank;
 import jakarta.validation.constraints.NotNull;
 import jakarta.validation.constraints.Pattern;
 import jakarta.validation.constraints.Size;
 
+import java.math.BigDecimal;
+
 @Schema(description = &quot;Datos para crear o editar una categoría personalizada&quot;)
-<span class="fc" id="L11">public record CategoryRequest(</span>
+<span class="fc" id="L14">public record CategoryRequest(</span>
 
     @Schema(description = &quot;Nombre de la categoría&quot;, example = &quot;Gym&quot;)
     @NotBlank(message = &quot;El nombre es obligatorio&quot;)
@@ -25,6 +28,10 @@ import jakarta.validation.constraints.Size;
 
     @Schema(description = &quot;Tipo de movimiento al que aplica&quot;, example = &quot;EXPENSE&quot;)
     @NotNull(message = &quot;El tipo es obligatorio&quot;)
-    CategoryType type
+    CategoryType type,
+
+    @Schema(description = &quot;Monto estimado mensual para el mes en curso (opcional)&quot;, example = &quot;50000.00&quot;, nullable = true)
+    @DecimalMin(value = &quot;0&quot;, message = &quot;El monto estimado no puede ser negativo&quot;)
+    BigDecimal estimatedAmount
 ) {}
 </pre><div class="footer"><span class="right">Created with <a href="http://www.jacoco.org/jacoco">JaCoCo</a> 0.8.12.202403310830</span></div></body></html>

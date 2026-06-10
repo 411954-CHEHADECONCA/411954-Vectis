@@ -10,6 +10,7 @@ const MOCK_CATEGORY: CategoryResponse = {
   color: '#10B981',
   type: 'EXPENSE',
   isDefault: true,
+  estimatedAmount: null,
 };
 
 describe('CategoryBadgeComponent', () => {

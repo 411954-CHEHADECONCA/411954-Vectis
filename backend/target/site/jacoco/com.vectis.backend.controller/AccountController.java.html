@@ -1,0 +1,98 @@
+<?xml version="1.0" encoding="UTF-8"?><!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Strict//EN" "http://www.w3.org/TR/xhtml1/DTD/xhtml1-strict.dtd"><html xmlns="http://www.w3.org/1999/xhtml" lang="es"><head><meta http-equiv="Content-Type" content="text/html;charset=UTF-8"/><link rel="stylesheet" href="../jacoco-resources/report.css" type="text/css"/><link rel="shortcut icon" href="../jacoco-resources/report.gif" type="image/gif"/><title>AccountController.java</title><link rel="stylesheet" href="../jacoco-resources/prettify.css" type="text/css"/><script type="text/javascript" src="../jacoco-resources/prettify.js"></script></head><body onload="window['PR_TAB_WIDTH']=4;prettyPrint()"><div class="breadcrumb" id="breadcrumb"><span class="info"><a href="../jacoco-sessions.html" class="el_session">Sessions</a></span><a href="../index.html" class="el_report">vectis-backend</a> &gt; <a href="index.source.html" class="el_package">com.vectis.backend.controller</a> &gt; <span class="el_source">AccountController.java</span></div><h1>AccountController.java</h1><pre class="source lang-java linenums">package com.vectis.backend.controller;
+
+import com.vectis.backend.domain.entity.User;
+import com.vectis.backend.dto.AccountRequest;
+import com.vectis.backend.dto.AccountResponse;
+import com.vectis.backend.exception.GlobalExceptionHandler.ErrorResponse;
+import com.vectis.backend.service.AccountService;
+import io.swagger.v3.oas.annotations.Operation;
+import io.swagger.v3.oas.annotations.media.Content;
+import io.swagger.v3.oas.annotations.media.Schema;
+import io.swagger.v3.oas.annotations.responses.ApiResponse;
+import io.swagger.v3.oas.annotations.responses.ApiResponses;
+import io.swagger.v3.oas.annotations.security.SecurityRequirement;
+import io.swagger.v3.oas.annotations.tags.Tag;
+import jakarta.validation.Valid;
+import lombok.RequiredArgsConstructor;
+import org.springframework.http.HttpStatus;
+import org.springframework.security.core.annotation.AuthenticationPrincipal;
+import org.springframework.web.bind.annotation.*;
+
+import java.util.List;
+import java.util.UUID;
+
+@RestController
+@RequestMapping(&quot;/api/accounts&quot;)
+@RequiredArgsConstructor
+@Tag(name = &quot;Accounts&quot;, description = &quot;Gestión de cuentas líquidas del usuario&quot;)
+@SecurityRequirement(name = &quot;BearerAuth&quot;)
+public class AccountController {
+
+    private final AccountService accountService;
+
+    @GetMapping
+    @Operation(summary = &quot;Listar cuentas del usuario autenticado&quot;)
+    @ApiResponses({
+        @ApiResponse(responseCode = &quot;200&quot;, description = &quot;Lista de cuentas&quot;),
+        @ApiResponse(responseCode = &quot;401&quot;, description = &quot;Token JWT ausente o inválido&quot;,
+            content = @Content(schema = @Schema(implementation = ErrorResponse.class)))
+    })
+    public List&lt;AccountResponse&gt; getAccounts(@AuthenticationPrincipal User user) {
+<span class="fc" id="L41">        return accountService.getAccounts(user.getId());</span>
+    }
+
+    @PostMapping
+    @ResponseStatus(HttpStatus.CREATED)
+    @Operation(summary = &quot;Crear una cuenta líquida&quot;)
+    @ApiResponses({
+        @ApiResponse(responseCode = &quot;201&quot;, description = &quot;Cuenta creada&quot;),
+        @ApiResponse(responseCode = &quot;400&quot;, description = &quot;Datos de entrada inválidos&quot;,
+            content = @Content(schema = @Schema(implementation = ErrorResponse.class))),
+        @ApiResponse(responseCode = &quot;401&quot;, description = &quot;Token JWT ausente o inválido&quot;,
+            content = @Content(schema = @Schema(implementation = ErrorResponse.class)))
+    })
+    public AccountResponse createAccount(
+            @Valid @RequestBody AccountRequest request,
+            @AuthenticationPrincipal User user) {
+<span class="fc" id="L57">        return accountService.createAccount(request, user);</span>
+    }
+
+    @PutMapping(&quot;/{id}&quot;)
+    @Operation(summary = &quot;Editar una cuenta propia&quot;)
+    @ApiResponses({
+        @ApiResponse(responseCode = &quot;200&quot;, description = &quot;Cuenta actualizada&quot;),
+        @ApiResponse(responseCode = &quot;400&quot;, description = &quot;Datos de entrada inválidos&quot;,
+            content = @Content(schema = @Schema(implementation = ErrorResponse.class))),
+        @ApiResponse(responseCode = &quot;401&quot;, description = &quot;Token JWT ausente o inválido&quot;,
+            content = @Content(schema = @Schema(implementation = ErrorResponse.class))),
+        @ApiResponse(responseCode = &quot;403&quot;, description = &quot;No se puede editar una cuenta de otro usuario&quot;,
+            content = @Content(schema = @Schema(implementation = ErrorResponse.class))),
+        @ApiResponse(responseCode = &quot;404&quot;, description = &quot;Cuenta no encontrada&quot;,
+            content = @Content(schema = @Schema(implementation = ErrorResponse.class)))
+    })
+    public AccountResponse updateAccount(
+            @PathVariable UUID id,
+            @Valid @RequestBody AccountRequest request,
+            @AuthenticationPrincipal User user) {
+<span class="nc" id="L77">        return accountService.updateAccount(id, request, user);</span>
+    }
+
+    @DeleteMapping(&quot;/{id}&quot;)
+    @ResponseStatus(HttpStatus.NO_CONTENT)
+    @Operation(summary = &quot;Eliminar una cuenta propia&quot;)
+    @ApiResponses({
+        @ApiResponse(responseCode = &quot;204&quot;, description = &quot;Cuenta eliminada&quot;),
+        @ApiResponse(responseCode = &quot;401&quot;, description = &quot;Token JWT ausente o inválido&quot;,
+            content = @Content(schema = @Schema(implementation = ErrorResponse.class))),
+        @ApiResponse(responseCode = &quot;403&quot;, description = &quot;No se puede eliminar una cuenta de otro usuario&quot;,
+            content = @Content(schema = @Schema(implementation = ErrorResponse.class))),
+        @ApiResponse(responseCode = &quot;404&quot;, description = &quot;Cuenta no encontrada&quot;,
+            content = @Content(schema = @Schema(implementation = ErrorResponse.class)))
+    })
+    public void deleteAccount(
+            @PathVariable UUID id,
+            @AuthenticationPrincipal User user) {
+<span class="fc" id="L95">        accountService.deleteAccount(id, user);</span>
+<span class="fc" id="L96">    }</span>
+}
+</pre><div class="footer"><span class="right">Created with <a href="http://www.jacoco.org/jacoco">JaCoCo</a> 0.8.12.202403310830</span></div></body></html>

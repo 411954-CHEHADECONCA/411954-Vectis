@@ -1,11 +1,13 @@
 package com.vectis.backend.service;
 
 import com.vectis.backend.domain.entity.Category;
+import com.vectis.backend.domain.entity.CategoryBudget;
 import com.vectis.backend.domain.entity.User;
 import com.vectis.backend.dto.CategoryRequest;
 import com.vectis.backend.dto.CategoryResponse;
 import com.vectis.backend.exception.CategoryNotFoundException;
 import com.vectis.backend.mapper.CategoryMapper;
+import com.vectis.backend.repository.CategoryBudgetRepository;
 import com.vectis.backend.repository.CategoryRepository;
 import lombok.RequiredArgsConstructor;
 import org.springframework.http.HttpStatus;
@@ -14,8 +16,12 @@ import org.springframework.transaction.annotation.Transactional;
 
 import com.vectis.backend.exception.VectisException;
 
+import java.math.BigDecimal;
+import java.time.LocalDate;
 import java.util.List;
+import java.util.Map;
 import java.util.UUID;
+import java.util.stream.Collectors;
 
 @Service
 @RequiredArgsConstructor
@@ -23,13 +29,21 @@ import java.util.UUID;
 public class CategoryService {
 
     private final CategoryRepository categoryRepository;
+    private final CategoryBudgetRepository categoryBudgetRepository;
     private final CategoryMapper categoryMapper;
 
     @Transactional(readOnly = true)
     public List<CategoryResponse> getCategories(UUID userId) {
-        return categoryRepository.findAllForUser(userId)
+        List<Category> categories = categoryRepository.findAllForUser(userId);
+
+        LocalDate month = LocalDate.now().withDayOfMonth(1);
+        Map<UUID, BigDecimal> budgetMap = categoryBudgetRepository
+                .findAllByUser_IdAndValidFrom(userId, month)
                 .stream()
-                .map(categoryMapper::toResponse)
+                .collect(Collectors.toMap(b -> b.getCategory().getId(), CategoryBudget::getAmount));
+
+        return categories.stream()
+                .map(c -> categoryMapper.toResponse(c, budgetMap.get(c.getId())))
                 .toList();
     }
 
@@ -50,7 +64,19 @@ public class CategoryService {
                 .isDefault(false)
                 .build();
 
-        return categoryMapper.toResponse(categoryRepository.save(category));
+        Category saved = categoryRepository.save(category);
+
+        if (request.estimatedAmount() != null) {
+            upsertBudget(saved, user, request.estimatedAmount());
+        }
+
+        LocalDate month = LocalDate.now().withDayOfMonth(1);
+        BigDecimal amount = request.estimatedAmount() != null
+                ? categoryBudgetRepository.findByCategory_IdAndUser_IdAndValidFrom(saved.getId(), user.getId(), month)
+                        .map(CategoryBudget::getAmount).orElse(null)
+                : null;
+
+        return categoryMapper.toResponse(saved, amount);
     }
 
     public CategoryResponse updateCategory(UUID id, CategoryRequest request, User user) {
@@ -69,7 +95,18 @@ public class CategoryService {
         category.setColor(request.color());
         category.setType(request.type());
 
-        return categoryMapper.toResponse(categoryRepository.save(category));
+        Category saved = categoryRepository.save(category);
+
+        if (request.estimatedAmount() != null) {
+            upsertBudget(saved, user, request.estimatedAmount());
+        }
+
+        LocalDate month = LocalDate.now().withDayOfMonth(1);
+        BigDecimal amount = categoryBudgetRepository
+                .findByCategory_IdAndUser_IdAndValidFrom(saved.getId(), user.getId(), month)
+                .map(CategoryBudget::getAmount).orElse(null);
+
+        return categoryMapper.toResponse(saved, amount);
     }
 
     public void deleteCategory(UUID id, User user) {
@@ -84,5 +121,18 @@ public class CategoryService {
         }
 
         categoryRepository.delete(category);
+    }
+
+    private void upsertBudget(Category category, User user, BigDecimal amount) {
+        LocalDate month = LocalDate.now().withDayOfMonth(1);
+        CategoryBudget budget = categoryBudgetRepository
+                .findByCategory_IdAndUser_IdAndValidFrom(category.getId(), user.getId(), month)
+                .orElseGet(() -> CategoryBudget.builder()
+                        .category(category)
+                        .user(user)
+                        .validFrom(month)
+                        .build());
+        budget.setAmount(amount);
+        categoryBudgetRepository.save(budget);
     }
 }

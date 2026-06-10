@@ -1,11 +1,13 @@
 <?xml version="1.0" encoding="UTF-8"?><!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Strict//EN" "http://www.w3.org/TR/xhtml1/DTD/xhtml1-strict.dtd"><html xmlns="http://www.w3.org/1999/xhtml" lang="es"><head><meta http-equiv="Content-Type" content="text/html;charset=UTF-8"/><link rel="stylesheet" href="../jacoco-resources/report.css" type="text/css"/><link rel="shortcut icon" href="../jacoco-resources/report.gif" type="image/gif"/><title>CategoryService.java</title><link rel="stylesheet" href="../jacoco-resources/prettify.css" type="text/css"/><script type="text/javascript" src="../jacoco-resources/prettify.js"></script></head><body onload="window['PR_TAB_WIDTH']=4;prettyPrint()"><div class="breadcrumb" id="breadcrumb"><span class="info"><a href="../jacoco-sessions.html" class="el_session">Sessions</a></span><a href="../index.html" class="el_report">vectis-backend</a> &gt; <a href="index.source.html" class="el_package">com.vectis.backend.service</a> &gt; <span class="el_source">CategoryService.java</span></div><h1>CategoryService.java</h1><pre class="source lang-java linenums">package com.vectis.backend.service;
 
 import com.vectis.backend.domain.entity.Category;
+import com.vectis.backend.domain.entity.CategoryBudget;
 import com.vectis.backend.domain.entity.User;
 import com.vectis.backend.dto.CategoryRequest;
 import com.vectis.backend.dto.CategoryResponse;
 import com.vectis.backend.exception.CategoryNotFoundException;
 import com.vectis.backend.mapper.CategoryMapper;
+import com.vectis.backend.repository.CategoryBudgetRepository;
 import com.vectis.backend.repository.CategoryRepository;
 import lombok.RequiredArgsConstructor;
 import org.springframework.http.HttpStatus;
@@ -14,8 +16,12 @@ import org.springframework.transaction.annotation.Transactional;
 
 import com.vectis.backend.exception.VectisException;
 
+import java.math.BigDecimal;
+import java.time.LocalDate;
 import java.util.List;
+import java.util.Map;
 import java.util.UUID;
+import java.util.stream.Collectors;
 
 @Service
 @RequiredArgsConstructor
@@ -23,67 +29,111 @@ import java.util.UUID;
 public class CategoryService {
 
     private final CategoryRepository categoryRepository;
+    private final CategoryBudgetRepository categoryBudgetRepository;
     private final CategoryMapper categoryMapper;
 
     @Transactional(readOnly = true)
     public List&lt;CategoryResponse&gt; getCategories(UUID userId) {
-<span class="fc" id="L30">        return categoryRepository.findAllForUser(userId)</span>
-<span class="fc" id="L31">                .stream()</span>
-<span class="fc" id="L32">                .map(categoryMapper::toResponse)</span>
-<span class="fc" id="L33">                .toList();</span>
+<span class="fc" id="L37">        List&lt;Category&gt; categories = categoryRepository.findAllForUser(userId);</span>
+
+<span class="fc" id="L39">        LocalDate month = LocalDate.now().withDayOfMonth(1);</span>
+<span class="fc" id="L40">        Map&lt;UUID, BigDecimal&gt; budgetMap = categoryBudgetRepository</span>
+<span class="fc" id="L41">                .findAllByUser_IdAndValidFrom(userId, month)</span>
+<span class="fc" id="L42">                .stream()</span>
+<span class="fc" id="L43">                .collect(Collectors.toMap(b -&gt; b.getCategory().getId(), CategoryBudget::getAmount));</span>
+
+<span class="fc" id="L45">        return categories.stream()</span>
+<span class="fc" id="L46">                .map(c -&gt; categoryMapper.toResponse(c, budgetMap.get(c.getId())))</span>
+<span class="fc" id="L47">                .toList();</span>
     }
 
     public CategoryResponse createCategory(CategoryRequest request, User user) {
-<span class="fc bfc" id="L37" title="All 2 branches covered.">        if (categoryRepository.existsByNameIgnoreCaseAndUser_Id(request.name(), user.getId())) {</span>
-<span class="fc" id="L38">            throw new VectisException(</span>
-<span class="fc" id="L39">                    &quot;Ya existe una categoría con el nombre '&quot; + request.name() + &quot;'&quot;,</span>
+<span class="fc bfc" id="L51" title="All 2 branches covered.">        if (categoryRepository.existsByNameIgnoreCaseAndUser_Id(request.name(), user.getId())) {</span>
+<span class="fc" id="L52">            throw new VectisException(</span>
+<span class="fc" id="L53">                    &quot;Ya existe una categoría con el nombre '&quot; + request.name() + &quot;'&quot;,</span>
                     HttpStatus.CONFLICT
             );
         }
 
-<span class="fc" id="L44">        Category category = Category.builder()</span>
-<span class="fc" id="L45">                .user(user)</span>
-<span class="fc" id="L46">                .name(request.name())</span>
-<span class="fc" id="L47">                .icon(request.icon())</span>
-<span class="fc" id="L48">                .color(request.color())</span>
-<span class="fc" id="L49">                .type(request.type())</span>
-<span class="fc" id="L50">                .isDefault(false)</span>
-<span class="fc" id="L51">                .build();</span>
+<span class="fc" id="L58">        Category category = Category.builder()</span>
+<span class="fc" id="L59">                .user(user)</span>
+<span class="fc" id="L60">                .name(request.name())</span>
+<span class="fc" id="L61">                .icon(request.icon())</span>
+<span class="fc" id="L62">                .color(request.color())</span>
+<span class="fc" id="L63">                .type(request.type())</span>
+<span class="fc" id="L64">                .isDefault(false)</span>
+<span class="fc" id="L65">                .build();</span>
 
-<span class="fc" id="L53">        return categoryMapper.toResponse(categoryRepository.save(category));</span>
+<span class="fc" id="L67">        Category saved = categoryRepository.save(category);</span>
+
+<span class="fc bfc" id="L69" title="All 2 branches covered.">        if (request.estimatedAmount() != null) {</span>
+<span class="fc" id="L70">            upsertBudget(saved, user, request.estimatedAmount());</span>
+        }
+
+<span class="fc" id="L73">        LocalDate month = LocalDate.now().withDayOfMonth(1);</span>
+<span class="fc bfc" id="L74" title="All 2 branches covered.">        BigDecimal amount = request.estimatedAmount() != null</span>
+<span class="fc" id="L75">                ? categoryBudgetRepository.findByCategory_IdAndUser_IdAndValidFrom(saved.getId(), user.getId(), month)</span>
+<span class="fc" id="L76">                        .map(CategoryBudget::getAmount).orElse(null)</span>
+<span class="fc" id="L77">                : null;</span>
+
+<span class="fc" id="L79">        return categoryMapper.toResponse(saved, amount);</span>
     }
 
     public CategoryResponse updateCategory(UUID id, CategoryRequest request, User user) {
-<span class="fc" id="L57">        Category category = categoryRepository.findById(id)</span>
-<span class="fc" id="L58">                .orElseThrow(() -&gt; new CategoryNotFoundException(id));</span>
+<span class="fc" id="L83">        Category category = categoryRepository.findById(id)</span>
+<span class="fc" id="L84">                .orElseThrow(() -&gt; new CategoryNotFoundException(id));</span>
 
-<span class="pc bpc" id="L60" title="1 of 4 branches missed.">        if (category.isDefault() || !category.getUser().getId().equals(user.getId())) {</span>
-<span class="fc" id="L61">            throw new VectisException(</span>
+<span class="fc bfc" id="L86" title="All 4 branches covered.">        if (category.isDefault() || !category.getUser().getId().equals(user.getId())) {</span>
+<span class="fc" id="L87">            throw new VectisException(</span>
                     &quot;No tenés permiso para modificar esta categoría&quot;,
                     HttpStatus.FORBIDDEN
             );
         }
 
-<span class="nc" id="L67">        category.setName(request.name());</span>
-<span class="nc" id="L68">        category.setIcon(request.icon());</span>
-<span class="nc" id="L69">        category.setColor(request.color());</span>
-<span class="nc" id="L70">        category.setType(request.type());</span>
+<span class="fc" id="L93">        category.setName(request.name());</span>
+<span class="fc" id="L94">        category.setIcon(request.icon());</span>
+<span class="fc" id="L95">        category.setColor(request.color());</span>
+<span class="fc" id="L96">        category.setType(request.type());</span>
 
-<span class="nc" id="L72">        return categoryMapper.toResponse(categoryRepository.save(category));</span>
+<span class="fc" id="L98">        Category saved = categoryRepository.save(category);</span>
+
+<span class="fc bfc" id="L100" title="All 2 branches covered.">        if (request.estimatedAmount() != null) {</span>
+<span class="fc" id="L101">            upsertBudget(saved, user, request.estimatedAmount());</span>
+        }
+
+<span class="fc" id="L104">        LocalDate month = LocalDate.now().withDayOfMonth(1);</span>
+<span class="fc" id="L105">        BigDecimal amount = categoryBudgetRepository</span>
+<span class="fc" id="L106">                .findByCategory_IdAndUser_IdAndValidFrom(saved.getId(), user.getId(), month)</span>
+<span class="fc" id="L107">                .map(CategoryBudget::getAmount).orElse(null);</span>
+
+<span class="fc" id="L109">        return categoryMapper.toResponse(saved, amount);</span>
     }
 
     public void deleteCategory(UUID id, User user) {
-<span class="fc" id="L76">        Category category = categoryRepository.findById(id)</span>
-<span class="pc" id="L77">                .orElseThrow(() -&gt; new CategoryNotFoundException(id));</span>
+<span class="fc" id="L113">        Category category = categoryRepository.findById(id)</span>
+<span class="pc" id="L114">                .orElseThrow(() -&gt; new CategoryNotFoundException(id));</span>
 
-<span class="pc bpc" id="L79" title="1 of 4 branches missed.">        if (category.isDefault() || !category.getUser().getId().equals(user.getId())) {</span>
-<span class="fc" id="L80">            throw new VectisException(</span>
+<span class="pc bpc" id="L116" title="1 of 4 branches missed.">        if (category.isDefault() || !category.getUser().getId().equals(user.getId())) {</span>
+<span class="fc" id="L117">            throw new VectisException(</span>
                     &quot;No tenés permiso para eliminar esta categoría&quot;,
                     HttpStatus.FORBIDDEN
             );
         }
 
-<span class="fc" id="L86">        categoryRepository.delete(category);</span>
-<span class="fc" id="L87">    }</span>
+<span class="fc" id="L123">        categoryRepository.delete(category);</span>
+<span class="fc" id="L124">    }</span>
+
+    private void upsertBudget(Category category, User user, BigDecimal amount) {
+<span class="fc" id="L127">        LocalDate month = LocalDate.now().withDayOfMonth(1);</span>
+<span class="fc" id="L128">        CategoryBudget budget = categoryBudgetRepository</span>
+<span class="fc" id="L129">                .findByCategory_IdAndUser_IdAndValidFrom(category.getId(), user.getId(), month)</span>
+<span class="fc" id="L130">                .orElseGet(() -&gt; CategoryBudget.builder()</span>
+<span class="fc" id="L131">                        .category(category)</span>
+<span class="fc" id="L132">                        .user(user)</span>
+<span class="fc" id="L133">                        .validFrom(month)</span>
+<span class="fc" id="L134">                        .build());</span>
+<span class="fc" id="L135">        budget.setAmount(amount);</span>
+<span class="fc" id="L136">        categoryBudgetRepository.save(budget);</span>
+<span class="fc" id="L137">    }</span>
 }
 </pre><div class="footer"><span class="right">Created with <a href="http://www.jacoco.org/jacoco">JaCoCo</a> 0.8.12.202403310830</span></div></body></html>

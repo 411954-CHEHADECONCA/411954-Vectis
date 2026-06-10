@@ -44,37 +44,31 @@ import {
   LucideCircle,
 } from '@lucide/angular';
 import { CategoryService } from '../../../core/services/category.service';
+import { AccountService } from '../../../core/services/account.service';
+import { CreditCardService } from '../../../core/services/credit-card.service';
 import { CategoryBadgeComponent } from '../../../shared/components/category-badge/category-badge.component';
 import {
   CategoryRequest,
   CategoryResponse,
   CategoryType,
 } from '../../../core/models/category.models';
+import {
+  AccountRequest,
+  AccountResponse,
+  AccountKind,
+  AccountCcy,
+} from '../../../core/models/account.models';
+import {
+  CardRequest,
+  CardResponse,
+  CardNetwork,
+  CardCcy,
+} from '../../../core/models/card.models';
 
 // ── Local types ───────────────────────────────────────────────────────────────
 
 export type Tab = 'cuentas' | 'tarjetas' | 'categorias';
 
-export interface AccountLocal {
-  id: string;
-  name: string;
-  kind: 'Banco' | 'Billetera' | 'Efectivo';
-  detail: string;
-  ccy: 'ARS' | 'USD';
-  balance: number;
-}
-
-export interface CardLocal {
-  id: string;
-  bank: string;
-  network: 'Visa' | 'Mastercard' | 'Amex';
-  last4: string;
-  ccy: 'ARS' | 'USD';
-  limit: number;
-  closing: string;
-  due: string;
-  accent: string;
-}
 
 export type ModalKind = 'account' | 'card' | 'category';
 export type ModalMode = 'create' | 'edit' | 'delete';
@@ -138,7 +132,9 @@ export const CARD_PALETTE = [
   ],
 })
 export class ConfiguracionComponent implements OnInit {
-  private readonly categoryService = inject(CategoryService);
+  private readonly categoryService  = inject(CategoryService);
+  private readonly accountService   = inject(AccountService);
+  private readonly creditCardService = inject(CreditCardService);
 
   // ── Exposed constants ─────────────────────────────────────────────────────
   readonly categoryIcons = CATEGORY_ICONS;
@@ -150,11 +146,15 @@ export class ConfiguracionComponent implements OnInit {
 
   setTab(tab: Tab): void { this.activeTab.set(tab); }
 
-  // ── Accounts (local state — backend not yet built) ────────────────────────
-  accounts = signal<AccountLocal[]>([]);
+  // ── Accounts ──────────────────────────────────────────────────────────────
+  accounts   = signal<AccountResponse[]>([]);
+  accLoading = signal(false);
+  accError   = signal<string | null>(null);
 
-  // ── Cards (local state — backend not yet built) ───────────────────────────
-  cards = signal<CardLocal[]>([]);
+  // ── Cards ─────────────────────────────────────────────────────────────────
+  cards       = signal<CardResponse[]>([]);
+  cardsLoading = signal(false);
+  cardsError   = signal<string | null>(null);
 
   // ── Categories (real backend) ─────────────────────────────────────────────
   categories   = signal<CategoryResponse[]>([]);
@@ -180,31 +180,34 @@ export class ConfiguracionComponent implements OnInit {
 
   // ── Account form ──────────────────────────────────────────────────────────
   accountForm = new FormGroup({
-    name:    new FormControl('',      { nonNullable: true, validators: [Validators.required] }),
-    kind:    new FormControl<'Banco' | 'Billetera' | 'Efectivo'>('Banco', { nonNullable: true }),
-    detail:  new FormControl('',      { nonNullable: true }),
-    ccy:     new FormControl<'ARS' | 'USD'>('ARS', { nonNullable: true }),
-    balance: new FormControl(0,       { nonNullable: true }),
+    name:       new FormControl('',    { nonNullable: true, validators: [Validators.required] }),
+    kind:       new FormControl<AccountKind>('Banco', { nonNullable: true }),
+    detail:     new FormControl('',    { nonNullable: true }),
+    ccy:        new FormControl<AccountCcy>('ARS', { nonNullable: true }),
+    balance:    new FormControl(0,     { nonNullable: true }),
+    remunerada: new FormControl(false, { nonNullable: true }),
+    tna:        new FormControl<number | null>(null),
   });
 
   // ── Card form ─────────────────────────────────────────────────────────────
   cardForm = new FormGroup({
-    bank:    new FormControl('',      { nonNullable: true, validators: [Validators.required] }),
-    network: new FormControl<'Visa' | 'Mastercard' | 'Amex'>('Visa', { nonNullable: true }),
-    last4:   new FormControl('',      { nonNullable: true, validators: [Validators.required, Validators.minLength(4), Validators.maxLength(4), Validators.pattern(/^\d{4}$/)] }),
-    ccy:     new FormControl<'ARS' | 'USD'>('ARS', { nonNullable: true }),
-    limit:   new FormControl(0,       { nonNullable: true }),
-    closing: new FormControl('',      { nonNullable: true }),
-    due:     new FormControl('',      { nonNullable: true }),
-    accent:  new FormControl('#52eacd', { nonNullable: true }),
+    bank:        new FormControl('',       { nonNullable: true, validators: [Validators.required] }),
+    network:     new FormControl<CardNetwork>('Visa', { nonNullable: true }),
+    last4:       new FormControl('',       { nonNullable: true, validators: [Validators.required, Validators.minLength(4), Validators.maxLength(4), Validators.pattern(/^\d{4}$/)] }),
+    ccy:         new FormControl<CardCcy>('ARS', { nonNullable: true }),
+    creditLimit: new FormControl(0,        { nonNullable: true }),
+    closingDay:  new FormControl<number>(1, { nonNullable: true, validators: [Validators.required, Validators.min(1), Validators.max(31)] }),
+    dueDay:      new FormControl<number>(1, { nonNullable: true, validators: [Validators.required, Validators.min(1), Validators.max(31)] }),
+    accent:      new FormControl('#52eacd', { nonNullable: true }),
   });
 
   // ── Category form ─────────────────────────────────────────────────────────
   categoryForm = new FormGroup({
-    name:  new FormControl('',           { nonNullable: true, validators: [Validators.required, Validators.maxLength(100)] }),
-    type:  new FormControl<CategoryType>('EXPENSE', { nonNullable: true }),
-    icon:  new FormControl('circle',     { nonNullable: true }),
-    color: new FormControl('#52eacd',    { nonNullable: true }),
+    name:            new FormControl('',           { nonNullable: true, validators: [Validators.required, Validators.maxLength(100)] }),
+    type:            new FormControl<CategoryType>('EXPENSE', { nonNullable: true }),
+    icon:            new FormControl('circle',     { nonNullable: true }),
+    color:           new FormControl('#52eacd',    { nonNullable: true }),
+    estimatedAmount: new FormControl<number | null>(null),
   });
 
   private readonly catFormValues = toSignal(this.categoryForm.valueChanges, {
@@ -214,17 +217,40 @@ export class ConfiguracionComponent implements OnInit {
   previewCategory = computed<CategoryResponse>(() => {
     const v = this.catFormValues();
     return {
-      id:        'preview',
-      name:      (v.name  as string)?.trim() || 'Nueva categoría',
-      icon:      (v.icon  as string)         || 'circle',
-      color:     (v.color as string)         || '#52eacd',
-      type:      (v.type  as CategoryType)   || 'EXPENSE',
-      isDefault: false,
+      id:              'preview',
+      name:            (v.name  as string)?.trim() || 'Nueva categoría',
+      icon:            (v.icon  as string)         || 'circle',
+      color:           (v.color as string)         || '#52eacd',
+      type:            (v.type  as CategoryType)   || 'EXPENSE',
+      isDefault:       false,
+      estimatedAmount: null,
     };
   });
 
   // ── Lifecycle ─────────────────────────────────────────────────────────────
-  ngOnInit(): void { this.loadCategories(); }
+  ngOnInit(): void {
+    this.loadAccounts();
+    this.loadCards();
+    this.loadCategories();
+  }
+
+  loadAccounts(): void {
+    this.accLoading.set(true);
+    this.accError.set(null);
+    this.accountService.getAccounts().subscribe({
+      next:  list => { this.accounts.set(list); this.accLoading.set(false); },
+      error: ()   => { this.accError.set('No se pudieron cargar las cuentas'); this.accLoading.set(false); },
+    });
+  }
+
+  loadCards(): void {
+    this.cardsLoading.set(true);
+    this.cardsError.set(null);
+    this.creditCardService.getCards().subscribe({
+      next:  list => { this.cards.set(list); this.cardsLoading.set(false); },
+      error: ()   => { this.cardsError.set('No se pudieron cargar las tarjetas'); this.cardsLoading.set(false); },
+    });
+  }
 
   loadCategories(): void {
     this.loading.set(true);
@@ -244,99 +270,146 @@ export class ConfiguracionComponent implements OnInit {
 
   // ── Account CRUD ──────────────────────────────────────────────────────────
   openCreateAccount(): void {
-    this.accountForm.reset({ name: '', kind: 'Banco', detail: '', ccy: 'ARS', balance: 0 });
+    this.accountForm.reset({ name: '', kind: 'Banco', detail: '', ccy: 'ARS', balance: 0, remunerada: false, tna: null });
     this.formError.set(null);
     this.modal.set({ kind: 'account', mode: 'create' });
   }
 
-  openEditAccount(a: AccountLocal): void {
-    this.accountForm.setValue({ name: a.name, kind: a.kind, detail: a.detail, ccy: a.ccy, balance: a.balance });
+  openEditAccount(a: AccountResponse): void {
+    this.accountForm.setValue({
+      name: a.name, kind: a.kind, detail: a.detail ?? '',
+      ccy: a.ccy, balance: a.balance, remunerada: a.remunerada, tna: a.tna,
+    });
     this.formError.set(null);
     this.modal.set({ kind: 'account', mode: 'edit', id: a.id });
   }
 
-  openDeleteAccount(a: AccountLocal): void {
+  openDeleteAccount(a: AccountResponse): void {
     this.modal.set({ kind: 'account', mode: 'delete', id: a.id, label: a.name });
   }
 
   submitAccount(): void {
     if (this.accountForm.invalid || this.submitting()) return;
     this.submitting.set(true);
+    this.formError.set(null);
     const v = this.accountForm.getRawValue();
+    const req: AccountRequest = { ...v, detail: v.detail || null };
     const m = this.modal();
     if (!m) return;
 
-    if (m.mode === 'create') {
-      const rec: AccountLocal = { id: crypto.randomUUID(), ...v };
-      this.accounts.update(list => [...list, rec]);
-    } else {
-      this.accounts.update(list =>
-        list.map(a => a.id === m.id ? { ...a, ...v } : a)
-      );
-    }
-    this.submitting.set(false);
-    this.closeModal();
+    const op = m.id
+      ? this.accountService.updateAccount(m.id, req)
+      : this.accountService.createAccount(req);
+
+    op.subscribe({
+      next: saved => {
+        if (m.id) {
+          this.accounts.update(list => list.map(a => a.id === m.id ? saved : a));
+        } else {
+          this.accounts.update(list => [...list, saved]);
+        }
+        this.submitting.set(false);
+        this.closeModal();
+      },
+      error: (err: HttpErrorResponse) => {
+        this.submitting.set(false);
+        this.formError.set(err.error?.message ?? 'Ocurrió un error al guardar');
+      },
+    });
   }
 
   confirmDeleteAccount(): void {
     const m = this.modal();
-    if (!m?.id) return;
-    this.accounts.update(list => list.filter(a => a.id !== m.id));
-    this.closeModal();
+    if (!m?.id || this.submitting()) return;
+    this.submitting.set(true);
+    this.accountService.deleteAccount(m.id).subscribe({
+      next: () => {
+        this.accounts.update(list => list.filter(a => a.id !== m.id));
+        this.submitting.set(false);
+        this.closeModal();
+      },
+      error: (err: HttpErrorResponse) => {
+        this.submitting.set(false);
+        this.accError.set(err.error?.message ?? 'No se pudo eliminar la cuenta');
+        this.closeModal();
+      },
+    });
   }
 
   // ── Card CRUD ─────────────────────────────────────────────────────────────
   openCreateCard(): void {
-    this.cardForm.reset({ bank: '', network: 'Visa', last4: '', ccy: 'ARS', limit: 0, closing: '', due: '', accent: '#52eacd' });
+    this.cardForm.reset({ bank: '', network: 'Visa', last4: '', ccy: 'ARS', creditLimit: 0, closingDay: 1, dueDay: 1, accent: '#52eacd' });
     this.formError.set(null);
     this.modal.set({ kind: 'card', mode: 'create' });
   }
 
-  openEditCard(c: CardLocal): void {
-    this.cardForm.setValue({ bank: c.bank, network: c.network, last4: c.last4, ccy: c.ccy, limit: c.limit, closing: c.closing, due: c.due, accent: c.accent });
+  openEditCard(c: CardResponse): void {
+    this.cardForm.setValue({ bank: c.bank, network: c.network, last4: c.last4, ccy: c.ccy, creditLimit: c.creditLimit, closingDay: c.closingDay, dueDay: c.dueDay, accent: c.accent });
     this.formError.set(null);
     this.modal.set({ kind: 'card', mode: 'edit', id: c.id });
   }
 
-  openDeleteCard(c: CardLocal): void {
+  openDeleteCard(c: CardResponse): void {
     this.modal.set({ kind: 'card', mode: 'delete', id: c.id, label: `${c.bank} ····${c.last4}` });
   }
 
   submitCard(): void {
     if (this.cardForm.invalid || this.submitting()) return;
     this.submitting.set(true);
-    const v = this.cardForm.getRawValue();
-    const m = this.modal();
+    this.formError.set(null);
+    const v   = this.cardForm.getRawValue();
+    const req: CardRequest = { ...v };
+    const m   = this.modal();
     if (!m) return;
 
-    if (m.mode === 'create') {
-      const rec: CardLocal = { id: crypto.randomUUID(), ...v };
-      this.cards.update(list => [...list, rec]);
-    } else {
-      this.cards.update(list =>
-        list.map(c => c.id === m.id ? { ...c, ...v } : c)
-      );
-    }
-    this.submitting.set(false);
-    this.closeModal();
+    const op = m.id
+      ? this.creditCardService.updateCard(m.id, req)
+      : this.creditCardService.createCard(req);
+
+    op.subscribe({
+      next: saved => {
+        if (m.id) {
+          this.cards.update(list => list.map(c => c.id === m.id ? saved : c));
+        } else {
+          this.cards.update(list => [...list, saved]);
+        }
+        this.submitting.set(false);
+        this.closeModal();
+      },
+      error: (err: HttpErrorResponse) => {
+        this.submitting.set(false);
+        this.formError.set(err.error?.message ?? 'Ocurrió un error al guardar');
+      },
+    });
   }
 
   confirmDeleteCard(): void {
     const m = this.modal();
-    if (!m?.id) return;
-    this.cards.update(list => list.filter(c => c.id !== m.id));
-    this.closeModal();
+    if (!m?.id || this.submitting()) return;
+    this.submitting.set(true);
+    this.creditCardService.deleteCard(m.id).subscribe({
+      next: () => {
+        this.cards.update(list => list.filter(c => c.id !== m.id));
+        this.submitting.set(false);
+        this.closeModal();
+      },
+      error: (err: HttpErrorResponse) => {
+        this.submitting.set(false);
+        this.cardsError.set(err.error?.message ?? 'No se pudo eliminar la tarjeta');
+        this.closeModal();
+      },
+    });
   }
 
   // ── Category CRUD ─────────────────────────────────────────────────────────
-  openCreateCategory(): void {
-    this.categoryForm.reset({ name: '', type: 'EXPENSE', icon: 'circle', color: '#52eacd' });
+  openCreateCategory(defaultType: CategoryType = 'EXPENSE'): void {
+    this.categoryForm.reset({ name: '', type: defaultType, icon: 'circle', color: '#52eacd', estimatedAmount: null });
     this.formError.set(null);
     this.modal.set({ kind: 'category', mode: 'create' });
   }
 
   openEditCategory(cat: CategoryResponse): void {
-    this.categoryForm.setValue({ name: cat.name, type: cat.type, icon: cat.icon, color: cat.color });
+    this.categoryForm.setValue({ name: cat.name, type: cat.type, icon: cat.icon, color: cat.color, estimatedAmount: cat.estimatedAmount ?? null });
     this.formError.set(null);
     this.modal.set({ kind: 'category', mode: 'edit', id: cat.id });
   }
