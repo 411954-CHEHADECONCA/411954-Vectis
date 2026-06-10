@@ -2,7 +2,7 @@
 .agents/
 .claude/
 e2e/
-
+.design/
 # Documentación y recursos locales
 CLAUDE.md
 DESIGN.md

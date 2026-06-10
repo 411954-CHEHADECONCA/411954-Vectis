@@ -1,0 +1,158 @@
+<div class="dashboard-content">
+
+  <!-- ── Stat cards ──────────────────────────────────────────────────────────── -->
+  <div class="stat-grid">
+
+    <div class="stat-card">
+      <div class="stat-card__header">
+        <span class="stat-card__label">Patrimonio neto</span>
+        <svg class="stat-card__icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" aria-hidden="true">
+          <path d="M21 12a2.25 2.25 0 00-2.25-2.25H15a3 3 0 11-6 0H5.25A2.25 2.25 0 003 12m18 0v6a2.25 2.25 0 01-2.25 2.25H5.25A2.25 2.25 0 013 18v-6m18 0V9M3 12V9m18-3H3m15.75 0a.75.75 0 11-1.5 0 .75.75 0 011.5 0zm-13.5 0a.75.75 0 11-1.5 0 .75.75 0 011.5 0z" stroke-linecap="round" stroke-linejoin="round"/>
+        </svg>
+      </div>
+      <div class="stat-card__value-row">
+        <span class="stat-card__currency">{{ currencyService.symbol() }}</span>
+        <span class="stat-card__value">{{ fmt(totalAssets) }}</span>
+      </div>
+      <div class="stat-card__footer">
+        <span class="stat-card__delta stat-card__delta--up">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" aria-hidden="true"><path d="M12 19V5M5 12l7-7 7 7" stroke-linecap="round" stroke-linejoin="round"/></svg>
+          4,2%
+        </span>
+        <span class="stat-card__caption">vs. mes anterior</span>
+      </div>
+    </div>
+
+    <div class="stat-card">
+      <div class="stat-card__header">
+        <span class="stat-card__label">Ingresos del mes</span>
+      </div>
+      <div class="stat-card__value-row">
+        <span class="stat-card__currency">{{ currencyService.symbol() }}</span>
+        <span class="stat-card__value">{{ fmt(monthlyIncome) }}</span>
+      </div>
+      <div class="stat-card__footer">
+        <span class="stat-card__delta stat-card__delta--up">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" aria-hidden="true"><path d="M12 19V5M5 12l7-7 7 7" stroke-linecap="round" stroke-linejoin="round"/></svg>
+          2,1%
+        </span>
+        <span class="stat-card__caption">junio</span>
+      </div>
+    </div>
+
+    <div class="stat-card">
+      <div class="stat-card__header">
+        <span class="stat-card__label">Gastos del mes</span>
+      </div>
+      <div class="stat-card__value-row">
+        <span class="stat-card__currency">{{ currencyService.symbol() }}</span>
+        <span class="stat-card__value">{{ fmt(monthlyExpenses) }}</span>
+      </div>
+      <div class="stat-card__footer">
+        <span class="stat-card__delta stat-card__delta--down">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" aria-hidden="true"><path d="M12 5v14M5 12l7 7 7-7" stroke-linecap="round" stroke-linejoin="round"/></svg>
+          1,8%
+        </span>
+        <span class="stat-card__caption">junio</span>
+      </div>
+    </div>
+
+    <div class="stat-card">
+      <div class="stat-card__header">
+        <span class="stat-card__label">Tasa real cartera</span>
+      </div>
+      <div class="stat-card__value-row">
+        <span class="stat-card__value">12,4</span>
+        <span class="stat-card__unit">% anual</span>
+      </div>
+      <div class="stat-card__footer">
+        <span class="stat-card__delta stat-card__delta--up">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" aria-hidden="true"><path d="M12 19V5M5 12l7-7 7 7" stroke-linecap="round" stroke-linejoin="round"/></svg>
+          0,6%
+        </span>
+        <span class="stat-card__caption">vs. inflación</span>
+      </div>
+    </div>
+
+  </div>
+
+  <!-- ── Middle panels ───────────────────────────────────────────────────────── -->
+  <div class="panels-grid">
+
+    <!-- Accounts -->
+    <div class="panel">
+      <div class="panel__header">
+        <h3 class="panel__title">Cuentas</h3>
+        <span class="badge badge--accent">{{ accounts.length }} cuentas</span>
+      </div>
+      <div class="account-list">
+        @for (account of accounts; track account.name; let i = $index) {
+          <div class="account-row" [class.account-row--bordered]="i > 0">
+            <div class="account-row__icon">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" aria-hidden="true">
+                <path d="M12 21v-8.25M15.75 21v-8.25M8.25 21v-8.25M3 9l9-6 9 6m-1.5 12V10.332A48.36 48.36 0 0012 9.75c-2.551 0-5.056.2-7.5.582V21M3 21h18M12 6.75h.008v.008H12V6.75z" stroke-linecap="round" stroke-linejoin="round"/>
+              </svg>
+            </div>
+            <span class="account-row__name">{{ account.name }}</span>
+            <span class="badge" [class.badge--accent]="account.currency === 'USD'" [class.badge--neutral]="account.currency !== 'USD'">{{ account.currency }}</span>
+            <span class="account-row__amount">{{ currencyService.symbol() }} {{ fmt(account.ars) }}</span>
+          </div>
+        }
+      </div>
+    </div>
+
+    <!-- Investments -->
+    <div class="panel">
+      <div class="panel__header">
+        <h3 class="panel__title">Inversiones · TEA</h3>
+      </div>
+      <div class="investment-list">
+        @for (inv of investments; track inv.name) {
+          <div class="investment-item">
+            <div class="investment-item__header">
+              <span class="investment-item__name">{{ inv.name }}</span>
+              <span class="investment-item__rate">{{ inv.tea.toLocaleString('es-AR') }}%</span>
+            </div>
+            <div class="progress-track">
+              <div class="progress-fill" [style.width.%]="inv.tea"></div>
+            </div>
+          </div>
+        }
+      </div>
+    </div>
+
+  </div>
+
+  <!-- ── Cash Flow ─────────────────────────────────────────────────────────────── -->
+  <div class="panel">
+    <div class="panel__header">
+      <h3 class="panel__title">Cash Flow reciente</h3>
+      <button class="secondary-btn">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" aria-hidden="true" style="width:16px;height:16px">
+          <path d="M12 4.5v15m7.5-7.5h-15" stroke-linecap="round" stroke-linejoin="round"/>
+        </svg>
+        Registrar movimiento
+      </button>
+    </div>
+    <div class="flow-list">
+      @for (flow of flows; track flow.description; let i = $index) {
+        <div class="flow-row" [class.flow-row--bordered]="i > 0">
+          <span class="flow-row__date">{{ flow.date }}</span>
+          <span class="flow-row__desc">{{ flow.description }}</span>
+          <span class="badge"
+            [class.badge--positive]="flow.type === 'Ingreso'"
+            [class.badge--accent]="flow.type === 'Rendimiento'"
+            [class.badge--neutral]="flow.type === 'Egreso'">
+            {{ flow.type }}
+          </span>
+          <span class="flow-row__amount"
+            [class.flow-row__amount--positive]="flow.ars > 0"
+            [class.flow-row__amount--negative]="flow.ars < 0">
+            {{ flow.ars > 0 ? '+' : '−' }} {{ currencyService.symbol() }} {{ fmt(flow.ars < 0 ? -flow.ars : flow.ars) }}
+          </span>
+        </div>
+      }
+    </div>
+  </div>
+
+</div>
