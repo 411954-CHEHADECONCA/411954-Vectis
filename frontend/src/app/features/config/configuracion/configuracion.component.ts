@@ -46,6 +46,7 @@ import {
 import { CategoryService } from '../../../core/services/category.service';
 import { AccountService } from '../../../core/services/account.service';
 import { CreditCardService } from '../../../core/services/credit-card.service';
+import { RecurringMovementService } from '../../../core/services/recurring-movement.service';
 import { CategoryBadgeComponent } from '../../../shared/components/category-badge/category-badge.component';
 import {
   CategoryRequest,
@@ -64,13 +65,16 @@ import {
   CardNetwork,
   CardCcy,
 } from '../../../core/models/card.models';
+import {
+  RecurringMovementRequest,
+  RecurringMovementResponse,
+} from '../../../core/models/recurring-movement.models';
 
 // ── Local types ───────────────────────────────────────────────────────────────
 
-export type Tab = 'cuentas' | 'tarjetas' | 'categorias';
+export type Tab = 'cuentas' | 'tarjetas' | 'categorias' | 'recurrentes';
 
-
-export type ModalKind = 'account' | 'card' | 'category';
+export type ModalKind = 'account' | 'card' | 'category' | 'recurring';
 export type ModalMode = 'create' | 'edit' | 'delete';
 
 export interface ModalState {
@@ -132,9 +136,10 @@ export const CARD_PALETTE = [
   ],
 })
 export class ConfiguracionComponent implements OnInit {
-  private readonly categoryService  = inject(CategoryService);
-  private readonly accountService   = inject(AccountService);
-  private readonly creditCardService = inject(CreditCardService);
+  private readonly categoryService         = inject(CategoryService);
+  private readonly accountService          = inject(AccountService);
+  private readonly creditCardService       = inject(CreditCardService);
+  private readonly recurringMovementService = inject(RecurringMovementService);
 
   // ── Exposed constants ─────────────────────────────────────────────────────
   readonly categoryIcons = CATEGORY_ICONS;
@@ -166,11 +171,17 @@ export class ConfiguracionComponent implements OnInit {
     this.categories().filter(c => c.type === 'EXPENSE' || c.type === 'BOTH')
   );
 
+  // ── Recurring movements ───────────────────────────────────────────────────
+  recurringMovements  = signal<RecurringMovementResponse[]>([]);
+  recurringLoading    = signal(false);
+  recurringError      = signal<string | null>(null);
+
   // ── Tab defs (for template loop) ──────────────────────────────────────────
   tabDefs = computed(() => [
-    { id: 'cuentas'    as Tab, label: 'Cuentas bancarias',   count: this.accounts().length    },
-    { id: 'tarjetas'   as Tab, label: 'Tarjetas de crédito', count: this.cards().length       },
-    { id: 'categorias' as Tab, label: 'Categorías',          count: this.categories().length  },
+    { id: 'cuentas'     as Tab, label: 'Cuentas bancarias',      count: this.accounts().length            },
+    { id: 'tarjetas'    as Tab, label: 'Tarjetas de crédito',    count: this.cards().length               },
+    { id: 'categorias'  as Tab, label: 'Categorías',             count: this.categories().length          },
+    { id: 'recurrentes' as Tab, label: 'Movimientos recurrentes', count: this.recurringMovements().length  },
   ]);
 
   // ── Modal ─────────────────────────────────────────────────────────────────
@@ -199,6 +210,17 @@ export class ConfiguracionComponent implements OnInit {
     closingDay:  new FormControl<number>(1, { nonNullable: true, validators: [Validators.required, Validators.min(1), Validators.max(31)] }),
     dueDay:      new FormControl<number>(1, { nonNullable: true, validators: [Validators.required, Validators.min(1), Validators.max(31)] }),
     accent:      new FormControl('#52eacd', { nonNullable: true }),
+  });
+
+  // ── Recurring movement form ───────────────────────────────────────────────
+  recurringForm = new FormGroup({
+    description: new FormControl('',        { nonNullable: true, validators: [Validators.required, Validators.maxLength(200)] }),
+    amount:      new FormControl<number>(0, { nonNullable: true, validators: [Validators.required, Validators.min(0.01)] }),
+    ccy:         new FormControl<'ARS' | 'USD'>('ARS', { nonNullable: true }),
+    type:        new FormControl<'INCOME' | 'EXPENSE'>('EXPENSE', { nonNullable: true }),
+    categoryId:  new FormControl<string | null>(null),
+    accountId:   new FormControl<string | null>(null),
+    dayOfMonth:  new FormControl<number>(1, { nonNullable: true, validators: [Validators.required, Validators.min(1), Validators.max(31)] }),
   });
 
   // ── Category form ─────────────────────────────────────────────────────────
@@ -232,6 +254,7 @@ export class ConfiguracionComponent implements OnInit {
     this.loadAccounts();
     this.loadCards();
     this.loadCategories();
+    this.loadRecurringMovements();
   }
 
   loadAccounts(): void {
@@ -249,6 +272,15 @@ export class ConfiguracionComponent implements OnInit {
     this.creditCardService.getCards().subscribe({
       next:  list => { this.cards.set(list); this.cardsLoading.set(false); },
       error: ()   => { this.cardsError.set('No se pudieron cargar las tarjetas'); this.cardsLoading.set(false); },
+    });
+  }
+
+  loadRecurringMovements(): void {
+    this.recurringLoading.set(true);
+    this.recurringError.set(null);
+    this.recurringMovementService.getRecurringMovements().subscribe({
+      next:  list => { this.recurringMovements.set(list); this.recurringLoading.set(false); },
+      error: ()   => { this.recurringError.set('No se pudieron cargar los movimientos recurrentes'); this.recurringLoading.set(false); },
     });
   }
 
@@ -466,13 +498,98 @@ export class ConfiguracionComponent implements OnInit {
     });
   }
 
+  // ── Recurring movement CRUD ───────────────────────────────────────────────
+  openCreateRecurring(): void {
+    this.recurringForm.reset({ description: '', amount: 0, ccy: 'ARS', type: 'EXPENSE', categoryId: null, accountId: null, dayOfMonth: 1 });
+    this.formError.set(null);
+    this.modal.set({ kind: 'recurring', mode: 'create' });
+  }
+
+  openEditRecurring(rm: RecurringMovementResponse): void {
+    this.recurringForm.setValue({
+      description: rm.description,
+      amount:      rm.amount,
+      ccy:         rm.ccy,
+      type:        rm.type,
+      categoryId:  rm.categoryId,
+      accountId:   rm.accountId,
+      dayOfMonth:  rm.dayOfMonth,
+    });
+    this.formError.set(null);
+    this.modal.set({ kind: 'recurring', mode: 'edit', id: rm.id });
+  }
+
+  openDeleteRecurring(rm: RecurringMovementResponse): void {
+    this.modal.set({ kind: 'recurring', mode: 'delete', id: rm.id, label: rm.description });
+  }
+
+  submitRecurring(): void {
+    if (this.recurringForm.invalid || this.submitting()) return;
+    this.submitting.set(true);
+    this.formError.set(null);
+    const v = this.recurringForm.getRawValue();
+    const req: RecurringMovementRequest = {
+      ...v,
+      categoryId: v.categoryId || null,
+      accountId:  v.accountId  || null,
+    };
+    const m = this.modal();
+    if (!m) return;
+
+    const op = m.id
+      ? this.recurringMovementService.updateRecurringMovement(m.id, req)
+      : this.recurringMovementService.createRecurringMovement(req);
+
+    op.subscribe({
+      next: saved => {
+        if (m.id) {
+          this.recurringMovements.update(list => list.map(r => r.id === m.id ? saved : r));
+        } else {
+          this.recurringMovements.update(list => [...list, saved]);
+        }
+        this.submitting.set(false);
+        this.closeModal();
+      },
+      error: (err: HttpErrorResponse) => {
+        this.submitting.set(false);
+        this.formError.set(err.error?.message ?? 'Ocurrió un error al guardar');
+      },
+    });
+  }
+
+  confirmDeleteRecurring(): void {
+    const m = this.modal();
+    if (!m?.id || this.submitting()) return;
+    this.submitting.set(true);
+    this.recurringMovementService.deleteRecurringMovement(m.id).subscribe({
+      next: () => {
+        this.recurringMovements.update(list => list.filter(r => r.id !== m.id));
+        this.submitting.set(false);
+        this.closeModal();
+      },
+      error: (err: HttpErrorResponse) => {
+        this.submitting.set(false);
+        this.recurringError.set(err.error?.message ?? 'No se pudo eliminar el movimiento');
+        this.closeModal();
+      },
+    });
+  }
+
+  toggleRecurring(rm: RecurringMovementResponse): void {
+    this.recurringMovementService.toggleActive(rm.id).subscribe({
+      next: updated => this.recurringMovements.update(list => list.map(r => r.id === rm.id ? updated : r)),
+      error: ()     => this.recurringError.set('No se pudo actualizar el estado del movimiento'),
+    });
+  }
+
   // ── Unified delete confirm ────────────────────────────────────────────────
   confirmDelete(): void {
     const m = this.modal();
     if (!m) return;
-    if (m.kind === 'account')  this.confirmDeleteAccount();
-    if (m.kind === 'card')     this.confirmDeleteCard();
-    if (m.kind === 'category') this.confirmDeleteCategory();
+    if (m.kind === 'account')   this.confirmDeleteAccount();
+    if (m.kind === 'card')      this.confirmDeleteCard();
+    if (m.kind === 'category')  this.confirmDeleteCategory();
+    if (m.kind === 'recurring') this.confirmDeleteRecurring();
   }
 
   // ── Formatting ────────────────────────────────────────────────────────────

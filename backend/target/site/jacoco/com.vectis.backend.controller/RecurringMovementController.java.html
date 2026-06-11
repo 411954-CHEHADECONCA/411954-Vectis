@@ -1,0 +1,119 @@
+<?xml version="1.0" encoding="UTF-8"?><!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Strict//EN" "http://www.w3.org/TR/xhtml1/DTD/xhtml1-strict.dtd"><html xmlns="http://www.w3.org/1999/xhtml" lang="es"><head><meta http-equiv="Content-Type" content="text/html;charset=UTF-8"/><link rel="stylesheet" href="../jacoco-resources/report.css" type="text/css"/><link rel="shortcut icon" href="../jacoco-resources/report.gif" type="image/gif"/><title>RecurringMovementController.java</title><link rel="stylesheet" href="../jacoco-resources/prettify.css" type="text/css"/><script type="text/javascript" src="../jacoco-resources/prettify.js"></script></head><body onload="window['PR_TAB_WIDTH']=4;prettyPrint()"><div class="breadcrumb" id="breadcrumb"><span class="info"><a href="../jacoco-sessions.html" class="el_session">Sessions</a></span><a href="../index.html" class="el_report">vectis-backend</a> &gt; <a href="index.source.html" class="el_package">com.vectis.backend.controller</a> &gt; <span class="el_source">RecurringMovementController.java</span></div><h1>RecurringMovementController.java</h1><pre class="source lang-java linenums">package com.vectis.backend.controller;
+
+import com.vectis.backend.domain.entity.User;
+import com.vectis.backend.dto.RecurringMovementRequest;
+import com.vectis.backend.dto.RecurringMovementResponse;
+import com.vectis.backend.exception.GlobalExceptionHandler.ErrorResponse;
+import com.vectis.backend.service.RecurringMovementService;
+import io.swagger.v3.oas.annotations.Operation;
+import io.swagger.v3.oas.annotations.media.Content;
+import io.swagger.v3.oas.annotations.media.Schema;
+import io.swagger.v3.oas.annotations.responses.ApiResponse;
+import io.swagger.v3.oas.annotations.responses.ApiResponses;
+import io.swagger.v3.oas.annotations.security.SecurityRequirement;
+import io.swagger.v3.oas.annotations.tags.Tag;
+import jakarta.validation.Valid;
+import lombok.RequiredArgsConstructor;
+import org.springframework.http.HttpStatus;
+import org.springframework.security.core.annotation.AuthenticationPrincipal;
+import org.springframework.web.bind.annotation.*;
+
+import java.util.List;
+import java.util.UUID;
+
+@RestController
+@RequestMapping(&quot;/api/recurring-movements&quot;)
+@RequiredArgsConstructor
+@Tag(name = &quot;Recurring Movements&quot;, description = &quot;Gestión de movimientos recurrentes del usuario&quot;)
+@SecurityRequirement(name = &quot;BearerAuth&quot;)
+public class RecurringMovementController {
+
+    private final RecurringMovementService recurringMovementService;
+
+    @GetMapping
+    @Operation(summary = &quot;Listar movimientos recurrentes del usuario autenticado&quot;)
+    @ApiResponses({
+        @ApiResponse(responseCode = &quot;200&quot;, description = &quot;Lista de movimientos recurrentes&quot;),
+        @ApiResponse(responseCode = &quot;401&quot;, description = &quot;Token JWT ausente o inválido&quot;,
+            content = @Content(schema = @Schema(implementation = ErrorResponse.class)))
+    })
+    public List&lt;RecurringMovementResponse&gt; getRecurringMovements(@AuthenticationPrincipal User user) {
+<span class="fc" id="L41">        return recurringMovementService.getRecurringMovements(user.getId());</span>
+    }
+
+    @PostMapping
+    @ResponseStatus(HttpStatus.CREATED)
+    @Operation(summary = &quot;Crear un movimiento recurrente&quot;)
+    @ApiResponses({
+        @ApiResponse(responseCode = &quot;201&quot;, description = &quot;Movimiento recurrente creado&quot;),
+        @ApiResponse(responseCode = &quot;400&quot;, description = &quot;Datos de entrada inválidos&quot;,
+            content = @Content(schema = @Schema(implementation = ErrorResponse.class))),
+        @ApiResponse(responseCode = &quot;401&quot;, description = &quot;Token JWT ausente o inválido&quot;,
+            content = @Content(schema = @Schema(implementation = ErrorResponse.class))),
+        @ApiResponse(responseCode = &quot;403&quot;, description = &quot;La cuenta no pertenece al usuario autenticado&quot;,
+            content = @Content(schema = @Schema(implementation = ErrorResponse.class))),
+        @ApiResponse(responseCode = &quot;404&quot;, description = &quot;Categoría o cuenta no encontrada&quot;,
+            content = @Content(schema = @Schema(implementation = ErrorResponse.class)))
+    })
+    public RecurringMovementResponse createRecurringMovement(
+            @Valid @RequestBody RecurringMovementRequest request,
+            @AuthenticationPrincipal User user) {
+<span class="fc" id="L61">        return recurringMovementService.createRecurringMovement(request, user);</span>
+    }
+
+    @PutMapping(&quot;/{id}&quot;)
+    @Operation(summary = &quot;Editar un movimiento recurrente propio&quot;)
+    @ApiResponses({
+        @ApiResponse(responseCode = &quot;200&quot;, description = &quot;Movimiento recurrente actualizado&quot;),
+        @ApiResponse(responseCode = &quot;400&quot;, description = &quot;Datos de entrada inválidos&quot;,
+            content = @Content(schema = @Schema(implementation = ErrorResponse.class))),
+        @ApiResponse(responseCode = &quot;401&quot;, description = &quot;Token JWT ausente o inválido&quot;,
+            content = @Content(schema = @Schema(implementation = ErrorResponse.class))),
+        @ApiResponse(responseCode = &quot;403&quot;, description = &quot;No se puede editar un movimiento de otro usuario&quot;,
+            content = @Content(schema = @Schema(implementation = ErrorResponse.class))),
+        @ApiResponse(responseCode = &quot;404&quot;, description = &quot;Movimiento recurrente no encontrado&quot;,
+            content = @Content(schema = @Schema(implementation = ErrorResponse.class)))
+    })
+    public RecurringMovementResponse updateRecurringMovement(
+            @PathVariable UUID id,
+            @Valid @RequestBody RecurringMovementRequest request,
+            @AuthenticationPrincipal User user) {
+<span class="nc" id="L81">        return recurringMovementService.updateRecurringMovement(id, request, user);</span>
+    }
+
+    @PatchMapping(&quot;/{id}/toggle&quot;)
+    @Operation(summary = &quot;Activar o desactivar un movimiento recurrente&quot;)
+    @ApiResponses({
+        @ApiResponse(responseCode = &quot;200&quot;, description = &quot;Estado del movimiento recurrente actualizado&quot;),
+        @ApiResponse(responseCode = &quot;401&quot;, description = &quot;Token JWT ausente o inválido&quot;,
+            content = @Content(schema = @Schema(implementation = ErrorResponse.class))),
+        @ApiResponse(responseCode = &quot;403&quot;, description = &quot;No se puede modificar un movimiento de otro usuario&quot;,
+            content = @Content(schema = @Schema(implementation = ErrorResponse.class))),
+        @ApiResponse(responseCode = &quot;404&quot;, description = &quot;Movimiento recurrente no encontrado&quot;,
+            content = @Content(schema = @Schema(implementation = ErrorResponse.class)))
+    })
+    public RecurringMovementResponse toggleActive(
+            @PathVariable UUID id,
+            @AuthenticationPrincipal User user) {
+<span class="fc" id="L98">        return recurringMovementService.toggleActive(id, user);</span>
+    }
+
+    @DeleteMapping(&quot;/{id}&quot;)
+    @ResponseStatus(HttpStatus.NO_CONTENT)
+    @Operation(summary = &quot;Eliminar (soft delete) un movimiento recurrente propio&quot;)
+    @ApiResponses({
+        @ApiResponse(responseCode = &quot;204&quot;, description = &quot;Movimiento recurrente eliminado&quot;),
+        @ApiResponse(responseCode = &quot;401&quot;, description = &quot;Token JWT ausente o inválido&quot;,
+            content = @Content(schema = @Schema(implementation = ErrorResponse.class))),
+        @ApiResponse(responseCode = &quot;403&quot;, description = &quot;No se puede eliminar un movimiento de otro usuario&quot;,
+            content = @Content(schema = @Schema(implementation = ErrorResponse.class))),
+        @ApiResponse(responseCode = &quot;404&quot;, description = &quot;Movimiento recurrente no encontrado&quot;,
+            content = @Content(schema = @Schema(implementation = ErrorResponse.class)))
+    })
+    public void deleteRecurringMovement(
+            @PathVariable UUID id,
+            @AuthenticationPrincipal User user) {
+<span class="fc" id="L116">        recurringMovementService.deleteRecurringMovement(id, user);</span>
+<span class="fc" id="L117">    }</span>
+}
+</pre><div class="footer"><span class="right">Created with <a href="http://www.jacoco.org/jacoco">JaCoCo</a> 0.8.12.202403310830</span></div></body></html>
