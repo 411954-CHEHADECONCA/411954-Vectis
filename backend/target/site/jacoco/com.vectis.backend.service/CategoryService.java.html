@@ -51,7 +51,7 @@ public class CategoryService {
 <span class="fc bfc" id="L51" title="All 2 branches covered.">        if (categoryRepository.existsByNameIgnoreCaseAndUser_Id(request.name(), user.getId())) {</span>
 <span class="fc" id="L52">            throw new VectisException(</span>
 <span class="fc" id="L53">                    &quot;Ya existe una categoría con el nombre '&quot; + request.name() + &quot;'&quot;,</span>
-                    HttpStatus.CONFLICT
+<span class="fc" id="L54">                    HttpStatus.CONFLICT</span>
             );
         }
 
@@ -85,8 +85,8 @@ public class CategoryService {
 
 <span class="fc bfc" id="L86" title="All 4 branches covered.">        if (category.isDefault() || !category.getUser().getId().equals(user.getId())) {</span>
 <span class="fc" id="L87">            throw new VectisException(</span>
-                    &quot;No tenés permiso para modificar esta categoría&quot;,
-                    HttpStatus.FORBIDDEN
+<span class="fc" id="L88">                    &quot;No tenés permiso para modificar esta categoría&quot;,</span>
+<span class="fc" id="L89">                    HttpStatus.FORBIDDEN</span>
             );
         }
 
@@ -115,8 +115,8 @@ public class CategoryService {
 
 <span class="pc bpc" id="L116" title="1 of 4 branches missed.">        if (category.isDefault() || !category.getUser().getId().equals(user.getId())) {</span>
 <span class="fc" id="L117">            throw new VectisException(</span>
-                    &quot;No tenés permiso para eliminar esta categoría&quot;,
-                    HttpStatus.FORBIDDEN
+<span class="fc" id="L118">                    &quot;No tenés permiso para eliminar esta categoría&quot;,</span>
+<span class="fc" id="L119">                    HttpStatus.FORBIDDEN</span>
             );
         }
 

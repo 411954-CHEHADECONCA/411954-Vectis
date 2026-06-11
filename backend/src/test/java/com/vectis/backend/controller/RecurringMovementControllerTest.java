@@ -112,7 +112,7 @@ class RecurringMovementControllerTest {
     @DisplayName("POST /api/recurring-movements con dayOfMonth=35 retorna 400")
     void create_invalidDayOfMonth_returns400() throws Exception {
         RecurringMovementRequest request = new RecurringMovementRequest(
-                "Netflix", new BigDecimal("15000"), "ARS", "EXPENSE", null, null, 35);
+                "Netflix", new BigDecimal("15000"), "ARS", "EXPENSE", null, null, null, 35);
 
         mockMvc.perform(post("/api/recurring-movements")
                         .header(HttpHeaders.AUTHORIZATION, AUTH_HEADER)
@@ -125,7 +125,7 @@ class RecurringMovementControllerTest {
     @DisplayName("POST /api/recurring-movements con amount=0 retorna 400")
     void create_zeroAmount_returns400() throws Exception {
         RecurringMovementRequest request = new RecurringMovementRequest(
-                "Netflix", BigDecimal.ZERO, "ARS", "EXPENSE", null, null, 10);
+                "Netflix", BigDecimal.ZERO, "ARS", "EXPENSE", null, null, null, 10);
 
         mockMvc.perform(post("/api/recurring-movements")
                         .header(HttpHeaders.AUTHORIZATION, AUTH_HEADER)
@@ -190,13 +190,35 @@ class RecurringMovementControllerTest {
 
     private RecurringMovementRequest buildRequest() {
         return new RecurringMovementRequest(
-                "Netflix", new BigDecimal("15000.0000"), "ARS", "EXPENSE", null, null, 10);
+                "Netflix", new BigDecimal("15000.0000"), "ARS", "EXPENSE", null, null, null, 10);
     }
 
     private RecurringMovementResponse buildResponse(UUID id) {
         return new RecurringMovementResponse(
                 id, "Netflix", new BigDecimal("15000.0000"), "ARS", "EXPENSE",
-                null, null, null, null, null, null,
+                null, null, null, null, null, null, null, null,
                 10, true, OffsetDateTime.now());
+    }
+
+    // ─── validación exclusividad cuenta/tarjeta ───────────────────────────────
+
+    @Test
+    @DisplayName("POST /api/recurring-movements con accountId y cardId simultáneos retorna 400")
+    void create_bothAccountAndCard_returns400() throws Exception {
+        UUID accountId = UUID.randomUUID();
+        UUID cardId    = UUID.randomUUID();
+        RecurringMovementRequest request = new RecurringMovementRequest(
+                "Netflix", new BigDecimal("15000.0000"), "ARS", "EXPENSE",
+                null, accountId, cardId, 10);
+
+        given(recurringMovementService.createRecurringMovement(
+                any(RecurringMovementRequest.class), any(User.class)))
+                .willThrow(new VectisException("No podés asociar cuenta y tarjeta al mismo tiempo", HttpStatus.BAD_REQUEST));
+
+        mockMvc.perform(post("/api/recurring-movements")
+                        .header(HttpHeaders.AUTHORIZATION, AUTH_HEADER)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(objectMapper.writeValueAsString(request)))
+                .andExpect(status().isBadRequest());
     }
 }

@@ -9,13 +9,13 @@ const BASE = `${environment.apiUrl}/recurring-movements`;
 const MOCK_RESPONSE: RecurringMovementResponse = {
   id: 'rm-1', description: 'Netflix', amount: 15000, ccy: 'ARS', type: 'EXPENSE',
   categoryId: null, categoryName: null, categoryIcon: null, categoryColor: null,
-  accountId: null, accountName: null, dayOfMonth: 10, active: true,
-  createdAt: '2026-06-10T00:00:00Z',
+  accountId: null, accountName: null, cardId: null, cardName: null,
+  dayOfMonth: 10, active: true, createdAt: '2026-06-10T00:00:00Z',
 };
 
 const MOCK_REQUEST: RecurringMovementRequest = {
   description: 'Netflix', amount: 15000, ccy: 'ARS', type: 'EXPENSE',
-  categoryId: null, accountId: null, dayOfMonth: 10,
+  categoryId: null, accountId: null, cardId: null, dayOfMonth: 10,
 };
 
 describe('RecurringMovementService', () => {

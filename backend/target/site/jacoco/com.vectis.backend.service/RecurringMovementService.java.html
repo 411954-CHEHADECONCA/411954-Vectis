@@ -2,16 +2,19 @@
 
 import com.vectis.backend.domain.entity.Account;
 import com.vectis.backend.domain.entity.Category;
+import com.vectis.backend.domain.entity.CreditCard;
 import com.vectis.backend.domain.entity.RecurringMovement;
 import com.vectis.backend.domain.entity.User;
 import com.vectis.backend.dto.RecurringMovementRequest;
 import com.vectis.backend.dto.RecurringMovementResponse;
 import com.vectis.backend.exception.AccountNotFoundException;
+import com.vectis.backend.exception.CreditCardNotFoundException;
 import com.vectis.backend.exception.RecurringMovementNotFoundException;
 import com.vectis.backend.exception.VectisException;
 import com.vectis.backend.mapper.RecurringMovementMapper;
 import com.vectis.backend.repository.AccountRepository;
 import com.vectis.backend.repository.CategoryRepository;
+import com.vectis.backend.repository.CreditCardRepository;
 import com.vectis.backend.repository.RecurringMovementRepository;
 import lombok.RequiredArgsConstructor;
 import org.springframework.http.HttpStatus;
@@ -31,95 +34,120 @@ public class RecurringMovementService {
     private final RecurringMovementRepository recurringMovementRepository;
     private final AccountRepository accountRepository;
     private final CategoryRepository categoryRepository;
+    private final CreditCardRepository creditCardRepository;
     private final RecurringMovementMapper recurringMovementMapper;
 
     @Transactional(readOnly = true)
     public List&lt;RecurringMovementResponse&gt; getRecurringMovements(UUID userId) {
-<span class="fc" id="L38">        return recurringMovementRepository</span>
-<span class="fc" id="L39">                .findAllByUser_IdAndDeletedAtIsNullOrderByCreatedAtAsc(userId)</span>
-<span class="fc" id="L40">                .stream()</span>
-<span class="fc" id="L41">                .map(recurringMovementMapper::toResponse)</span>
-<span class="fc" id="L42">                .toList();</span>
+<span class="fc" id="L42">        return recurringMovementRepository</span>
+<span class="fc" id="L43">                .findAllByUser_IdAndDeletedAtIsNullOrderByCreatedAtAsc(userId)</span>
+<span class="fc" id="L44">                .stream()</span>
+<span class="fc" id="L45">                .map(recurringMovementMapper::toResponse)</span>
+<span class="fc" id="L46">                .toList();</span>
     }
 
     public RecurringMovementResponse createRecurringMovement(RecurringMovementRequest request, User user) {
-<span class="fc" id="L46">        Category category = resolveCategory(request.categoryId(), user);</span>
-<span class="fc" id="L47">        Account account = resolveAccount(request.accountId(), user);</span>
+<span class="fc" id="L50">        validateSinglePaymentMethod(request);</span>
 
-<span class="fc" id="L49">        RecurringMovement rm = RecurringMovement.builder()</span>
-<span class="fc" id="L50">                .user(user)</span>
-<span class="fc" id="L51">                .description(request.description())</span>
-<span class="fc" id="L52">                .amount(request.amount())</span>
-<span class="fc" id="L53">                .ccy(request.ccy())</span>
-<span class="fc" id="L54">                .type(request.type())</span>
-<span class="fc" id="L55">                .category(category)</span>
-<span class="fc" id="L56">                .account(account)</span>
-<span class="fc" id="L57">                .dayOfMonth(request.dayOfMonth())</span>
-<span class="fc" id="L58">                .build();</span>
+<span class="fc" id="L52">        Category category = resolveCategory(request.categoryId(), user);</span>
+<span class="fc" id="L53">        Account account   = resolveAccount(request.accountId(), user);</span>
+<span class="fc" id="L54">        CreditCard card   = resolveCard(request.cardId(), user);</span>
 
-<span class="fc" id="L60">        return recurringMovementMapper.toResponse(recurringMovementRepository.save(rm));</span>
+<span class="fc" id="L56">        RecurringMovement rm = RecurringMovement.builder()</span>
+<span class="fc" id="L57">                .user(user)</span>
+<span class="fc" id="L58">                .description(request.description())</span>
+<span class="fc" id="L59">                .amount(request.amount())</span>
+<span class="fc" id="L60">                .ccy(request.ccy())</span>
+<span class="fc" id="L61">                .type(request.type())</span>
+<span class="fc" id="L62">                .category(category)</span>
+<span class="fc" id="L63">                .account(account)</span>
+<span class="fc" id="L64">                .card(card)</span>
+<span class="fc" id="L65">                .dayOfMonth(request.dayOfMonth())</span>
+<span class="fc" id="L66">                .build();</span>
+
+<span class="fc" id="L68">        return recurringMovementMapper.toResponse(recurringMovementRepository.save(rm));</span>
     }
 
     public RecurringMovementResponse updateRecurringMovement(UUID id, RecurringMovementRequest request, User user) {
-<span class="fc" id="L64">        RecurringMovement rm = recurringMovementRepository.findByIdAndDeletedAtIsNull(id)</span>
-<span class="fc" id="L65">                .orElseThrow(() -&gt; new RecurringMovementNotFoundException(id));</span>
+<span class="fc" id="L72">        RecurringMovement rm = recurringMovementRepository.findByIdAndDeletedAtIsNull(id)</span>
+<span class="fc" id="L73">                .orElseThrow(() -&gt; new RecurringMovementNotFoundException(id));</span>
 
-<span class="pc bpc" id="L67" title="1 of 2 branches missed.">        if (!rm.getUser().getId().equals(user.getId())) {</span>
-<span class="fc" id="L68">            throw new VectisException(&quot;No tenés permiso para modificar este movimiento recurrente&quot;, HttpStatus.FORBIDDEN);</span>
+<span class="pc bpc" id="L75" title="1 of 2 branches missed.">        if (!rm.getUser().getId().equals(user.getId())) {</span>
+<span class="fc" id="L76">            throw new VectisException(&quot;No tenés permiso para modificar este movimiento recurrente&quot;, HttpStatus.FORBIDDEN);</span>
         }
 
-<span class="nc" id="L71">        Category category = resolveCategory(request.categoryId(), user);</span>
-<span class="nc" id="L72">        Account account = resolveAccount(request.accountId(), user);</span>
+<span class="nc" id="L79">        validateSinglePaymentMethod(request);</span>
 
-<span class="nc" id="L74">        rm.setDescription(request.description());</span>
-<span class="nc" id="L75">        rm.setAmount(request.amount());</span>
-<span class="nc" id="L76">        rm.setCcy(request.ccy());</span>
-<span class="nc" id="L77">        rm.setType(request.type());</span>
-<span class="nc" id="L78">        rm.setCategory(category);</span>
-<span class="nc" id="L79">        rm.setAccount(account);</span>
-<span class="nc" id="L80">        rm.setDayOfMonth(request.dayOfMonth());</span>
+<span class="nc" id="L81">        Category category = resolveCategory(request.categoryId(), user);</span>
+<span class="nc" id="L82">        Account account   = resolveAccount(request.accountId(), user);</span>
+<span class="nc" id="L83">        CreditCard card   = resolveCard(request.cardId(), user);</span>
 
-<span class="nc" id="L82">        return recurringMovementMapper.toResponse(recurringMovementRepository.save(rm));</span>
+<span class="nc" id="L85">        rm.setDescription(request.description());</span>
+<span class="nc" id="L86">        rm.setAmount(request.amount());</span>
+<span class="nc" id="L87">        rm.setCcy(request.ccy());</span>
+<span class="nc" id="L88">        rm.setType(request.type());</span>
+<span class="nc" id="L89">        rm.setCategory(category);</span>
+<span class="nc" id="L90">        rm.setAccount(account);</span>
+<span class="nc" id="L91">        rm.setCard(card);</span>
+<span class="nc" id="L92">        rm.setDayOfMonth(request.dayOfMonth());</span>
+
+<span class="nc" id="L94">        return recurringMovementMapper.toResponse(recurringMovementRepository.save(rm));</span>
     }
 
     public RecurringMovementResponse toggleActive(UUID id, User user) {
-<span class="fc" id="L86">        RecurringMovement rm = recurringMovementRepository.findByIdAndDeletedAtIsNull(id)</span>
-<span class="pc" id="L87">                .orElseThrow(() -&gt; new RecurringMovementNotFoundException(id));</span>
-
-<span class="pc bpc" id="L89" title="1 of 2 branches missed.">        if (!rm.getUser().getId().equals(user.getId())) {</span>
-<span class="nc" id="L90">            throw new VectisException(&quot;No tenés permiso para modificar este movimiento recurrente&quot;, HttpStatus.FORBIDDEN);</span>
-        }
-
-<span class="pc bpc" id="L93" title="1 of 2 branches missed.">        rm.setActive(!rm.isActive());</span>
-<span class="fc" id="L94">        return recurringMovementMapper.toResponse(recurringMovementRepository.save(rm));</span>
-    }
-
-    public void deleteRecurringMovement(UUID id, User user) {
 <span class="fc" id="L98">        RecurringMovement rm = recurringMovementRepository.findByIdAndDeletedAtIsNull(id)</span>
 <span class="pc" id="L99">                .orElseThrow(() -&gt; new RecurringMovementNotFoundException(id));</span>
 
-<span class="fc bfc" id="L101" title="All 2 branches covered.">        if (!rm.getUser().getId().equals(user.getId())) {</span>
-<span class="fc" id="L102">            throw new VectisException(&quot;No tenés permiso para eliminar este movimiento recurrente&quot;, HttpStatus.FORBIDDEN);</span>
+<span class="pc bpc" id="L101" title="1 of 2 branches missed.">        if (!rm.getUser().getId().equals(user.getId())) {</span>
+<span class="nc" id="L102">            throw new VectisException(&quot;No tenés permiso para modificar este movimiento recurrente&quot;, HttpStatus.FORBIDDEN);</span>
         }
 
-<span class="fc" id="L105">        rm.setDeletedAt(OffsetDateTime.now(ZoneOffset.UTC));</span>
-<span class="fc" id="L106">        recurringMovementRepository.save(rm);</span>
-<span class="fc" id="L107">    }</span>
+<span class="pc bpc" id="L105" title="1 of 2 branches missed.">        rm.setActive(!rm.isActive());</span>
+<span class="fc" id="L106">        return recurringMovementMapper.toResponse(recurringMovementRepository.save(rm));</span>
+    }
+
+    public void deleteRecurringMovement(UUID id, User user) {
+<span class="fc" id="L110">        RecurringMovement rm = recurringMovementRepository.findByIdAndDeletedAtIsNull(id)</span>
+<span class="pc" id="L111">                .orElseThrow(() -&gt; new RecurringMovementNotFoundException(id));</span>
+
+<span class="fc bfc" id="L113" title="All 2 branches covered.">        if (!rm.getUser().getId().equals(user.getId())) {</span>
+<span class="fc" id="L114">            throw new VectisException(&quot;No tenés permiso para eliminar este movimiento recurrente&quot;, HttpStatus.FORBIDDEN);</span>
+        }
+
+<span class="fc" id="L117">        rm.setDeletedAt(OffsetDateTime.now(ZoneOffset.UTC));</span>
+<span class="fc" id="L118">        recurringMovementRepository.save(rm);</span>
+<span class="fc" id="L119">    }</span>
+
+    private void validateSinglePaymentMethod(RecurringMovementRequest request) {
+<span class="fc bfc" id="L122" title="All 4 branches covered.">        if (request.accountId() != null &amp;&amp; request.cardId() != null) {</span>
+<span class="fc" id="L123">            throw new VectisException(&quot;No podés asociar cuenta y tarjeta al mismo tiempo&quot;, HttpStatus.BAD_REQUEST);</span>
+        }
+<span class="fc" id="L125">    }</span>
 
     private Category resolveCategory(UUID categoryId, User user) {
-<span class="pc bpc" id="L110" title="1 of 2 branches missed.">        if (categoryId == null) return null;</span>
-<span class="nc" id="L111">        return categoryRepository.findById(categoryId)</span>
-<span class="nc" id="L112">                .orElseThrow(() -&gt; new VectisException(&quot;Categoría no encontrada: &quot; + categoryId, HttpStatus.NOT_FOUND));</span>
+<span class="pc bpc" id="L128" title="1 of 2 branches missed.">        if (categoryId == null) return null;</span>
+<span class="nc" id="L129">        return categoryRepository.findById(categoryId)</span>
+<span class="nc" id="L130">                .orElseThrow(() -&gt; new VectisException(&quot;Categoría no encontrada: &quot; + categoryId, HttpStatus.NOT_FOUND));</span>
     }
 
     private Account resolveAccount(UUID accountId, User user) {
-<span class="fc bfc" id="L116" title="All 2 branches covered.">        if (accountId == null) return null;</span>
-<span class="fc" id="L117">        Account account = accountRepository.findById(accountId)</span>
-<span class="pc" id="L118">                .orElseThrow(() -&gt; new AccountNotFoundException(accountId));</span>
-<span class="pc bpc" id="L119" title="1 of 2 branches missed.">        if (!account.getUser().getId().equals(user.getId())) {</span>
-<span class="fc" id="L120">            throw new VectisException(&quot;La cuenta no pertenece al usuario autenticado&quot;, HttpStatus.FORBIDDEN);</span>
+<span class="fc bfc" id="L134" title="All 2 branches covered.">        if (accountId == null) return null;</span>
+<span class="fc" id="L135">        Account account = accountRepository.findById(accountId)</span>
+<span class="pc" id="L136">                .orElseThrow(() -&gt; new AccountNotFoundException(accountId));</span>
+<span class="pc bpc" id="L137" title="1 of 2 branches missed.">        if (!account.getUser().getId().equals(user.getId())) {</span>
+<span class="fc" id="L138">            throw new VectisException(&quot;La cuenta no pertenece al usuario autenticado&quot;, HttpStatus.FORBIDDEN);</span>
         }
-<span class="nc" id="L122">        return account;</span>
+<span class="nc" id="L140">        return account;</span>
+    }
+
+    private CreditCard resolveCard(UUID cardId, User user) {
+<span class="fc bfc" id="L144" title="All 2 branches covered.">        if (cardId == null) return null;</span>
+<span class="fc" id="L145">        CreditCard card = creditCardRepository.findById(cardId)</span>
+<span class="pc" id="L146">                .orElseThrow(() -&gt; new CreditCardNotFoundException(cardId));</span>
+<span class="fc bfc" id="L147" title="All 2 branches covered.">        if (!card.getUser().getId().equals(user.getId())) {</span>
+<span class="fc" id="L148">            throw new VectisException(&quot;La tarjeta no pertenece al usuario autenticado&quot;, HttpStatus.FORBIDDEN);</span>
+        }
+<span class="fc" id="L150">        return card;</span>
     }
 }
 </pre><div class="footer"><span class="right">Created with <a href="http://www.jacoco.org/jacoco">JaCoCo</a> 0.8.12.202403310830</span></div></body></html>

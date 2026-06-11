@@ -2,16 +2,19 @@ package com.vectis.backend.service;
 
 import com.vectis.backend.domain.entity.Account;
 import com.vectis.backend.domain.entity.Category;
+import com.vectis.backend.domain.entity.CreditCard;
 import com.vectis.backend.domain.entity.RecurringMovement;
 import com.vectis.backend.domain.entity.User;
 import com.vectis.backend.dto.RecurringMovementRequest;
 import com.vectis.backend.dto.RecurringMovementResponse;
 import com.vectis.backend.exception.AccountNotFoundException;
+import com.vectis.backend.exception.CreditCardNotFoundException;
 import com.vectis.backend.exception.RecurringMovementNotFoundException;
 import com.vectis.backend.exception.VectisException;
 import com.vectis.backend.mapper.RecurringMovementMapper;
 import com.vectis.backend.repository.AccountRepository;
 import com.vectis.backend.repository.CategoryRepository;
+import com.vectis.backend.repository.CreditCardRepository;
 import com.vectis.backend.repository.RecurringMovementRepository;
 import lombok.RequiredArgsConstructor;
 import org.springframework.http.HttpStatus;
@@ -31,6 +34,7 @@ public class RecurringMovementService {
     private final RecurringMovementRepository recurringMovementRepository;
     private final AccountRepository accountRepository;
     private final CategoryRepository categoryRepository;
+    private final CreditCardRepository creditCardRepository;
     private final RecurringMovementMapper recurringMovementMapper;
 
     @Transactional(readOnly = true)
@@ -43,8 +47,11 @@ public class RecurringMovementService {
     }
 
     public RecurringMovementResponse createRecurringMovement(RecurringMovementRequest request, User user) {
+        validateSinglePaymentMethod(request);
+
         Category category = resolveCategory(request.categoryId(), user);
-        Account account = resolveAccount(request.accountId(), user);
+        Account account   = resolveAccount(request.accountId(), user);
+        CreditCard card   = resolveCard(request.cardId(), user);
 
         RecurringMovement rm = RecurringMovement.builder()
                 .user(user)
@@ -54,6 +61,7 @@ public class RecurringMovementService {
                 .type(request.type())
                 .category(category)
                 .account(account)
+                .card(card)
                 .dayOfMonth(request.dayOfMonth())
                 .build();
 
@@ -68,8 +76,11 @@ public class RecurringMovementService {
             throw new VectisException("No tenés permiso para modificar este movimiento recurrente", HttpStatus.FORBIDDEN);
         }
 
+        validateSinglePaymentMethod(request);
+
         Category category = resolveCategory(request.categoryId(), user);
-        Account account = resolveAccount(request.accountId(), user);
+        Account account   = resolveAccount(request.accountId(), user);
+        CreditCard card   = resolveCard(request.cardId(), user);
 
         rm.setDescription(request.description());
         rm.setAmount(request.amount());
@@ -77,6 +88,7 @@ public class RecurringMovementService {
         rm.setType(request.type());
         rm.setCategory(category);
         rm.setAccount(account);
+        rm.setCard(card);
         rm.setDayOfMonth(request.dayOfMonth());
 
         return recurringMovementMapper.toResponse(recurringMovementRepository.save(rm));
@@ -106,6 +118,12 @@ public class RecurringMovementService {
         recurringMovementRepository.save(rm);
     }
 
+    private void validateSinglePaymentMethod(RecurringMovementRequest request) {
+        if (request.accountId() != null && request.cardId() != null) {
+            throw new VectisException("No podés asociar cuenta y tarjeta al mismo tiempo", HttpStatus.BAD_REQUEST);
+        }
+    }
+
     private Category resolveCategory(UUID categoryId, User user) {
         if (categoryId == null) return null;
         return categoryRepository.findById(categoryId)
@@ -120,5 +138,15 @@ public class RecurringMovementService {
             throw new VectisException("La cuenta no pertenece al usuario autenticado", HttpStatus.FORBIDDEN);
         }
         return account;
+    }
+
+    private CreditCard resolveCard(UUID cardId, User user) {
+        if (cardId == null) return null;
+        CreditCard card = creditCardRepository.findById(cardId)
+                .orElseThrow(() -> new CreditCardNotFoundException(cardId));
+        if (!card.getUser().getId().equals(user.getId())) {
+            throw new VectisException("La tarjeta no pertenece al usuario autenticado", HttpStatus.FORBIDDEN);
+        }
+        return card;
     }
 }
