@@ -3,6 +3,8 @@
 .claude/
 e2e/
 .design/
+.playwright/
+.playwright-cli/
 # Documentación y recursos locales
 CLAUDE.md
 DESIGN.md

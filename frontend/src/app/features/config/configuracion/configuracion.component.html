@@ -173,6 +173,94 @@
     }
   }
 
+  <!-- ── MOVIMIENTOS RECURRENTES ──────────────────────────────────────────── -->
+  @if (activeTab() === 'recurrentes') {
+    @if (recurringError()) {
+      <div class="error-state">
+        <svg lucideAlertCircle [size]="28" />
+        <p>{{ recurringError() }}</p>
+        <button class="btn-retry" (click)="loadRecurringMovements()">
+          <svg lucideRefreshCw [size]="13" [strokeWidth]="2" /> Reintentar
+        </button>
+      </div>
+    } @else {
+      <div class="panel">
+        <div class="section-title">
+          <div>
+            <h3>Movimientos recurrentes</h3>
+            <p class="section-sub">{{ recurringMovements().length }} movimientos configurados</p>
+          </div>
+          <button class="btn-primary btn-sm" (click)="openCreateRecurring()">
+            <svg lucidePlus [size]="15" [strokeWidth]="2.5" />
+            Agregar movimiento
+          </button>
+        </div>
+
+        @if (recurringLoading()) {
+          <div class="cfg-list">
+            @for (i of [0,1,2]; track i) {
+              <div class="skeleton-row" [style.animation-delay]="(i * 0.08) + 's'"></div>
+            }
+          </div>
+        } @else if (recurringMovements().length === 0) {
+          <div class="empty-state">
+            <span class="empty-icon"><svg lucideRepeat [size]="38" [strokeWidth]="1.2" /></span>
+            <p>No tenés movimientos recurrentes configurados</p>
+            <button class="btn-secondary btn-sm" (click)="openCreateRecurring()">Agregar movimiento</button>
+          </div>
+        } @else {
+          <div class="cfg-list">
+            @for (rm of recurringMovements(); track rm.id; let i = $index) {
+              <div class="cfg-row" [class.cfg-row--divider]="i > 0">
+                <span class="icon-chip" [class.icon-chip--accent]="rm.type === 'INCOME'">
+                  <svg lucideRepeat [size]="20" [strokeWidth]="1.5" />
+                </span>
+                <div class="row-info">
+                  <div class="row-main">
+                    <span class="row-name">{{ rm.description }}</span>
+                    <span class="row-badge"
+                      [class.row-badge--accent]="rm.type === 'INCOME'"
+                      [style.background]="rm.type === 'EXPENSE' ? 'color-mix(in srgb, var(--color-error) 14%, transparent)' : null"
+                      [style.color]="rm.type === 'EXPENSE' ? 'var(--color-error)' : null">
+                      {{ rm.type === 'INCOME' ? 'Ingreso' : 'Egreso' }}
+                    </span>
+                    @if (rm.categoryName) {
+                      <span class="row-badge row-badge--neutral">{{ rm.categoryName }}</span>
+                    }
+                  </div>
+                  <div class="row-sub">
+                    Día {{ rm.dayOfMonth }} de cada mes
+                    @if (rm.accountName) { · {{ rm.accountName }} }
+                  </div>
+                </div>
+                <span class="row-amount">{{ fmtAmount(rm.amount, rm.ccy) }}</span>
+                <button
+                  type="button"
+                  class="toggle"
+                  [class.toggle--on]="rm.active"
+                  (click)="toggleRecurring(rm)"
+                  [attr.aria-checked]="rm.active"
+                  role="switch"
+                  [title]="rm.active ? 'Desactivar' : 'Activar'"
+                >
+                  <span class="toggle-thumb"></span>
+                </button>
+                <div class="row-actions">
+                  <button class="icon-btn" title="Editar" (click)="openEditRecurring(rm)">
+                    <svg lucidePencil [size]="16" [strokeWidth]="1.75" />
+                  </button>
+                  <button class="icon-btn icon-btn--danger" title="Eliminar" (click)="openDeleteRecurring(rm)">
+                    <svg lucideTrash2 [size]="16" [strokeWidth]="1.75" />
+                  </button>
+                </div>
+              </div>
+            }
+          </div>
+        }
+      </div>
+    }
+  }
+
   <!-- ── CATEGORÍAS ─────────────────────────────────────────────────────── -->
   @if (activeTab() === 'categorias') {
     @if (loading()) {
@@ -292,7 +380,7 @@
       <div class="delete-icon">
         <svg lucideTrash2 [size]="18" [strokeWidth]="2" />
       </div>
-      <h3 class="delete-title">Eliminar {{ modal()?.kind === 'account' ? 'cuenta' : modal()?.kind === 'card' ? 'tarjeta' : 'categoría' }}</h3>
+      <h3 class="delete-title">Eliminar {{ modal()?.kind === 'account' ? 'cuenta' : modal()?.kind === 'card' ? 'tarjeta' : modal()?.kind === 'category' ? 'categoría' : 'movimiento recurrente' }}</h3>
       <p class="delete-body">¿Seguro que querés eliminar <strong>{{ modal()?.label }}</strong>? Esta acción no se puede deshacer.</p>
       <div class="modal-footer modal-footer--center">
         <button class="btn-ghost" (click)="closeModal()">Cancelar</button>
@@ -524,6 +612,115 @@
         <button class="btn-ghost" type="button" (click)="closeModal()">Cancelar</button>
         <button class="btn-confirm" type="button" [disabled]="cardForm.invalid || submitting()" (click)="submitCard()">
           {{ submitting() ? 'Guardando...' : (modal()?.mode === 'create' ? 'Crear tarjeta' : 'Guardar cambios') }}
+        </button>
+      </div>
+    </div>
+  </div>
+}
+
+<!-- ── Recurring movement modal ─────────────────────────────────────────── -->
+@if (modal()?.kind === 'recurring' && modal()?.mode !== 'delete') {
+  <div class="backdrop" (click)="closeModal()">
+    <div class="modal" (click)="$event.stopPropagation()">
+      <div class="modal-head">
+        <div>
+          <h3>{{ modal()?.mode === 'create' ? 'Agregar movimiento recurrente' : 'Editar movimiento recurrente' }}</h3>
+          <p class="modal-sub">{{ modal()?.mode === 'create' ? 'Configurá un ingreso o gasto fijo mensual.' : 'Actualizá los datos y guardá los cambios.' }}</p>
+        </div>
+        <button class="close-btn" (click)="closeModal()" aria-label="Cerrar">
+          <svg lucideX [size]="17" [strokeWidth]="2" />
+        </button>
+      </div>
+
+      <form [formGroup]="recurringForm" class="modal-body" (ngSubmit)="submitRecurring()">
+        <!-- Descripción -->
+        <div class="cfg-field">
+          <label class="cfg-label" for="rec-desc">Descripción</label>
+          <input id="rec-desc" class="text-input" type="text" formControlName="description" placeholder="Ej. Netflix, alquiler, sueldo..." maxlength="200" autocomplete="off" />
+          @if (recurringForm.controls.description.invalid && recurringForm.controls.description.touched) {
+            <span class="field-error">La descripción es requerida</span>
+          }
+        </div>
+
+        <!-- Tipo -->
+        <div class="cfg-field">
+          <span class="cfg-label">Tipo</span>
+          <div class="segmented">
+            @for (t of [{ v: 'EXPENSE', l: 'Egreso' }, { v: 'INCOME', l: 'Ingreso' }]; track t.v) {
+              <button
+                type="button"
+                class="segmented-btn"
+                [class.segmented-btn--active]="recurringForm.controls.type.value === t.v"
+                (click)="recurringForm.controls.type.setValue($any(t.v))"
+              >{{ t.l }}</button>
+            }
+          </div>
+        </div>
+
+        <!-- Monto + Moneda -->
+        <div class="form-grid-2">
+          <div class="cfg-field">
+            <span class="cfg-label">Moneda</span>
+            <div class="segmented">
+              @for (ccy of ['ARS', 'USD']; track ccy) {
+                <button
+                  type="button"
+                  class="segmented-btn"
+                  [class.segmented-btn--active]="recurringForm.controls.ccy.value === ccy"
+                  (click)="recurringForm.controls.ccy.setValue($any(ccy))"
+                >{{ ccy }}</button>
+              }
+            </div>
+          </div>
+          <div class="cfg-field">
+            <label class="cfg-label" for="rec-amount">Monto {{ recurringForm.controls.ccy.value === 'USD' ? '(US$)' : '($)' }}</label>
+            <input id="rec-amount" class="text-input text-input--mono" type="number" formControlName="amount" placeholder="0" min="0.01" inputmode="decimal" />
+            @if (recurringForm.controls.amount.invalid && recurringForm.controls.amount.touched) {
+              <span class="field-error">Ingresá un monto mayor a 0</span>
+            }
+          </div>
+        </div>
+
+        <!-- Día del mes + Cuenta -->
+        <div class="form-grid-2">
+          <div class="cfg-field">
+            <label class="cfg-label" for="rec-day">Día del mes <span class="cfg-hint">(1–31)</span></label>
+            <input id="rec-day" class="text-input text-input--mono" type="number" formControlName="dayOfMonth" placeholder="1" min="1" max="31" inputmode="numeric" />
+            @if (recurringForm.controls.dayOfMonth.invalid && recurringForm.controls.dayOfMonth.touched) {
+              <span class="field-error">Ingresá un día entre 1 y 31</span>
+            }
+          </div>
+          <div class="cfg-field">
+            <label class="cfg-label" for="rec-account">Cuenta <span class="cfg-hint">(opcional)</span></label>
+            <select id="rec-account" class="text-input" formControlName="accountId">
+              <option value="">Sin cuenta</option>
+              @for (a of accounts(); track a.id) {
+                <option [value]="a.id">{{ a.name }}</option>
+              }
+            </select>
+          </div>
+        </div>
+
+        <!-- Categoría -->
+        <div class="cfg-field">
+          <label class="cfg-label" for="rec-category">Categoría <span class="cfg-hint">(opcional)</span></label>
+          <select id="rec-category" class="text-input" formControlName="categoryId">
+            <option value="">Sin categoría</option>
+            @for (cat of categories(); track cat.id) {
+              <option [value]="cat.id">{{ cat.name }}</option>
+            }
+          </select>
+        </div>
+
+        @if (formError()) {
+          <p class="form-error">{{ formError() }}</p>
+        }
+      </form>
+
+      <div class="modal-footer">
+        <button class="btn-ghost" type="button" (click)="closeModal()">Cancelar</button>
+        <button class="btn-confirm" type="button" [disabled]="recurringForm.invalid || submitting()" (click)="submitRecurring()">
+          {{ submitting() ? 'Guardando...' : (modal()?.mode === 'create' ? 'Crear movimiento' : 'Guardar cambios') }}
         </button>
       </div>
     </div>
