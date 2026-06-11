@@ -32,8 +32,11 @@ public record RecurringMovementRequest(
     @Schema(description = "ID de la categoría asociada (opcional)", example = "3fa85f64-5717-4562-b3fc-2c963f66afa6")
     UUID categoryId,
 
-    @Schema(description = "ID de la cuenta asociada (opcional)", example = "3fa85f64-5717-4562-b3fc-2c963f66afa6")
+    @Schema(description = "ID de la cuenta asociada (opcional, excluyente con cardId)", example = "3fa85f64-5717-4562-b3fc-2c963f66afa6")
     UUID accountId,
+
+    @Schema(description = "ID de la tarjeta de crédito asociada (opcional, excluyente con accountId)", example = "3fa85f64-5717-4562-b3fc-2c963f66afa6")
+    UUID cardId,
 
     @Schema(description = "Día del mes en que se aplica el movimiento", example = "10")
     @NotNull(message = "El día del mes es obligatorio")

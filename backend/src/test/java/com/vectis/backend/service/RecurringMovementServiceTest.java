@@ -1,6 +1,7 @@
 package com.vectis.backend.service;
 
 import com.vectis.backend.domain.entity.Account;
+import com.vectis.backend.domain.entity.CreditCard;
 import com.vectis.backend.domain.entity.RecurringMovement;
 import com.vectis.backend.domain.entity.User;
 import com.vectis.backend.dto.RecurringMovementRequest;
@@ -10,6 +11,7 @@ import com.vectis.backend.exception.VectisException;
 import com.vectis.backend.mapper.RecurringMovementMapper;
 import com.vectis.backend.repository.AccountRepository;
 import com.vectis.backend.repository.CategoryRepository;
+import com.vectis.backend.repository.CreditCardRepository;
 import com.vectis.backend.repository.RecurringMovementRepository;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
@@ -42,6 +44,7 @@ class RecurringMovementServiceTest {
     @Mock private RecurringMovementRepository recurringMovementRepository;
     @Mock private AccountRepository accountRepository;
     @Mock private CategoryRepository categoryRepository;
+    @Mock private CreditCardRepository creditCardRepository;
     @Mock private RecurringMovementMapper recurringMovementMapper;
 
     private User user;
@@ -220,13 +223,78 @@ class RecurringMovementServiceTest {
     private RecurringMovementRequest buildRequest(UUID categoryId, UUID accountId) {
         return new RecurringMovementRequest(
                 "Netflix", new BigDecimal("15000.0000"), "ARS", "EXPENSE",
-                categoryId, accountId, 10);
+                categoryId, accountId, null, 10);
+    }
+
+    private RecurringMovementRequest buildRequestWithCard(UUID cardId) {
+        return new RecurringMovementRequest(
+                "Netflix", new BigDecimal("15000.0000"), "ARS", "EXPENSE",
+                null, null, cardId, 10);
+    }
+
+    private RecurringMovementRequest buildRequestWithBoth(UUID accountId, UUID cardId) {
+        return new RecurringMovementRequest(
+                "Netflix", new BigDecimal("15000.0000"), "ARS", "EXPENSE",
+                null, accountId, cardId, 10);
     }
 
     private RecurringMovementResponse buildResponse(RecurringMovement rm) {
         return new RecurringMovementResponse(
                 rm.getId(), rm.getDescription(), rm.getAmount(), rm.getCcy(), rm.getType(),
-                null, null, null, null, null, null,
+                null, null, null, null, null, null, null, null,
                 rm.getDayOfMonth(), rm.isActive(), rm.getCreatedAt());
+    }
+
+    // ─── card support ─────────────────────────────────────────────────────────
+
+    @Test
+    @DisplayName("createRecurringMovement con tarjeta setea card y account nulo")
+    void create_withCard_setsCardAndNullAccount() {
+        UUID cardId = UUID.randomUUID();
+        CreditCard card = CreditCard.builder()
+                .id(cardId).user(user).bank("Galicia").network("VISA").last4("4821")
+                .ccy("ARS").creditLimit(BigDecimal.TEN).closingDay(5).dueDay(15).accent("#52eacd")
+                .createdAt(OffsetDateTime.now()).updatedAt(OffsetDateTime.now())
+                .build();
+
+        RecurringMovement saved = buildMovement(user);
+        RecurringMovementResponse response = buildResponse(saved);
+
+        given(creditCardRepository.findById(cardId)).willReturn(Optional.of(card));
+        given(recurringMovementRepository.save(any(RecurringMovement.class))).willReturn(saved);
+        given(recurringMovementMapper.toResponse(saved)).willReturn(response);
+
+        RecurringMovementResponse result = recurringMovementService.createRecurringMovement(buildRequestWithCard(cardId), user);
+
+        assertThat(result).isNotNull();
+        verify(recurringMovementRepository).save(any(RecurringMovement.class));
+    }
+
+    @Test
+    @DisplayName("createRecurringMovement con cuenta y tarjeta simultáneas lanza BAD_REQUEST")
+    void create_withBothAccountAndCard_throwsBadRequest() {
+        UUID accountId = UUID.randomUUID();
+        UUID cardId    = UUID.randomUUID();
+
+        assertThatThrownBy(() -> recurringMovementService.createRecurringMovement(buildRequestWithBoth(accountId, cardId), user))
+                .isInstanceOf(VectisException.class)
+                .satisfies(ex -> assertThat(((VectisException) ex).getStatus()).isEqualTo(HttpStatus.BAD_REQUEST));
+    }
+
+    @Test
+    @DisplayName("createRecurringMovement con tarjeta de otro usuario lanza FORBIDDEN")
+    void create_cardNotOwnedByUser_throwsForbidden() {
+        UUID cardId = UUID.randomUUID();
+        CreditCard otherCard = CreditCard.builder()
+                .id(cardId).user(otherUser).bank("BBVA").network("MC").last4("0001")
+                .ccy("ARS").creditLimit(BigDecimal.TEN).closingDay(5).dueDay(15).accent("#111")
+                .createdAt(OffsetDateTime.now()).updatedAt(OffsetDateTime.now())
+                .build();
+
+        given(creditCardRepository.findById(cardId)).willReturn(Optional.of(otherCard));
+
+        assertThatThrownBy(() -> recurringMovementService.createRecurringMovement(buildRequestWithCard(cardId), user))
+                .isInstanceOf(VectisException.class)
+                .satisfies(ex -> assertThat(((VectisException) ex).getStatus()).isEqualTo(HttpStatus.FORBIDDEN));
     }
 }

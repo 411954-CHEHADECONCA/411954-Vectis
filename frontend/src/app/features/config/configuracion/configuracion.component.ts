@@ -214,14 +214,33 @@ export class ConfiguracionComponent implements OnInit {
 
   // ── Recurring movement form ───────────────────────────────────────────────
   recurringForm = new FormGroup({
-    description: new FormControl('',        { nonNullable: true, validators: [Validators.required, Validators.maxLength(200)] }),
-    amount:      new FormControl<number>(0, { nonNullable: true, validators: [Validators.required, Validators.min(0.01)] }),
-    ccy:         new FormControl<'ARS' | 'USD'>('ARS', { nonNullable: true }),
-    type:        new FormControl<'INCOME' | 'EXPENSE'>('EXPENSE', { nonNullable: true }),
-    categoryId:  new FormControl<string | null>(null),
-    accountId:   new FormControl<string | null>(null),
-    dayOfMonth:  new FormControl<number>(1, { nonNullable: true, validators: [Validators.required, Validators.min(1), Validators.max(31)] }),
+    description:   new FormControl('',        { nonNullable: true, validators: [Validators.required, Validators.maxLength(200)] }),
+    amount:        new FormControl<number>(0, { nonNullable: true, validators: [Validators.required, Validators.min(0.01)] }),
+    ccy:           new FormControl<'ARS' | 'USD'>('ARS', { nonNullable: true }),
+    type:          new FormControl<'INCOME' | 'EXPENSE'>('EXPENSE', { nonNullable: true }),
+    categoryId:    new FormControl<string | null>(null),
+    paymentSource: new FormControl('', { nonNullable: true }),
+    dayOfMonth:    new FormControl<number>(1, { nonNullable: true, validators: [Validators.required, Validators.min(1), Validators.max(31)] }),
   });
+
+  private readonly recurringFormValues = toSignal(this.recurringForm.valueChanges, {
+    initialValue: this.recurringForm.getRawValue(),
+  });
+  recType = computed(() => this.recurringFormValues().type ?? 'EXPENSE');
+
+  onRecTypeChange(): void {
+    const newType = this.recurringForm.controls.type.value;
+    if (newType === 'INCOME' && this.recurringForm.controls.paymentSource.value.startsWith('card:')) {
+      this.recurringForm.patchValue({ paymentSource: '' });
+    }
+    const currentCatId = this.recurringForm.controls.categoryId.value;
+    if (currentCatId) {
+      const cat = this.categories().find(c => c.id === currentCatId);
+      if (cat && cat.type !== newType && cat.type !== 'BOTH') {
+        this.recurringForm.patchValue({ categoryId: null });
+      }
+    }
+  }
 
   // ── Category form ─────────────────────────────────────────────────────────
   categoryForm = new FormGroup({
@@ -500,20 +519,23 @@ export class ConfiguracionComponent implements OnInit {
 
   // ── Recurring movement CRUD ───────────────────────────────────────────────
   openCreateRecurring(): void {
-    this.recurringForm.reset({ description: '', amount: 0, ccy: 'ARS', type: 'EXPENSE', categoryId: null, accountId: null, dayOfMonth: 1 });
+    this.recurringForm.reset({ description: '', amount: 0, ccy: 'ARS', type: 'EXPENSE', categoryId: null, paymentSource: '', dayOfMonth: 1 });
     this.formError.set(null);
     this.modal.set({ kind: 'recurring', mode: 'create' });
   }
 
   openEditRecurring(rm: RecurringMovementResponse): void {
+    const paymentSource = rm.accountId ? `acc:${rm.accountId}`
+                        : rm.cardId    ? `card:${rm.cardId}`
+                        : '';
     this.recurringForm.setValue({
-      description: rm.description,
-      amount:      rm.amount,
-      ccy:         rm.ccy,
-      type:        rm.type,
-      categoryId:  rm.categoryId,
-      accountId:   rm.accountId,
-      dayOfMonth:  rm.dayOfMonth,
+      description:   rm.description,
+      amount:        rm.amount,
+      ccy:           rm.ccy,
+      type:          rm.type,
+      categoryId:    rm.categoryId,
+      paymentSource,
+      dayOfMonth:    rm.dayOfMonth,
     });
     this.formError.set(null);
     this.modal.set({ kind: 'recurring', mode: 'edit', id: rm.id });
@@ -528,10 +550,16 @@ export class ConfiguracionComponent implements OnInit {
     this.submitting.set(true);
     this.formError.set(null);
     const v = this.recurringForm.getRawValue();
+    const ps = v.paymentSource;
     const req: RecurringMovementRequest = {
-      ...v,
-      categoryId: v.categoryId || null,
-      accountId:  v.accountId  || null,
+      description: v.description,
+      amount:      v.amount,
+      ccy:         v.ccy,
+      type:        v.type,
+      categoryId:  v.categoryId || null,
+      accountId:   ps.startsWith('acc:')  ? ps.slice(4)  : null,
+      cardId:      ps.startsWith('card:') ? ps.slice(5)  : null,
+      dayOfMonth:  v.dayOfMonth,
     };
     const m = this.modal();
     if (!m) return;

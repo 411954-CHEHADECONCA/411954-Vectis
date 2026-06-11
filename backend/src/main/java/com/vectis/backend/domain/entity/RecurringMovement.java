@@ -8,6 +8,7 @@ import java.time.OffsetDateTime;
 import java.time.ZoneOffset;
 import java.util.UUID;
 
+
 @Entity
 @Table(name = "recurring_movements")
 @Getter
@@ -44,6 +45,10 @@ public class RecurringMovement {
     @ManyToOne(fetch = FetchType.LAZY)
     @JoinColumn(name = "account_id")
     private Account account;
+
+    @ManyToOne(fetch = FetchType.LAZY)
+    @JoinColumn(name = "card_id")
+    private CreditCard card;
 
     @Column(name = "day_of_month", nullable = false)
     private int dayOfMonth;

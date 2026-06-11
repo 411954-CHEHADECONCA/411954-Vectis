@@ -8,6 +8,7 @@ import java.time.OffsetDateTime;
 import java.time.ZoneOffset;
 import java.util.UUID;
 
+
 @Entity
 @Table(name = &quot;recurring_movements&quot;)
 @Getter
@@ -45,6 +46,10 @@ public class RecurringMovement {
     @JoinColumn(name = &quot;account_id&quot;)
     private Account account;
 
+    @ManyToOne(fetch = FetchType.LAZY)
+    @JoinColumn(name = &quot;card_id&quot;)
+    private CreditCard card;
+
     @Column(name = &quot;day_of_month&quot;, nullable = false)
     private int dayOfMonth;
 
@@ -59,8 +64,8 @@ public class RecurringMovement {
 
     @PrePersist
     protected void onCreate() {
-<span class="nc" id="L62">        createdAt = OffsetDateTime.now(ZoneOffset.UTC);</span>
-<span class="nc" id="L63">        active = true;</span>
-<span class="nc" id="L64">    }</span>
+<span class="nc" id="L67">        createdAt = OffsetDateTime.now(ZoneOffset.UTC);</span>
+<span class="nc" id="L68">        active = true;</span>
+<span class="nc" id="L69">    }</span>
 }
 </pre><div class="footer"><span class="right">Created with <a href="http://www.jacoco.org/jacoco">JaCoCo</a> 0.8.12.202403310830</span></div></body></html>

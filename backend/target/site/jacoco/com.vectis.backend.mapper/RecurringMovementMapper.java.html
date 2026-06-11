@@ -20,10 +20,12 @@ import org.springframework.stereotype.Component;
 <span class="nc bnc" id="L20" title="All 2 branches missed.">                .categoryColor(rm.getCategory() != null ? rm.getCategory().getColor() : null)</span>
 <span class="nc bnc" id="L21" title="All 2 branches missed.">                .accountId(rm.getAccount() != null ? rm.getAccount().getId() : null)</span>
 <span class="nc bnc" id="L22" title="All 2 branches missed.">                .accountName(rm.getAccount() != null ? rm.getAccount().getName() : null)</span>
-<span class="nc" id="L23">                .dayOfMonth(rm.getDayOfMonth())</span>
-<span class="nc" id="L24">                .active(rm.isActive())</span>
-<span class="nc" id="L25">                .createdAt(rm.getCreatedAt())</span>
-<span class="nc" id="L26">                .build();</span>
+<span class="nc bnc" id="L23" title="All 2 branches missed.">                .cardId(rm.getCard() != null ? rm.getCard().getId() : null)</span>
+<span class="nc bnc" id="L24" title="All 2 branches missed.">                .cardName(rm.getCard() != null ? rm.getCard().getBank() + &quot; ····&quot; + rm.getCard().getLast4() : null)</span>
+<span class="nc" id="L25">                .dayOfMonth(rm.getDayOfMonth())</span>
+<span class="nc" id="L26">                .active(rm.isActive())</span>
+<span class="nc" id="L27">                .createdAt(rm.getCreatedAt())</span>
+<span class="nc" id="L28">                .build();</span>
     }
 }
 </pre><div class="footer"><span class="right">Created with <a href="http://www.jacoco.org/jacoco">JaCoCo</a> 0.8.12.202403310830</span></div></body></html>

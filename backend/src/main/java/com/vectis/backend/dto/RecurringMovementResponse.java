@@ -44,6 +44,12 @@ public record RecurringMovementResponse(
     @Schema(description = "Nombre de la cuenta asociada")
     String accountName,
 
+    @Schema(description = "ID de la tarjeta de crédito asociada")
+    UUID cardId,
+
+    @Schema(description = "Nombre de la tarjeta asociada", example = "Galicia ····4821")
+    String cardName,
+
     @Schema(description = "Día del mes en que se aplica el movimiento", example = "10")
     int dayOfMonth,
 
