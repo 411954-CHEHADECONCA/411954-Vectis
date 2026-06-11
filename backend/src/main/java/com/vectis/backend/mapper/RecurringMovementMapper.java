@@ -20,6 +20,8 @@ public class RecurringMovementMapper {
                 .categoryColor(rm.getCategory() != null ? rm.getCategory().getColor() : null)
                 .accountId(rm.getAccount() != null ? rm.getAccount().getId() : null)
                 .accountName(rm.getAccount() != null ? rm.getAccount().getName() : null)
+                .cardId(rm.getCard() != null ? rm.getCard().getId() : null)
+                .cardName(rm.getCard() != null ? rm.getCard().getBank() + " ····" + rm.getCard().getLast4() : null)
                 .dayOfMonth(rm.getDayOfMonth())
                 .active(rm.isActive())
                 .createdAt(rm.getCreatedAt())

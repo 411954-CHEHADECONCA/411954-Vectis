@@ -17,8 +17,8 @@ import { RecurringMovementResponse } from '../../../core/models/recurring-moveme
 const MOCK_RECURRING: RecurringMovementResponse = {
   id: 'rm-1', description: 'Netflix', amount: 15000, ccy: 'ARS', type: 'EXPENSE',
   categoryId: null, categoryName: null, categoryIcon: null, categoryColor: null,
-  accountId: null, accountName: null, dayOfMonth: 10, active: true,
-  createdAt: '2026-06-10T00:00:00Z',
+  accountId: null, accountName: null, cardId: null, cardName: null,
+  dayOfMonth: 10, active: true, createdAt: '2026-06-10T00:00:00Z',
 };
 
 const MOCK_CATS: CategoryResponse[] = [
@@ -353,7 +353,7 @@ describe('ConfiguracionComponent', () => {
     component.openCreateRecurring();
     component.recurringForm.setValue({
       description: 'Netflix', amount: 15000, ccy: 'ARS', type: 'EXPENSE',
-      categoryId: null, accountId: null, dayOfMonth: 10,
+      categoryId: null, paymentSource: '', dayOfMonth: 10,
     });
     component.submitRecurring();
 
@@ -390,5 +390,48 @@ describe('ConfiguracionComponent', () => {
     recurringServiceSpy.getRecurringMovements.and.returnValue(throwError(() => new Error('network')));
     component.loadRecurringMovements();
     expect(component.recurringError()).toBe('No se pudieron cargar los movimientos recurrentes');
+  });
+
+  it('openEditRecurring sets paymentSource to card: prefix when rm has cardId', () => {
+    const rmWithCard: RecurringMovementResponse = { ...MOCK_RECURRING, cardId: 'card-42', cardName: 'Galicia ····4821' };
+    component.openEditRecurring(rmWithCard);
+    expect(component.recurringForm.controls.paymentSource.value).toBe('card:card-42');
+  });
+
+  it('openEditRecurring sets paymentSource to acc: prefix when rm has accountId', () => {
+    const rmWithAccount: RecurringMovementResponse = { ...MOCK_RECURRING, accountId: 'acc-1', accountName: 'Santander' };
+    component.openEditRecurring(rmWithAccount);
+    expect(component.recurringForm.controls.paymentSource.value).toBe('acc:acc-1');
+  });
+
+  it('submitRecurring extracts cardId from paymentSource and sends to service', () => {
+    const rmWithCard: RecurringMovementResponse = { ...MOCK_RECURRING, cardId: 'card-42', cardName: 'Galicia ····4821' };
+    recurringServiceSpy.createRecurringMovement.and.returnValue(of(rmWithCard));
+
+    component.openCreateRecurring();
+    component.recurringForm.setValue({
+      description: 'Netflix', amount: 15000, ccy: 'ARS', type: 'EXPENSE',
+      categoryId: null, paymentSource: 'card:card-42', dayOfMonth: 10,
+    });
+    component.submitRecurring();
+
+    expect(recurringServiceSpy.createRecurringMovement).toHaveBeenCalledOnceWith(
+      jasmine.objectContaining({ cardId: 'card-42', accountId: null })
+    );
+  });
+
+  it('submitRecurring extracts accountId from paymentSource and sends to service', () => {
+    recurringServiceSpy.createRecurringMovement.and.returnValue(of(MOCK_RECURRING));
+
+    component.openCreateRecurring();
+    component.recurringForm.setValue({
+      description: 'Netflix', amount: 15000, ccy: 'ARS', type: 'EXPENSE',
+      categoryId: null, paymentSource: 'acc:acc-1', dayOfMonth: 10,
+    });
+    component.submitRecurring();
+
+    expect(recurringServiceSpy.createRecurringMovement).toHaveBeenCalledOnceWith(
+      jasmine.objectContaining({ accountId: 'acc-1', cardId: null })
+    );
   });
 });

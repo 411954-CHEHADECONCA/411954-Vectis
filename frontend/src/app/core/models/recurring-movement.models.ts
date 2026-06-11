@@ -10,6 +10,8 @@ export interface RecurringMovementResponse {
   categoryColor: string | null;
   accountId: string | null;
   accountName: string | null;
+  cardId: string | null;
+  cardName: string | null;
   dayOfMonth: number;
   active: boolean;
   createdAt: string;
@@ -22,5 +24,6 @@ export interface RecurringMovementRequest {
   type: 'INCOME' | 'EXPENSE';
   categoryId: string | null;
   accountId: string | null;
+  cardId: string | null;
   dayOfMonth: number;
 }

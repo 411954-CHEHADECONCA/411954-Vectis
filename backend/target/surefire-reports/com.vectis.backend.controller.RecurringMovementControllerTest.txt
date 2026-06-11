@@ -1,4 +1,4 @@
 -------------------------------------------------------------------------------
 Test set: com.vectis.backend.controller.RecurringMovementControllerTest
 -------------------------------------------------------------------------------
-Tests run: 9, Failures: 0, Errors: 0, Skipped: 0, Time elapsed: 0.529 s -- in com.vectis.backend.controller.RecurringMovementControllerTest
+Tests run: 10, Failures: 0, Errors: 0, Skipped: 0, Time elapsed: 0.491 s -- in com.vectis.backend.controller.RecurringMovementControllerTest
