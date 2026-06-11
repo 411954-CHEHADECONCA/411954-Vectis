@@ -8,9 +8,18 @@ import { ConfiguracionComponent } from './configuracion.component';
 import { CategoryService } from '../../../core/services/category.service';
 import { AccountService } from '../../../core/services/account.service';
 import { CreditCardService } from '../../../core/services/credit-card.service';
+import { RecurringMovementService } from '../../../core/services/recurring-movement.service';
 import { CategoryResponse } from '../../../core/models/category.models';
 import { AccountResponse } from '../../../core/models/account.models';
 import { CardResponse } from '../../../core/models/card.models';
+import { RecurringMovementResponse } from '../../../core/models/recurring-movement.models';
+
+const MOCK_RECURRING: RecurringMovementResponse = {
+  id: 'rm-1', description: 'Netflix', amount: 15000, ccy: 'ARS', type: 'EXPENSE',
+  categoryId: null, categoryName: null, categoryIcon: null, categoryColor: null,
+  accountId: null, accountName: null, dayOfMonth: 10, active: true,
+  createdAt: '2026-06-10T00:00:00Z',
+};
 
 const MOCK_CATS: CategoryResponse[] = [
   { id: '1', name: 'Sueldo',       icon: 'briefcase',  color: '#52eacd', type: 'INCOME',  isDefault: true,  estimatedAmount: null    },
@@ -36,6 +45,7 @@ describe('ConfiguracionComponent', () => {
   let catServiceSpy: jasmine.SpyObj<CategoryService>;
   let accServiceSpy: jasmine.SpyObj<AccountService>;
   let cardServiceSpy: jasmine.SpyObj<CreditCardService>;
+  let recurringServiceSpy: jasmine.SpyObj<RecurringMovementService>;
 
   beforeEach(async () => {
     catServiceSpy = jasmine.createSpyObj<CategoryService>('CategoryService', [
@@ -53,15 +63,22 @@ describe('ConfiguracionComponent', () => {
     ]);
     cardServiceSpy.getCards.and.returnValue(of([]));
 
+    recurringServiceSpy = jasmine.createSpyObj<RecurringMovementService>('RecurringMovementService', [
+      'getRecurringMovements', 'createRecurringMovement', 'updateRecurringMovement',
+      'toggleActive', 'deleteRecurringMovement',
+    ]);
+    recurringServiceSpy.getRecurringMovements.and.returnValue(of([]));
+
     await TestBed.configureTestingModule({
       imports: [ConfiguracionComponent, ReactiveFormsModule],
       providers: [
         provideHttpClient(),
         provideHttpClientTesting(),
         provideRouter([]),
-        { provide: CategoryService,  useValue: catServiceSpy  },
-        { provide: AccountService,   useValue: accServiceSpy  },
-        { provide: CreditCardService, useValue: cardServiceSpy },
+        { provide: CategoryService,         useValue: catServiceSpy        },
+        { provide: AccountService,          useValue: accServiceSpy        },
+        { provide: CreditCardService,       useValue: cardServiceSpy       },
+        { provide: RecurringMovementService, useValue: recurringServiceSpy },
       ],
     }).compileComponents();
 
@@ -89,9 +106,9 @@ describe('ConfiguracionComponent', () => {
     expect(cardServiceSpy.getCards).toHaveBeenCalledOnceWith();
   });
 
-  it('renders three tabs', () => {
+  it('renders four tabs', () => {
     const tabs = fixture.nativeElement.querySelectorAll('.tab');
-    expect(tabs.length).toBe(3);
+    expect(tabs.length).toBe(4);
   });
 
   // ── Tab switching ──────────────────────────────────────────────────────────
@@ -293,5 +310,85 @@ describe('ConfiguracionComponent', () => {
 
   it('formats USD amounts with US$ prefix', () => {
     expect(component.fmtAmount(5000, 'USD')).toContain('US$');
+  });
+
+  // ── Recurring movements ────────────────────────────────────────────────────
+  it('loads recurring movements on init', () => {
+    expect(recurringServiceSpy.getRecurringMovements).toHaveBeenCalledOnceWith();
+    expect(component.recurringMovements().length).toBe(0);
+  });
+
+  it('tabDefs includes recurrentes tab with count', () => {
+    component.recurringMovements.set([MOCK_RECURRING]);
+    const defs = component.tabDefs();
+    expect(defs.find(t => t.id === 'recurrentes')?.count).toBe(1);
+  });
+
+  it('openCreateRecurring resets form and opens modal', () => {
+    component.openCreateRecurring();
+    expect(component.modal()?.kind).toBe('recurring');
+    expect(component.modal()?.mode).toBe('create');
+    expect(component.recurringForm.controls.description.value).toBe('');
+    expect(component.recurringForm.controls.dayOfMonth.value).toBe(1);
+  });
+
+  it('openEditRecurring populates form and sets edit mode', () => {
+    component.openEditRecurring(MOCK_RECURRING);
+    expect(component.modal()?.kind).toBe('recurring');
+    expect(component.modal()?.mode).toBe('edit');
+    expect(component.recurringForm.controls.description.value).toBe('Netflix');
+    expect(component.recurringForm.controls.dayOfMonth.value).toBe(10);
+  });
+
+  it('submitRecurring does not call service when form is invalid', () => {
+    component.openCreateRecurring();
+    component.recurringForm.controls.description.setValue('');
+    component.submitRecurring();
+    expect(recurringServiceSpy.createRecurringMovement).not.toHaveBeenCalled();
+  });
+
+  it('creates a recurring movement via service', () => {
+    recurringServiceSpy.createRecurringMovement.and.returnValue(of(MOCK_RECURRING));
+
+    component.openCreateRecurring();
+    component.recurringForm.setValue({
+      description: 'Netflix', amount: 15000, ccy: 'ARS', type: 'EXPENSE',
+      categoryId: null, accountId: null, dayOfMonth: 10,
+    });
+    component.submitRecurring();
+
+    expect(recurringServiceSpy.createRecurringMovement).toHaveBeenCalledOnceWith(
+      jasmine.objectContaining({ description: 'Netflix', dayOfMonth: 10 })
+    );
+    expect(component.recurringMovements().length).toBe(1);
+    expect(component.modal()).toBeNull();
+  });
+
+  it('toggleRecurring calls service and updates list', () => {
+    component.recurringMovements.set([MOCK_RECURRING]);
+    const toggled = { ...MOCK_RECURRING, active: false };
+    recurringServiceSpy.toggleActive.and.returnValue(of(toggled));
+
+    component.toggleRecurring(MOCK_RECURRING);
+
+    expect(recurringServiceSpy.toggleActive).toHaveBeenCalledOnceWith('rm-1');
+    expect(component.recurringMovements()[0].active).toBeFalse();
+  });
+
+  it('deletes a recurring movement via confirmDelete', () => {
+    component.recurringMovements.set([MOCK_RECURRING]);
+    recurringServiceSpy.deleteRecurringMovement.and.returnValue(of(void 0));
+
+    component.openDeleteRecurring(MOCK_RECURRING);
+    component.confirmDelete();
+
+    expect(recurringServiceSpy.deleteRecurringMovement).toHaveBeenCalledOnceWith('rm-1');
+    expect(component.recurringMovements().length).toBe(0);
+  });
+
+  it('shows error when recurring movements fail to load', () => {
+    recurringServiceSpy.getRecurringMovements.and.returnValue(throwError(() => new Error('network')));
+    component.loadRecurringMovements();
+    expect(component.recurringError()).toBe('No se pudieron cargar los movimientos recurrentes');
   });
 });

@@ -1,0 +1,44 @@
+<?xml version="1.0" encoding="UTF-8"?><!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Strict//EN" "http://www.w3.org/TR/xhtml1/DTD/xhtml1-strict.dtd"><html xmlns="http://www.w3.org/1999/xhtml" lang="es"><head><meta http-equiv="Content-Type" content="text/html;charset=UTF-8"/><link rel="stylesheet" href="../jacoco-resources/report.css" type="text/css"/><link rel="shortcut icon" href="../jacoco-resources/report.gif" type="image/gif"/><title>RecurringMovementRequest.java</title><link rel="stylesheet" href="../jacoco-resources/prettify.css" type="text/css"/><script type="text/javascript" src="../jacoco-resources/prettify.js"></script></head><body onload="window['PR_TAB_WIDTH']=4;prettyPrint()"><div class="breadcrumb" id="breadcrumb"><span class="info"><a href="../jacoco-sessions.html" class="el_session">Sessions</a></span><a href="../index.html" class="el_report">vectis-backend</a> &gt; <a href="index.source.html" class="el_package">com.vectis.backend.dto</a> &gt; <span class="el_source">RecurringMovementRequest.java</span></div><h1>RecurringMovementRequest.java</h1><pre class="source lang-java linenums">package com.vectis.backend.dto;
+
+import io.swagger.v3.oas.annotations.media.Schema;
+import jakarta.validation.constraints.*;
+
+import java.math.BigDecimal;
+import java.util.UUID;
+
+@Schema(description = &quot;Datos para crear o editar un movimiento recurrente&quot;)
+<span class="fc" id="L10">public record RecurringMovementRequest(</span>
+
+    @Schema(description = &quot;Descripción del movimiento&quot;, example = &quot;Suscripción Netflix&quot;)
+    @NotBlank(message = &quot;La descripción es obligatoria&quot;)
+    @Size(max = 200, message = &quot;La descripción no puede superar los 200 caracteres&quot;)
+    String description,
+
+    @Schema(description = &quot;Monto del movimiento&quot;, example = &quot;15000.00&quot;)
+    @NotNull(message = &quot;El monto es obligatorio&quot;)
+    @DecimalMin(value = &quot;0.01&quot;, message = &quot;El monto debe ser mayor a cero&quot;)
+    BigDecimal amount,
+
+    @Schema(description = &quot;Moneda del movimiento&quot;, example = &quot;ARS&quot;, allowableValues = {&quot;ARS&quot;, &quot;USD&quot;})
+    @NotBlank(message = &quot;La moneda es obligatoria&quot;)
+    @Pattern(regexp = &quot;^(ARS|USD)$&quot;, message = &quot;La moneda debe ser ARS o USD&quot;)
+    String ccy,
+
+    @Schema(description = &quot;Tipo de movimiento&quot;, example = &quot;EXPENSE&quot;, allowableValues = {&quot;INCOME&quot;, &quot;EXPENSE&quot;})
+    @NotBlank(message = &quot;El tipo es obligatorio&quot;)
+    @Pattern(regexp = &quot;^(INCOME|EXPENSE)$&quot;, message = &quot;El tipo debe ser INCOME o EXPENSE&quot;)
+    String type,
+
+    @Schema(description = &quot;ID de la categoría asociada (opcional)&quot;, example = &quot;3fa85f64-5717-4562-b3fc-2c963f66afa6&quot;)
+    UUID categoryId,
+
+    @Schema(description = &quot;ID de la cuenta asociada (opcional)&quot;, example = &quot;3fa85f64-5717-4562-b3fc-2c963f66afa6&quot;)
+    UUID accountId,
+
+    @Schema(description = &quot;Día del mes en que se aplica el movimiento&quot;, example = &quot;10&quot;)
+    @NotNull(message = &quot;El día del mes es obligatorio&quot;)
+    @Min(value = 1, message = &quot;El día del mes debe ser al menos 1&quot;)
+    @Max(value = 31, message = &quot;El día del mes no puede superar 31&quot;)
+    Integer dayOfMonth
+) {}
+</pre><div class="footer"><span class="right">Created with <a href="http://www.jacoco.org/jacoco">JaCoCo</a> 0.8.12.202403310830</span></div></body></html>
