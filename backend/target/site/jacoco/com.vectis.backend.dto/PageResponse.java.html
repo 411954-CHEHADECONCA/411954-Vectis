@@ -1,0 +1,46 @@
+<?xml version="1.0" encoding="UTF-8"?><!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Strict//EN" "http://www.w3.org/TR/xhtml1/DTD/xhtml1-strict.dtd"><html xmlns="http://www.w3.org/1999/xhtml" lang="es"><head><meta http-equiv="Content-Type" content="text/html;charset=UTF-8"/><link rel="stylesheet" href="../jacoco-resources/report.css" type="text/css"/><link rel="shortcut icon" href="../jacoco-resources/report.gif" type="image/gif"/><title>PageResponse.java</title><link rel="stylesheet" href="../jacoco-resources/prettify.css" type="text/css"/><script type="text/javascript" src="../jacoco-resources/prettify.js"></script></head><body onload="window['PR_TAB_WIDTH']=4;prettyPrint()"><div class="breadcrumb" id="breadcrumb"><span class="info"><a href="../jacoco-sessions.html" class="el_session">Sessions</a></span><a href="../index.html" class="el_report">vectis-backend</a> &gt; <a href="index.source.html" class="el_package">com.vectis.backend.dto</a> &gt; <span class="el_source">PageResponse.java</span></div><h1>PageResponse.java</h1><pre class="source lang-java linenums">package com.vectis.backend.dto;
+
+import io.swagger.v3.oas.annotations.media.Schema;
+import org.springframework.data.domain.Page;
+
+import java.util.List;
+
+/**
+ * Contrato estándar de paginación para listados de la API. Desacopla la respuesta
+ * de la implementación de Spring Data {@link Page}.
+ */
+@Schema(description = &quot;Página de resultados con metadatos de paginación&quot;)
+<span class="fc" id="L13">public record PageResponse&lt;T&gt;(</span>
+
+        @Schema(description = &quot;Elementos de la página actual&quot;)
+        List&lt;T&gt; content,
+
+        @Schema(description = &quot;Índice de página (base 0)&quot;, example = &quot;0&quot;)
+        int page,
+
+        @Schema(description = &quot;Tamaño de página&quot;, example = &quot;20&quot;)
+        int size,
+
+        @Schema(description = &quot;Total de elementos que matchean los filtros&quot;, example = &quot;42&quot;)
+        long totalElements,
+
+        @Schema(description = &quot;Total de páginas&quot;, example = &quot;3&quot;)
+        int totalPages,
+
+        @Schema(description = &quot;Indica si hay una página siguiente&quot;, example = &quot;true&quot;)
+        boolean hasNext
+) {
+
+    /** Construye la respuesta a partir de un {@link Page} y su contenido ya mapeado a DTO. */
+    public static &lt;T&gt; PageResponse&lt;T&gt; of(Page&lt;?&gt; page, List&lt;T&gt; content) {
+<span class="fc" id="L36">        return new PageResponse&lt;&gt;(</span>
+                content,
+<span class="fc" id="L38">                page.getNumber(),</span>
+<span class="fc" id="L39">                page.getSize(),</span>
+<span class="fc" id="L40">                page.getTotalElements(),</span>
+<span class="fc" id="L41">                page.getTotalPages(),</span>
+<span class="fc" id="L42">                page.hasNext()</span>
+        );
+    }
+}
+</pre><div class="footer"><span class="right">Created with <a href="http://www.jacoco.org/jacoco">JaCoCo</a> 0.8.12.202403310830</span></div></body></html>

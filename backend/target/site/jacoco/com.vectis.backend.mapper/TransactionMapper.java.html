@@ -1,0 +1,35 @@
+<?xml version="1.0" encoding="UTF-8"?><!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Strict//EN" "http://www.w3.org/TR/xhtml1/DTD/xhtml1-strict.dtd"><html xmlns="http://www.w3.org/1999/xhtml" lang="es"><head><meta http-equiv="Content-Type" content="text/html;charset=UTF-8"/><link rel="stylesheet" href="../jacoco-resources/report.css" type="text/css"/><link rel="shortcut icon" href="../jacoco-resources/report.gif" type="image/gif"/><title>TransactionMapper.java</title><link rel="stylesheet" href="../jacoco-resources/prettify.css" type="text/css"/><script type="text/javascript" src="../jacoco-resources/prettify.js"></script></head><body onload="window['PR_TAB_WIDTH']=4;prettyPrint()"><div class="breadcrumb" id="breadcrumb"><span class="info"><a href="../jacoco-sessions.html" class="el_session">Sessions</a></span><a href="../index.html" class="el_report">vectis-backend</a> &gt; <a href="index.source.html" class="el_package">com.vectis.backend.mapper</a> &gt; <span class="el_source">TransactionMapper.java</span></div><h1>TransactionMapper.java</h1><pre class="source lang-java linenums">package com.vectis.backend.mapper;
+
+import com.vectis.backend.domain.entity.Transaction;
+import com.vectis.backend.dto.MovementResponse;
+import org.springframework.stereotype.Component;
+
+@Component
+<span class="fc" id="L8">public class TransactionMapper {</span>
+
+    public MovementResponse toResponse(Transaction t) {
+<span class="fc" id="L11">        return MovementResponse.builder()</span>
+<span class="fc" id="L12">                .id(t.getId())</span>
+<span class="fc" id="L13">                .type(t.getType())</span>
+<span class="fc" id="L14">                .description(t.getDescription())</span>
+<span class="fc" id="L15">                .amount(t.getAmount())</span>
+<span class="fc" id="L16">                .ccy(t.getCcy())</span>
+<span class="fc bfc" id="L17" title="All 2 branches covered.">                .categoryId(t.getCategory() != null ? t.getCategory().getId() : null)</span>
+<span class="fc bfc" id="L18" title="All 2 branches covered.">                .categoryName(t.getCategory() != null ? t.getCategory().getName() : null)</span>
+<span class="fc bfc" id="L19" title="All 2 branches covered.">                .categoryIcon(t.getCategory() != null ? t.getCategory().getIcon() : null)</span>
+<span class="fc bfc" id="L20" title="All 2 branches covered.">                .categoryColor(t.getCategory() != null ? t.getCategory().getColor() : null)</span>
+<span class="fc bfc" id="L21" title="All 2 branches covered.">                .accountId(t.getAccount() != null ? t.getAccount().getId() : null)</span>
+<span class="fc bfc" id="L22" title="All 2 branches covered.">                .accountName(t.getAccount() != null ? t.getAccount().getName() : null)</span>
+<span class="fc bfc" id="L23" title="All 2 branches covered.">                .cardId(t.getCard() != null ? t.getCard().getId() : null)</span>
+<span class="fc bfc" id="L24" title="All 2 branches covered.">                .cardName(t.getCard() != null ? t.getCard().getBank() + &quot; ····&quot; + t.getCard().getLast4() : null)</span>
+<span class="fc" id="L25">                .transactionDate(t.getTransactionDate())</span>
+<span class="fc" id="L26">                .dueDate(t.getDueDate())</span>
+<span class="fc" id="L27">                .installment(t.isInstallment())</span>
+<span class="fc" id="L28">                .installmentNumber(t.getInstallmentNumber())</span>
+<span class="fc" id="L29">                .totalInstallments(t.getTotalInstallments())</span>
+<span class="fc" id="L30">                .installmentGroupId(t.getInstallmentGroupId())</span>
+<span class="fc" id="L31">                .createdAt(t.getCreatedAt())</span>
+<span class="fc" id="L32">                .build();</span>
+    }
+}
+</pre><div class="footer"><span class="right">Created with <a href="http://www.jacoco.org/jacoco">JaCoCo</a> 0.8.12.202403310830</span></div></body></html>
