@@ -42,6 +42,13 @@ export const routes: Routes = [
           ),
       },
       {
+        path: 'movimientos',
+        loadComponent: () =>
+          import('./features/movimientos/movimientos.component').then(
+            m => m.MovimientosComponent
+          ),
+      },
+      {
         path: 'config',
         loadComponent: () =>
           import('./features/config/configuracion/configuracion.component').then(

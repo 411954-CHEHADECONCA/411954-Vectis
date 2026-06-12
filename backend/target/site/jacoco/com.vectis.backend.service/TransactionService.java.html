@@ -1,0 +1,247 @@
+<?xml version="1.0" encoding="UTF-8"?><!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Strict//EN" "http://www.w3.org/TR/xhtml1/DTD/xhtml1-strict.dtd"><html xmlns="http://www.w3.org/1999/xhtml" lang="es"><head><meta http-equiv="Content-Type" content="text/html;charset=UTF-8"/><link rel="stylesheet" href="../jacoco-resources/report.css" type="text/css"/><link rel="shortcut icon" href="../jacoco-resources/report.gif" type="image/gif"/><title>TransactionService.java</title><link rel="stylesheet" href="../jacoco-resources/prettify.css" type="text/css"/><script type="text/javascript" src="../jacoco-resources/prettify.js"></script></head><body onload="window['PR_TAB_WIDTH']=4;prettyPrint()"><div class="breadcrumb" id="breadcrumb"><span class="info"><a href="../jacoco-sessions.html" class="el_session">Sessions</a></span><a href="../index.html" class="el_report">vectis-backend</a> &gt; <a href="index.source.html" class="el_package">com.vectis.backend.service</a> &gt; <span class="el_source">TransactionService.java</span></div><h1>TransactionService.java</h1><pre class="source lang-java linenums">package com.vectis.backend.service;
+
+import com.vectis.backend.domain.entity.Account;
+import com.vectis.backend.domain.entity.Category;
+import com.vectis.backend.domain.entity.CreditCard;
+import com.vectis.backend.domain.entity.Transaction;
+import com.vectis.backend.domain.entity.User;
+import com.vectis.backend.dto.MovementRequest;
+import com.vectis.backend.dto.MovementResponse;
+import com.vectis.backend.dto.MovementSummaryResponse;
+import com.vectis.backend.dto.PageResponse;
+import com.vectis.backend.exception.AccountNotFoundException;
+import com.vectis.backend.exception.CreditCardNotFoundException;
+import com.vectis.backend.exception.TransactionNotFoundException;
+import com.vectis.backend.exception.VectisException;
+import com.vectis.backend.mapper.TransactionMapper;
+import com.vectis.backend.repository.AccountRepository;
+import com.vectis.backend.repository.CategoryRepository;
+import com.vectis.backend.repository.CreditCardRepository;
+import com.vectis.backend.repository.TransactionRepository;
+import lombok.RequiredArgsConstructor;
+import org.springframework.data.domain.Page;
+import org.springframework.data.domain.PageRequest;
+import org.springframework.data.domain.Pageable;
+import org.springframework.http.HttpStatus;
+import org.springframework.stereotype.Service;
+import org.springframework.transaction.annotation.Transactional;
+
+import java.math.BigDecimal;
+import java.time.LocalDate;
+import java.time.OffsetDateTime;
+import java.time.ZoneOffset;
+import java.util.ArrayList;
+import java.util.List;
+import java.util.UUID;
+
+@Service
+@RequiredArgsConstructor
+@Transactional
+public class TransactionService {
+
+    private final TransactionRepository transactionRepository;
+    private final AccountRepository accountRepository;
+    private final CategoryRepository categoryRepository;
+    private final CreditCardRepository creditCardRepository;
+    private final TransactionMapper transactionMapper;
+    private final InstallmentCalculator installmentCalculator;
+
+    @Transactional(readOnly = true)
+    public PageResponse&lt;MovementResponse&gt; search(UUID userId, LocalDate from, LocalDate to,
+                                                 String type, UUID categoryId, String q,
+                                                 int page, int size) {
+<span class="fc" id="L53">        Pageable pageable = PageRequest.of(page, size);</span>
+<span class="fc" id="L54">        Page&lt;Transaction&gt; result = transactionRepository.search(</span>
+<span class="fc" id="L55">                userId, from, to, normalize(type), categoryId, normalize(q), pageable);</span>
+<span class="fc" id="L56">        List&lt;MovementResponse&gt; content = result.getContent().stream()</span>
+<span class="fc" id="L57">                .map(transactionMapper::toResponse)</span>
+<span class="fc" id="L58">                .toList();</span>
+<span class="fc" id="L59">        return PageResponse.of(result, content);</span>
+    }
+
+    @Transactional(readOnly = true)
+    public MovementSummaryResponse summary(UUID userId, LocalDate from, LocalDate to,
+                                           String type, UUID categoryId, String q) {
+<span class="fc" id="L65">        String t = normalize(type);</span>
+<span class="fc" id="L66">        String search = normalize(q);</span>
+<span class="pc bpc" id="L67" title="3 of 4 branches missed.">        BigDecimal income = (t == null || t.equals(&quot;INCOME&quot;))</span>
+<span class="fc" id="L68">                ? transactionRepository.sumByType(userId, &quot;INCOME&quot;, from, to, categoryId, search)</span>
+<span class="pc" id="L69">                : BigDecimal.ZERO;</span>
+<span class="pc bpc" id="L70" title="3 of 4 branches missed.">        BigDecimal expense = (t == null || t.equals(&quot;EXPENSE&quot;))</span>
+<span class="fc" id="L71">                ? transactionRepository.sumByType(userId, &quot;EXPENSE&quot;, from, to, categoryId, search)</span>
+<span class="pc" id="L72">                : BigDecimal.ZERO;</span>
+<span class="fc" id="L73">        long count = transactionRepository.countFiltered(userId, from, to, t, categoryId, search);</span>
+<span class="fc" id="L74">        return MovementSummaryResponse.builder()</span>
+<span class="fc" id="L75">                .totalIncome(income)</span>
+<span class="fc" id="L76">                .totalExpense(expense)</span>
+<span class="fc" id="L77">                .net(income.subtract(expense))</span>
+<span class="fc" id="L78">                .count(count)</span>
+<span class="fc" id="L79">                .build();</span>
+    }
+
+    public List&lt;MovementResponse&gt; create(MovementRequest request, User user) {
+<span class="fc" id="L83">        validateSinglePaymentMethod(request.accountId(), request.cardId());</span>
+
+<span class="fc" id="L85">        Category category = resolveCategory(request.categoryId());</span>
+<span class="fc" id="L86">        Account account   = resolveAccount(request.accountId(), user);</span>
+<span class="fc" id="L87">        CreditCard card   = resolveCard(request.cardId(), user);</span>
+
+<span class="pc bpc" id="L89" title="1 of 2 branches missed.">        int installments = request.installments() == null ? 1 : request.installments();</span>
+
+<span class="fc bfc" id="L91" title="All 2 branches covered.">        if (installments &gt; 1) {</span>
+<span class="fc" id="L92">            return createInstallmentPlan(request, user, category, card);</span>
+        }
+
+<span class="fc" id="L95">        Transaction tx = Transaction.builder()</span>
+<span class="fc" id="L96">                .user(user)</span>
+<span class="fc" id="L97">                .type(request.type())</span>
+<span class="fc" id="L98">                .description(request.description())</span>
+<span class="fc" id="L99">                .amount(request.amount())</span>
+<span class="fc" id="L100">                .ccy(request.ccy())</span>
+<span class="fc" id="L101">                .category(category)</span>
+<span class="fc" id="L102">                .account(account)</span>
+<span class="fc" id="L103">                .card(card)</span>
+<span class="fc" id="L104">                .transactionDate(request.transactionDate())</span>
+<span class="fc" id="L105">                .dueDate(request.transactionDate())</span>
+<span class="fc" id="L106">                .installment(false)</span>
+<span class="fc" id="L107">                .build();</span>
+
+<span class="fc" id="L109">        return List.of(transactionMapper.toResponse(transactionRepository.save(tx)));</span>
+    }
+
+    private List&lt;MovementResponse&gt; createInstallmentPlan(MovementRequest request, User user,
+                                                         Category category, CreditCard card) {
+<span class="fc bfc" id="L114" title="All 2 branches covered.">        if (card == null) {</span>
+<span class="fc" id="L115">            throw new VectisException(&quot;Pagar en cuotas requiere una tarjeta de crédito&quot;, HttpStatus.BAD_REQUEST);</span>
+        }
+<span class="fc bfc" id="L117" title="All 2 branches covered.">        if (!&quot;EXPENSE&quot;.equals(request.type())) {</span>
+<span class="fc" id="L118">            throw new VectisException(&quot;Solo los egresos pueden financiarse en cuotas&quot;, HttpStatus.BAD_REQUEST);</span>
+        }
+
+<span class="fc" id="L121">        int n = request.installments();</span>
+<span class="fc" id="L122">        UUID groupId = UUID.randomUUID();</span>
+<span class="fc" id="L123">        List&lt;InstallmentCalculator.Installment&gt; parts = installmentCalculator.split(</span>
+<span class="fc" id="L124">                request.amount(), request.transactionDate(), card.getClosingDay(), card.getDueDay(), n);</span>
+
+<span class="fc" id="L126">        List&lt;Transaction&gt; toSave = new ArrayList&lt;&gt;(n);</span>
+<span class="fc bfc" id="L127" title="All 2 branches covered.">        for (InstallmentCalculator.Installment part : parts) {</span>
+<span class="fc" id="L128">            toSave.add(Transaction.builder()</span>
+<span class="fc" id="L129">                    .user(user)</span>
+<span class="fc" id="L130">                    .type(request.type())</span>
+<span class="fc" id="L131">                    .description(request.description() + &quot; — cuota &quot; + part.number() + &quot;/&quot; + n)</span>
+<span class="fc" id="L132">                    .amount(part.amount())</span>
+<span class="fc" id="L133">                    .ccy(request.ccy())</span>
+<span class="fc" id="L134">                    .category(category)</span>
+<span class="fc" id="L135">                    .account(null)</span>
+<span class="fc" id="L136">                    .card(card)</span>
+<span class="fc" id="L137">                    .transactionDate(request.transactionDate())</span>
+<span class="fc" id="L138">                    .dueDate(part.dueDate())</span>
+<span class="fc" id="L139">                    .installment(true)</span>
+<span class="fc" id="L140">                    .installmentNumber(part.number())</span>
+<span class="fc" id="L141">                    .totalInstallments(n)</span>
+<span class="fc" id="L142">                    .installmentGroupId(groupId)</span>
+<span class="fc" id="L143">                    .build());</span>
+<span class="fc" id="L144">        }</span>
+
+<span class="fc" id="L146">        return transactionRepository.saveAll(toSave).stream()</span>
+<span class="fc" id="L147">                .map(transactionMapper::toResponse)</span>
+<span class="fc" id="L148">                .toList();</span>
+    }
+
+    public MovementResponse update(UUID id, MovementRequest request, User user) {
+<span class="fc" id="L152">        Transaction tx = transactionRepository.findByIdAndDeletedAtIsNull(id)</span>
+<span class="fc" id="L153">                .orElseThrow(() -&gt; new TransactionNotFoundException(id));</span>
+<span class="fc" id="L154">        requireOwnership(tx, user, &quot;modificar&quot;);</span>
+
+<span class="fc bfc" id="L156" title="All 2 branches covered.">        if (tx.isInstallment()) {</span>
+<span class="fc" id="L157">            throw new VectisException(&quot;Las cuotas no se editan individualmente; eliminá el grupo y volvé a cargarlo&quot;,</span>
+                    HttpStatus.BAD_REQUEST);
+        }
+<span class="pc bpc" id="L160" title="2 of 4 branches missed.">        if (request.installments() != null &amp;&amp; request.installments() &gt; 1) {</span>
+<span class="nc" id="L161">            throw new VectisException(&quot;No se puede convertir un movimiento existente en cuotas&quot;, HttpStatus.BAD_REQUEST);</span>
+        }
+
+<span class="fc" id="L164">        validateSinglePaymentMethod(request.accountId(), request.cardId());</span>
+
+<span class="fc" id="L166">        Category category = resolveCategory(request.categoryId());</span>
+<span class="fc" id="L167">        Account account   = resolveAccount(request.accountId(), user);</span>
+<span class="fc" id="L168">        CreditCard card   = resolveCard(request.cardId(), user);</span>
+
+<span class="fc" id="L170">        tx.setType(request.type());</span>
+<span class="fc" id="L171">        tx.setDescription(request.description());</span>
+<span class="fc" id="L172">        tx.setAmount(request.amount());</span>
+<span class="fc" id="L173">        tx.setCcy(request.ccy());</span>
+<span class="fc" id="L174">        tx.setCategory(category);</span>
+<span class="fc" id="L175">        tx.setAccount(account);</span>
+<span class="fc" id="L176">        tx.setCard(card);</span>
+<span class="fc" id="L177">        tx.setTransactionDate(request.transactionDate());</span>
+<span class="fc" id="L178">        tx.setDueDate(request.transactionDate());</span>
+
+<span class="fc" id="L180">        return transactionMapper.toResponse(transactionRepository.save(tx));</span>
+    }
+
+    public void delete(UUID id, User user) {
+<span class="fc" id="L184">        Transaction tx = transactionRepository.findByIdAndDeletedAtIsNull(id)</span>
+<span class="pc" id="L185">                .orElseThrow(() -&gt; new TransactionNotFoundException(id));</span>
+<span class="fc" id="L186">        requireOwnership(tx, user, &quot;eliminar&quot;);</span>
+
+<span class="fc" id="L188">        OffsetDateTime now = OffsetDateTime.now(ZoneOffset.UTC);</span>
+<span class="fc bfc" id="L189" title="All 2 branches covered.">        if (tx.getInstallmentGroupId() != null) {</span>
+            // Eliminar todo el grupo de cuotas.
+<span class="fc" id="L191">            List&lt;Transaction&gt; group = transactionRepository</span>
+<span class="fc" id="L192">                    .findAllByInstallmentGroupIdAndDeletedAtIsNull(tx.getInstallmentGroupId());</span>
+<span class="fc" id="L193">            group.forEach(t -&gt; t.setDeletedAt(now));</span>
+<span class="fc" id="L194">            transactionRepository.saveAll(group);</span>
+<span class="fc" id="L195">        } else {</span>
+<span class="fc" id="L196">            tx.setDeletedAt(now);</span>
+<span class="fc" id="L197">            transactionRepository.save(tx);</span>
+        }
+<span class="fc" id="L199">    }</span>
+
+    // ── Helpers ──────────────────────────────────────────────────────────────
+
+    private void requireOwnership(Transaction tx, User user, String action) {
+<span class="fc bfc" id="L204" title="All 2 branches covered.">        if (!tx.getUser().getId().equals(user.getId())) {</span>
+<span class="fc" id="L205">            throw new VectisException(&quot;No tenés permiso para &quot; + action + &quot; este movimiento&quot;, HttpStatus.FORBIDDEN);</span>
+        }
+<span class="fc" id="L207">    }</span>
+
+    private void validateSinglePaymentMethod(UUID accountId, UUID cardId) {
+<span class="pc bpc" id="L210" title="1 of 4 branches missed.">        if (accountId != null &amp;&amp; cardId != null) {</span>
+<span class="fc" id="L211">            throw new VectisException(&quot;No podés asociar cuenta y tarjeta al mismo tiempo&quot;, HttpStatus.BAD_REQUEST);</span>
+        }
+<span class="fc" id="L213">    }</span>
+
+    private Category resolveCategory(UUID categoryId) {
+<span class="pc bpc" id="L216" title="1 of 2 branches missed.">        if (categoryId == null) return null;</span>
+<span class="nc" id="L217">        return categoryRepository.findById(categoryId)</span>
+<span class="nc" id="L218">                .orElseThrow(() -&gt; new VectisException(&quot;Categoría no encontrada: &quot; + categoryId, HttpStatus.NOT_FOUND));</span>
+    }
+
+    private Account resolveAccount(UUID accountId, User user) {
+<span class="pc bpc" id="L222" title="1 of 2 branches missed.">        if (accountId == null) return null;</span>
+<span class="nc" id="L223">        Account account = accountRepository.findById(accountId)</span>
+<span class="nc" id="L224">                .orElseThrow(() -&gt; new AccountNotFoundException(accountId));</span>
+<span class="nc bnc" id="L225" title="All 2 branches missed.">        if (!account.getUser().getId().equals(user.getId())) {</span>
+<span class="nc" id="L226">            throw new VectisException(&quot;La cuenta no pertenece al usuario autenticado&quot;, HttpStatus.FORBIDDEN);</span>
+        }
+<span class="nc" id="L228">        return account;</span>
+    }
+
+    private CreditCard resolveCard(UUID cardId, User user) {
+<span class="fc bfc" id="L232" title="All 2 branches covered.">        if (cardId == null) return null;</span>
+<span class="fc" id="L233">        CreditCard card = creditCardRepository.findById(cardId)</span>
+<span class="pc" id="L234">                .orElseThrow(() -&gt; new CreditCardNotFoundException(cardId));</span>
+<span class="fc bfc" id="L235" title="All 2 branches covered.">        if (!card.getUser().getId().equals(user.getId())) {</span>
+<span class="fc" id="L236">            throw new VectisException(&quot;La tarjeta no pertenece al usuario autenticado&quot;, HttpStatus.FORBIDDEN);</span>
+        }
+<span class="fc" id="L238">        return card;</span>
+    }
+
+    /** Convierte cadenas vacías/espacios a null para los filtros opcionales. */
+    private String normalize(String value) {
+<span class="pc bpc" id="L243" title="1 of 4 branches missed.">        if (value == null || value.isBlank()) return null;</span>
+<span class="nc" id="L244">        return value.trim();</span>
+    }
+}
+</pre><div class="footer"><span class="right">Created with <a href="http://www.jacoco.org/jacoco">JaCoCo</a> 0.8.12.202403310830</span></div></body></html>

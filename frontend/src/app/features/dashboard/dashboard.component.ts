@@ -8,6 +8,7 @@ import { CurrencyService } from '../../core/services/currency.service';
 
 const PAGE_TITLES: Record<string, string> = {
   '/dashboard':          'Resumen Ejecutivo',
+  '/movimientos':        'Movimientos',
   '/config':             'Configuración',
   '/config/categories':  'Categorías',
   '/settings/security':  'Seguridad',

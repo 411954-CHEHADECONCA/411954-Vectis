@@ -1,0 +1,342 @@
+<div class="page">
+
+  <!-- ── PageHead ───────────────────────────────────────────────────────── -->
+  <div class="page-head">
+    <div>
+      <h1 class="page-head__title">Movimientos</h1>
+      <p class="page-head__lead">
+        El registro completo de tus ingresos y egresos. Cargá, editá o eliminá movimientos y mantené tu balance al día.
+      </p>
+    </div>
+    <button class="btn-primary" (click)="openCreate()">
+      <svg lucidePlus [size]="18" [strokeWidth]="2"></svg>
+      Registrar movimiento
+    </button>
+  </div>
+
+  <!-- ── Summary strip ──────────────────────────────────────────────────── -->
+  @if (summary(); as s) {
+    <div class="summary-strip">
+      <div class="summary-card">
+        <span class="summary-label">Ingresos</span>
+        <span class="summary-value summary-value--in">{{ fmtAmount(s.totalIncome, 'ARS') }}</span>
+      </div>
+      <div class="summary-card">
+        <span class="summary-label">Egresos</span>
+        <span class="summary-value summary-value--out">{{ fmtAmount(s.totalExpense, 'ARS') }}</span>
+      </div>
+      <div class="summary-card">
+        <span class="summary-label">Neto</span>
+        <span class="summary-value" [class.summary-value--out]="s.net < 0" [class.summary-value--in]="s.net >= 0">
+          {{ fmtAmount(s.net, 'ARS') }}
+        </span>
+      </div>
+      <div class="summary-card">
+        <span class="summary-label">Movimientos</span>
+        <span class="summary-value">{{ s.count }}</span>
+      </div>
+    </div>
+  }
+
+  <!-- ── Ledger ─────────────────────────────────────────────────────────── -->
+  <div class="panel">
+    <div class="section-title">
+      <h3>Todos los movimientos</h3>
+      @if (page(); as p) {
+        <p class="section-sub">{{ p.content.length }} de {{ p.totalElements }} movimientos</p>
+      }
+    </div>
+
+    <!-- Filters -->
+    <div class="filters">
+      <div class="search-field">
+        <span class="search-icon"><svg lucideSearch [size]="17"></svg></span>
+        <input
+          type="text"
+          class="text-input search-input"
+          placeholder="Buscar por descripción…"
+          [value]="fQ()"
+          (input)="onSearchInput($any($event.target).value)" />
+      </div>
+
+      <div class="date-field">
+        <label class="cfg-label">Desde</label>
+        <input type="date" class="text-input" [value]="fFrom()" (change)="onFromChange($any($event.target).value)" />
+      </div>
+      <div class="date-field">
+        <label class="cfg-label">Hasta</label>
+        <input type="date" class="text-input" [value]="fTo()" (change)="onToChange($any($event.target).value)" />
+      </div>
+
+      <div class="segmented">
+        @for (t of [{ v: 'Todos', l: 'Todos' }, { v: 'INCOME', l: 'Ingresos' }, { v: 'EXPENSE', l: 'Egresos' }]; track t.v) {
+          <button
+            type="button"
+            class="segmented-btn"
+            [class.segmented-btn--active]="fType() === t.v"
+            (click)="onTypeFilter($any(t.v))">{{ t.l }}</button>
+        }
+      </div>
+
+      <select class="text-input filter-select" [value]="fCategoryId()" (change)="onCategoryFilter($any($event.target).value)">
+        <option value="">Todas las categorías</option>
+        @for (c of filterCategories(); track c.id) {
+          <option [value]="c.id">{{ c.name }}</option>
+        }
+      </select>
+    </div>
+
+    <!-- States -->
+    @if (loading()) {
+      <div class="skeleton-row"></div>
+      <div class="skeleton-row"></div>
+      <div class="skeleton-row"></div>
+    } @else if (error()) {
+      <div class="error-state">
+        <p>{{ error() }}</p>
+        <button class="btn-retry" (click)="reload()">
+          <svg lucideRefreshCw [size]="15"></svg> Reintentar
+        </button>
+      </div>
+    } @else if (page(); as p) {
+      @if (p.content.length === 0) {
+        <div class="empty-state">
+          <span class="empty-icon"><svg lucideSearch [size]="40" [strokeWidth]="1.2"></svg></span>
+          <p>No hay movimientos que coincidan con los filtros.</p>
+          <button class="btn-secondary btn-sm" (click)="clearFilters()">Limpiar filtros</button>
+        </div>
+      } @else {
+        <div class="cfg-list">
+          @for (m of p.content; track m.id) {
+            <div class="cfg-row" [class.cfg-row--divider]="!$first">
+              <span class="row-date">{{ fmtDay(m.dueDate) }}</span>
+              <ng-container *ngTemplateOutlet="iconChip; context: { icon: m.categoryIcon ?? 'circle', color: m.categoryColor ?? '#9ed1c5' }"></ng-container>
+              <div class="row-info">
+                <div class="row-name">{{ m.description }}</div>
+                <div class="row-sub">{{ rowSub(m) }}</div>
+              </div>
+              <span class="row-badge" [class.row-badge--in]="m.type === 'INCOME'" [class.row-badge--out]="m.type === 'EXPENSE'">
+                {{ m.type === 'INCOME' ? 'Ingreso' : 'Egreso' }}
+              </span>
+              <span class="row-amount" [class.row-amount--out]="m.type === 'EXPENSE'" [class.row-amount--in]="m.type === 'INCOME'">
+                {{ signedAmount(m) }}
+              </span>
+              <div class="row-actions">
+                <button
+                  class="icon-btn"
+                  [disabled]="m.installment"
+                  [title]="m.installment ? 'Las cuotas no se editan individualmente' : 'Editar'"
+                  (click)="openEdit(m)">
+                  <svg lucidePencil [size]="16"></svg>
+                </button>
+                <button class="icon-btn icon-btn--danger" title="Eliminar" (click)="openDelete(m)">
+                  <svg lucideTrash2 [size]="16"></svg>
+                </button>
+              </div>
+            </div>
+          }
+        </div>
+
+        <!-- Pagination -->
+        @if (p.totalPages > 1) {
+          <div class="pager">
+            <button class="icon-btn" [disabled]="p.page === 0" (click)="prevPage()" aria-label="Página anterior">
+              <svg lucideChevronLeft [size]="18"></svg>
+            </button>
+            <span class="pager-info">Página {{ p.page + 1 }} de {{ p.totalPages }}</span>
+            <button class="icon-btn" [disabled]="!p.hasNext" (click)="nextPage()" aria-label="Página siguiente">
+              <svg lucideChevronRight [size]="18"></svg>
+            </button>
+          </div>
+        }
+      }
+    }
+  </div>
+
+  <!-- ── Modal: create / edit ───────────────────────────────────────────── -->
+  @if (modal(); as m) {
+    @if (m.mode !== 'delete') {
+      <div class="backdrop" (click)="closeModal()">
+        <div class="modal modal--wide" (click)="$event.stopPropagation()">
+          <div class="modal-head">
+            <div>
+              <h3>{{ m.mode === 'create' ? 'Registrar movimiento' : 'Editar movimiento' }}</h3>
+              <p class="modal-sub">{{ m.mode === 'create' ? 'Completá los datos del ingreso o egreso.' : 'Actualizá los datos y guardá los cambios.' }}</p>
+            </div>
+            <button class="close-btn" (click)="closeModal()" aria-label="Cerrar"><svg lucideX [size]="18"></svg></button>
+          </div>
+
+          <form class="modal-body" [formGroup]="movementForm" (ngSubmit)="submit()">
+            <!-- Tipo -->
+            <div class="cfg-field">
+              <label class="cfg-label">Tipo de movimiento</label>
+              <div class="segmented">
+                @for (t of [{ v: 'INCOME', l: 'Ingreso' }, { v: 'EXPENSE', l: 'Egreso' }]; track t.v) {
+                  <button
+                    type="button"
+                    class="segmented-btn"
+                    [class.segmented-btn--active]="formType() === t.v"
+                    (click)="movementForm.controls.type.setValue($any(t.v)); onTypeOrSourceChange()">{{ t.l }}</button>
+                }
+              </div>
+            </div>
+
+            <!-- Descripción -->
+            <div class="cfg-field">
+              <label class="cfg-label" for="mv-desc">Descripción</label>
+              <input id="mv-desc" type="text" class="text-input" formControlName="description" placeholder="Ej. Coto — compra semanal" />
+            </div>
+
+            <!-- Categoría + Medio de pago -->
+            <div class="form-grid-2 form-grid-even">
+              <div class="cfg-field">
+                <label class="cfg-label" for="mv-cat">Categoría</label>
+                <select id="mv-cat" class="text-input" formControlName="categoryId">
+                  <option [ngValue]="null">Sin categoría</option>
+                  @for (c of formCategories(); track c.id) {
+                    <option [ngValue]="c.id">{{ c.name }}</option>
+                  }
+                </select>
+              </div>
+              <div class="cfg-field">
+                <label class="cfg-label" for="mv-payment">Medio de pago <span class="cfg-hint">(opcional)</span></label>
+                <select id="mv-payment" class="text-input" formControlName="paymentSource" (change)="onTypeOrSourceChange()">
+                  <option value="">Sin medio de pago</option>
+                  @if (accounts().length > 0) {
+                    <optgroup label="Cuentas bancarias">
+                      @for (a of accounts(); track a.id) {
+                        <option [value]="'acc:' + a.id">{{ a.name }}</option>
+                      }
+                    </optgroup>
+                  }
+                  @if (formType() === 'EXPENSE' && cards().length > 0) {
+                    <optgroup label="Tarjetas de crédito">
+                      @for (c of cards(); track c.id) {
+                        <option [value]="'card:' + c.id">{{ c.bank }} ····{{ c.last4 }}</option>
+                      }
+                    </optgroup>
+                  }
+                </select>
+              </div>
+            </div>
+
+            <!-- Moneda + Monto -->
+            <div class="form-grid-2">
+              <div class="cfg-field">
+                <label class="cfg-label">Moneda</label>
+                <div class="segmented">
+                  @for (c of ['ARS', 'USD']; track c) {
+                    <button
+                      type="button"
+                      class="segmented-btn"
+                      [class.segmented-btn--active]="movementForm.controls.ccy.value === c"
+                      (click)="movementForm.controls.ccy.setValue($any(c))">{{ c }}</button>
+                  }
+                </div>
+              </div>
+              <div class="cfg-field">
+                <label class="cfg-label" for="mv-amount">Monto {{ movementForm.controls.ccy.value === 'USD' ? '(US$)' : '($)' }}</label>
+                <input id="mv-amount" type="number" class="text-input text-input--mono" formControlName="amount" placeholder="0" min="0" step="0.01" />
+              </div>
+            </div>
+
+            <!-- Fecha -->
+            <div class="cfg-field">
+              <label class="cfg-label" for="mv-date">Fecha</label>
+              <input id="mv-date" type="date" class="text-input" formControlName="transactionDate" />
+            </div>
+
+            <!-- Cuotas (solo egreso con tarjeta) -->
+            @if (showInstallments()) {
+              <div class="cfg-field">
+                <label class="cfg-label" for="mv-installments">Cantidad de cuotas</label>
+                <input
+                  id="mv-installments"
+                  type="number"
+                  class="text-input text-input--mono"
+                  formControlName="installments"
+                  min="1"
+                  max="360"
+                  step="1"
+                  placeholder="1" />
+                @if (movementForm.controls.installments.value > 1) {
+                  <span class="cfg-hint">
+                    {{ movementForm.controls.installments.value }} cuotas de
+                    {{ fmtAmount(previewInstallmentAmount(), movementForm.controls.ccy.value) }}
+                  </span>
+                } @else {
+                  <span class="cfg-hint">1 = pago único. Ingresá la cantidad de cuotas.</span>
+                }
+              </div>
+            }
+
+            <!-- Vista previa -->
+            <div class="preview-box">
+              <ng-container *ngTemplateOutlet="iconChip; context: { icon: preview().catIcon, color: preview().catColor }"></ng-container>
+              <div class="preview-info">
+                <span class="preview-name">{{ preview().desc }}</span>
+                <span class="preview-hint">
+                  {{ preview().catName }}@if (preview().paymentName) { · {{ preview().paymentName }} }@if (preview().dateLabel) { · {{ preview().dateLabel }} }
+                </span>
+              </div>
+              <span class="preview-amount" [class.preview-amount--out]="preview().type === 'EXPENSE'" [class.preview-amount--in]="preview().type === 'INCOME'">
+                {{ preview().amountLabel }}
+              </span>
+            </div>
+
+            @if (formError(); as fe) {
+              <p class="form-error">{{ fe }}</p>
+            }
+          </form>
+
+          <div class="modal-footer">
+            <button class="btn-ghost" (click)="closeModal()">Cancelar</button>
+            <button class="btn-confirm" [disabled]="movementForm.invalid || submitting()" (click)="submit()">
+              {{ m.mode === 'create' ? 'Registrar' : 'Guardar cambios' }}
+            </button>
+          </div>
+        </div>
+      </div>
+    } @else {
+      <!-- Delete confirm -->
+      <div class="backdrop" (click)="closeModal()">
+        <div class="modal modal--sm" (click)="$event.stopPropagation()">
+          <div class="delete-icon"><svg lucideTrash2 [size]="22"></svg></div>
+          <h3 class="delete-title">Eliminar movimiento</h3>
+          <p class="delete-body">
+            ¿Seguro que querés eliminar <strong>{{ m.label }}</strong>?
+            {{ m.isInstallment ? 'Se eliminarán todas las cuotas de esta compra.' : 'Esta acción no se puede deshacer.' }}
+          </p>
+          <div class="modal-footer modal-footer--center">
+            <button class="btn-ghost" (click)="closeModal()">Cancelar</button>
+            <button class="btn-danger" [disabled]="submitting()" (click)="confirmDelete()">Eliminar</button>
+          </div>
+        </div>
+      </div>
+    }
+  }
+
+</div>
+
+<!-- ── Icon chip (categoría) ──────────────────────────────────────────────── -->
+<ng-template #iconChip let-icon="icon" let-color="color">
+  <span class="icon-chip" [style.background]="tint(color)" [style.color]="color">
+    @switch (icon) {
+      @case ('utensils') { <svg lucideUtensils [size]="18" [strokeWidth]="2"></svg> }
+      @case ('car') { <svg lucideCar [size]="18" [strokeWidth]="2"></svg> }
+      @case ('zap') { <svg lucideZap [size]="18" [strokeWidth]="2"></svg> }
+      @case ('repeat') { <svg lucideRepeat [size]="18" [strokeWidth]="2"></svg> }
+      @case ('music') { <svg lucideMusic [size]="18" [strokeWidth]="2"></svg> }
+      @case ('heart') { <svg lucideHeart [size]="18" [strokeWidth]="2"></svg> }
+      @case ('book') { <svg lucideBook [size]="18" [strokeWidth]="2"></svg> }
+      @case ('shirt') { <svg lucideShirt [size]="18" [strokeWidth]="2"></svg> }
+      @case ('home') { <svg lucideHome [size]="18" [strokeWidth]="2"></svg> }
+      @case ('briefcase') { <svg lucideBriefcase [size]="18" [strokeWidth]="2"></svg> }
+      @case ('monitor') { <svg lucideMonitor [size]="18" [strokeWidth]="2"></svg> }
+      @case ('trending-up') { <svg lucideTrendingUp [size]="18" [strokeWidth]="2"></svg> }
+      @case ('arrow-right-left') { <svg lucideArrowRightLeft [size]="18" [strokeWidth]="2"></svg> }
+      @case ('dumbbell') { <svg lucideDumbbell [size]="18" [strokeWidth]="2"></svg> }
+      @default { <svg lucideCircle [size]="18" [strokeWidth]="2"></svg> }
+    }
+  </span>
+</ng-template>
