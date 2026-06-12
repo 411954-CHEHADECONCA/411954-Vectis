@@ -1,0 +1,60 @@
+<?xml version="1.0" encoding="UTF-8"?><!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Strict//EN" "http://www.w3.org/TR/xhtml1/DTD/xhtml1-strict.dtd"><html xmlns="http://www.w3.org/1999/xhtml" lang="es"><head><meta http-equiv="Content-Type" content="text/html;charset=UTF-8"/><link rel="stylesheet" href="../jacoco-resources/report.css" type="text/css"/><link rel="shortcut icon" href="../jacoco-resources/report.gif" type="image/gif"/><title>InstallmentCalculator.java</title><link rel="stylesheet" href="../jacoco-resources/prettify.css" type="text/css"/><script type="text/javascript" src="../jacoco-resources/prettify.js"></script></head><body onload="window['PR_TAB_WIDTH']=4;prettyPrint()"><div class="breadcrumb" id="breadcrumb"><span class="info"><a href="../jacoco-sessions.html" class="el_session">Sessions</a></span><a href="../index.html" class="el_report">vectis-backend</a> &gt; <a href="index.source.html" class="el_package">com.vectis.backend.service</a> &gt; <span class="el_source">InstallmentCalculator.java</span></div><h1>InstallmentCalculator.java</h1><pre class="source lang-java linenums">package com.vectis.backend.service;
+
+import org.springframework.stereotype.Component;
+
+import java.math.BigDecimal;
+import java.math.RoundingMode;
+import java.time.LocalDate;
+import java.time.YearMonth;
+import java.util.ArrayList;
+import java.util.List;
+
+/**
+ * Lógica pura para dividir una compra diferida en N cuotas.
+ *
+ * &lt;p&gt;Reglas de negocio (ciclo de tarjeta):&lt;/p&gt;
+ * &lt;ul&gt;
+ *   &lt;li&gt;El resumen cierra el primer {@code closingDay} en o después de la compra:
+ *       si el día de compra es {@code &lt;= closingDay}, cierra ese mismo mes; si es
+ *       posterior, cierra el mes siguiente.&lt;/li&gt;
+ *   &lt;li&gt;La cuota {@code k} (1..N) vence el {@code dueDay} del mes
+ *       {@code (mes de cierre + k)}, acotando el día a la longitud del mes.&lt;/li&gt;
+ *   &lt;li&gt;Los montos se reparten con {@link RoundingMode#HALF_EVEN}; la última cuota
+ *       absorbe el remanente para que la suma sea exactamente el total.&lt;/li&gt;
+ * &lt;/ul&gt;
+ */
+@Component
+<span class="fc" id="L27">public class InstallmentCalculator {</span>
+
+    /** Una cuota calculada: número (1..N), fecha de vencimiento y monto. */
+<span class="fc" id="L30">    public record Installment(int number, LocalDate dueDate, BigDecimal amount) {}</span>
+
+    public List&lt;Installment&gt; split(BigDecimal total, LocalDate purchaseDate,
+                                   int closingDay, int dueDay, int installments) {
+<span class="fc bfc" id="L34" title="All 2 branches covered.">        if (installments &lt; 1) {</span>
+<span class="fc" id="L35">            throw new IllegalArgumentException(&quot;La cantidad de cuotas debe ser al menos 1&quot;);</span>
+        }
+
+        // Mes en que cierra el resumen que contiene la compra.
+<span class="fc" id="L39">        YearMonth closingMonth = YearMonth.from(purchaseDate);</span>
+<span class="fc bfc" id="L40" title="All 2 branches covered.">        if (purchaseDate.getDayOfMonth() &gt; closingDay) {</span>
+<span class="fc" id="L41">            closingMonth = closingMonth.plusMonths(1);</span>
+        }
+
+        // Reparto de montos: base con HALF_EVEN; la última cuota absorbe el resto.
+<span class="fc" id="L45">        BigDecimal base = total.divide(BigDecimal.valueOf(installments), 4, RoundingMode.HALF_EVEN);</span>
+<span class="fc" id="L46">        BigDecimal accumulated = base.multiply(BigDecimal.valueOf(installments - 1L));</span>
+<span class="fc" id="L47">        BigDecimal last = total.subtract(accumulated);</span>
+
+<span class="fc" id="L49">        List&lt;Installment&gt; result = new ArrayList&lt;&gt;(installments);</span>
+<span class="fc bfc" id="L50" title="All 2 branches covered.">        for (int k = 1; k &lt;= installments; k++) {</span>
+<span class="fc" id="L51">            YearMonth dueMonth = closingMonth.plusMonths(k);</span>
+<span class="fc" id="L52">            int day = Math.min(dueDay, dueMonth.lengthOfMonth());</span>
+<span class="fc" id="L53">            LocalDate dueDate = dueMonth.atDay(day);</span>
+<span class="fc bfc" id="L54" title="All 2 branches covered.">            BigDecimal amount = (k == installments) ? last : base;</span>
+<span class="fc" id="L55">            result.add(new Installment(k, dueDate, amount));</span>
+        }
+<span class="fc" id="L57">        return result;</span>
+    }
+}
+</pre><div class="footer"><span class="right">Created with <a href="http://www.jacoco.org/jacoco">JaCoCo</a> 0.8.12.202403310830</span></div></body></html>

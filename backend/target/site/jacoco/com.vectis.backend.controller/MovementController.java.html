@@ -1,0 +1,147 @@
+<?xml version="1.0" encoding="UTF-8"?><!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Strict//EN" "http://www.w3.org/TR/xhtml1/DTD/xhtml1-strict.dtd"><html xmlns="http://www.w3.org/1999/xhtml" lang="es"><head><meta http-equiv="Content-Type" content="text/html;charset=UTF-8"/><link rel="stylesheet" href="../jacoco-resources/report.css" type="text/css"/><link rel="shortcut icon" href="../jacoco-resources/report.gif" type="image/gif"/><title>MovementController.java</title><link rel="stylesheet" href="../jacoco-resources/prettify.css" type="text/css"/><script type="text/javascript" src="../jacoco-resources/prettify.js"></script></head><body onload="window['PR_TAB_WIDTH']=4;prettyPrint()"><div class="breadcrumb" id="breadcrumb"><span class="info"><a href="../jacoco-sessions.html" class="el_session">Sessions</a></span><a href="../index.html" class="el_report">vectis-backend</a> &gt; <a href="index.source.html" class="el_package">com.vectis.backend.controller</a> &gt; <span class="el_source">MovementController.java</span></div><h1>MovementController.java</h1><pre class="source lang-java linenums">package com.vectis.backend.controller;
+
+import com.vectis.backend.domain.entity.User;
+import com.vectis.backend.dto.MovementRequest;
+import com.vectis.backend.dto.MovementResponse;
+import com.vectis.backend.dto.MovementSummaryResponse;
+import com.vectis.backend.dto.PageResponse;
+import com.vectis.backend.exception.GlobalExceptionHandler.ErrorResponse;
+import com.vectis.backend.service.TransactionService;
+import io.swagger.v3.oas.annotations.Operation;
+import io.swagger.v3.oas.annotations.Parameter;
+import io.swagger.v3.oas.annotations.media.Content;
+import io.swagger.v3.oas.annotations.media.Schema;
+import io.swagger.v3.oas.annotations.responses.ApiResponse;
+import io.swagger.v3.oas.annotations.responses.ApiResponses;
+import io.swagger.v3.oas.annotations.security.SecurityRequirement;
+import io.swagger.v3.oas.annotations.tags.Tag;
+import jakarta.validation.Valid;
+import lombok.RequiredArgsConstructor;
+import org.springframework.format.annotation.DateTimeFormat;
+import org.springframework.http.HttpStatus;
+import org.springframework.security.core.annotation.AuthenticationPrincipal;
+import org.springframework.web.bind.annotation.*;
+
+import java.time.LocalDate;
+import java.time.YearMonth;
+import java.util.List;
+import java.util.UUID;
+
+@RestController
+@RequestMapping(&quot;/api/movements&quot;)
+@RequiredArgsConstructor
+@Tag(name = &quot;Movements&quot;, description = &quot;Libro de movimientos (transacciones) del usuario&quot;)
+@SecurityRequirement(name = &quot;BearerAuth&quot;)
+public class MovementController {
+
+    private final TransactionService transactionService;
+
+    @GetMapping
+    @Operation(summary = &quot;Listar movimientos del usuario (paginado, con filtros por período/tipo/categoría/búsqueda)&quot;)
+    @ApiResponses({
+        @ApiResponse(responseCode = &quot;200&quot;, description = &quot;Página de movimientos&quot;),
+        @ApiResponse(responseCode = &quot;401&quot;, description = &quot;Token JWT ausente o inválido&quot;,
+            content = @Content(schema = @Schema(implementation = ErrorResponse.class)))
+    })
+    public PageResponse&lt;MovementResponse&gt; getMovements(
+            @Parameter(description = &quot;Desde (inclusive). Default: día 1 del mes actual&quot;)
+            @RequestParam(required = false) @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) LocalDate from,
+            @Parameter(description = &quot;Hasta (inclusive). Default: último día del mes actual&quot;)
+            @RequestParam(required = false) @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) LocalDate to,
+            @Parameter(description = &quot;Filtro por tipo&quot;, schema = @Schema(allowableValues = {&quot;INCOME&quot;, &quot;EXPENSE&quot;}))
+            @RequestParam(required = false) String type,
+            @RequestParam(required = false) UUID categoryId,
+            @Parameter(description = &quot;Búsqueda por descripción&quot;)
+            @RequestParam(required = false) String q,
+            @RequestParam(defaultValue = &quot;0&quot;) int page,
+            @RequestParam(defaultValue = &quot;20&quot;) int size,
+            @AuthenticationPrincipal User user) {
+<span class="fc" id="L59">        LocalDate[] range = resolveRange(from, to);</span>
+<span class="fc" id="L60">        return transactionService.search(user.getId(), range[0], range[1], type, categoryId, q, page, size);</span>
+    }
+
+    @GetMapping(&quot;/summary&quot;)
+    @Operation(summary = &quot;Resumen agregado (ingresos/egresos/neto/cantidad) del período/filtros&quot;)
+    @ApiResponses({
+        @ApiResponse(responseCode = &quot;200&quot;, description = &quot;Resumen del período&quot;),
+        @ApiResponse(responseCode = &quot;401&quot;, description = &quot;Token JWT ausente o inválido&quot;,
+            content = @Content(schema = @Schema(implementation = ErrorResponse.class)))
+    })
+    public MovementSummaryResponse getSummary(
+            @RequestParam(required = false) @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) LocalDate from,
+            @RequestParam(required = false) @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) LocalDate to,
+            @RequestParam(required = false) String type,
+            @RequestParam(required = false) UUID categoryId,
+            @RequestParam(required = false) String q,
+            @AuthenticationPrincipal User user) {
+<span class="fc" id="L77">        LocalDate[] range = resolveRange(from, to);</span>
+<span class="fc" id="L78">        return transactionService.summary(user.getId(), range[0], range[1], type, categoryId, q);</span>
+    }
+
+    @PostMapping
+    @ResponseStatus(HttpStatus.CREATED)
+    @Operation(summary = &quot;Registrar un movimiento (genera N filas si es en cuotas)&quot;)
+    @ApiResponses({
+        @ApiResponse(responseCode = &quot;201&quot;, description = &quot;Movimiento(s) creado(s)&quot;),
+        @ApiResponse(responseCode = &quot;400&quot;, description = &quot;Datos inválidos (p. ej. cuotas sin tarjeta, cuenta y tarjeta juntas)&quot;,
+            content = @Content(schema = @Schema(implementation = ErrorResponse.class))),
+        @ApiResponse(responseCode = &quot;401&quot;, description = &quot;Token JWT ausente o inválido&quot;,
+            content = @Content(schema = @Schema(implementation = ErrorResponse.class))),
+        @ApiResponse(responseCode = &quot;403&quot;, description = &quot;Cuenta o tarjeta de otro usuario&quot;,
+            content = @Content(schema = @Schema(implementation = ErrorResponse.class))),
+        @ApiResponse(responseCode = &quot;404&quot;, description = &quot;Categoría, cuenta o tarjeta no encontrada&quot;,
+            content = @Content(schema = @Schema(implementation = ErrorResponse.class)))
+    })
+    public List&lt;MovementResponse&gt; createMovement(
+            @Valid @RequestBody MovementRequest request,
+            @AuthenticationPrincipal User user) {
+<span class="fc" id="L98">        return transactionService.create(request, user);</span>
+    }
+
+    @PutMapping(&quot;/{id}&quot;)
+    @Operation(summary = &quot;Editar un movimiento propio (no aplica a cuotas)&quot;)
+    @ApiResponses({
+        @ApiResponse(responseCode = &quot;200&quot;, description = &quot;Movimiento actualizado&quot;),
+        @ApiResponse(responseCode = &quot;400&quot;, description = &quot;Datos inválidos o intento de editar una cuota&quot;,
+            content = @Content(schema = @Schema(implementation = ErrorResponse.class))),
+        @ApiResponse(responseCode = &quot;401&quot;, description = &quot;Token JWT ausente o inválido&quot;,
+            content = @Content(schema = @Schema(implementation = ErrorResponse.class))),
+        @ApiResponse(responseCode = &quot;403&quot;, description = &quot;Movimiento de otro usuario&quot;,
+            content = @Content(schema = @Schema(implementation = ErrorResponse.class))),
+        @ApiResponse(responseCode = &quot;404&quot;, description = &quot;Movimiento no encontrado&quot;,
+            content = @Content(schema = @Schema(implementation = ErrorResponse.class)))
+    })
+    public MovementResponse updateMovement(
+            @PathVariable UUID id,
+            @Valid @RequestBody MovementRequest request,
+            @AuthenticationPrincipal User user) {
+<span class="nc" id="L118">        return transactionService.update(id, request, user);</span>
+    }
+
+    @DeleteMapping(&quot;/{id}&quot;)
+    @ResponseStatus(HttpStatus.NO_CONTENT)
+    @Operation(summary = &quot;Eliminar (soft delete) un movimiento propio; si es cuota, elimina todo el grupo&quot;)
+    @ApiResponses({
+        @ApiResponse(responseCode = &quot;204&quot;, description = &quot;Movimiento eliminado&quot;),
+        @ApiResponse(responseCode = &quot;401&quot;, description = &quot;Token JWT ausente o inválido&quot;,
+            content = @Content(schema = @Schema(implementation = ErrorResponse.class))),
+        @ApiResponse(responseCode = &quot;403&quot;, description = &quot;Movimiento de otro usuario&quot;,
+            content = @Content(schema = @Schema(implementation = ErrorResponse.class))),
+        @ApiResponse(responseCode = &quot;404&quot;, description = &quot;Movimiento no encontrado&quot;,
+            content = @Content(schema = @Schema(implementation = ErrorResponse.class)))
+    })
+    public void deleteMovement(
+            @PathVariable UUID id,
+            @AuthenticationPrincipal User user) {
+<span class="fc" id="L136">        transactionService.delete(id, user);</span>
+<span class="fc" id="L137">    }</span>
+
+    /** Default del período: mes actual completo (día 1 → fin de mes). */
+    private LocalDate[] resolveRange(LocalDate from, LocalDate to) {
+<span class="fc" id="L141">        YearMonth now = YearMonth.now();</span>
+<span class="pc bpc" id="L142" title="1 of 2 branches missed.">        LocalDate start = from != null ? from : now.atDay(1);</span>
+<span class="pc bpc" id="L143" title="1 of 2 branches missed.">        LocalDate end   = to   != null ? to   : now.atEndOfMonth();</span>
+<span class="fc" id="L144">        return new LocalDate[]{start, end};</span>
+    }
+}
+</pre><div class="footer"><span class="right">Created with <a href="http://www.jacoco.org/jacoco">JaCoCo</a> 0.8.12.202403310830</span></div></body></html>
