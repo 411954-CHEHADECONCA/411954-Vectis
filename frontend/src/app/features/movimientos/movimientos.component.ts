@@ -45,8 +45,10 @@ import { MovementService } from '../../core/services/movement.service';
 import { CategoryService } from '../../core/services/category.service';
 import { AccountService } from '../../core/services/account.service';
 import { CreditCardService } from '../../core/services/credit-card.service';
+import { CardProjectionService } from '../../core/services/card-projection.service';
 import { CurrencyService } from '../../core/services/currency.service';
 import {
+  GroupMovementUpdateRequest,
   MovementResponse,
   MovementRequest,
   MovementSummary,
@@ -58,6 +60,7 @@ import { PageResponse } from '../../core/models/pagination.models';
 import { CategoryResponse } from '../../core/models/category.models';
 import { AccountResponse } from '../../core/models/account.models';
 import { CardResponse } from '../../core/models/card.models';
+import { CardFace } from '../../core/models/card-projection.models';
 
 type TypeFilter = 'Todos' | 'INCOME' | 'EXPENSE';
 
@@ -66,6 +69,7 @@ interface MovementModalState {
   id?: string;
   label?: string;
   isInstallment?: boolean;
+  installmentGroupId?: string;
 }
 
 @Component({
@@ -78,18 +82,20 @@ interface MovementModalState {
     ReactiveFormsModule,
     NgTemplateOutlet,
     LucidePlus, LucidePencil, LucideTrash2, LucideX,
-    LucideSearch, LucideChevronLeft, LucideChevronRight, LucideRefreshCw,
+    LucideSearch, LucideChevronLeft, LucideChevronRight,
+    LucideRefreshCw,
     LucideUtensils, LucideCar, LucideZap, LucideRepeat, LucideMusic,
     LucideHeart, LucideBook, LucideShirt, LucideHome, LucideBriefcase,
     LucideMonitor, LucideTrendingUp, LucideArrowRightLeft, LucideDumbbell, LucideCircle,
   ],
 })
 export class MovimientosComponent implements OnInit {
-  private readonly movementService  = inject(MovementService);
-  private readonly categoryService  = inject(CategoryService);
-  private readonly accountService   = inject(AccountService);
-  private readonly creditCardService = inject(CreditCardService);
-  readonly currencyService          = inject(CurrencyService);
+  private readonly movementService       = inject(MovementService);
+  private readonly categoryService       = inject(CategoryService);
+  private readonly accountService        = inject(AccountService);
+  private readonly creditCardService     = inject(CreditCardService);
+  private readonly cardProjectionService = inject(CardProjectionService);
+  readonly currencyService               = inject(CurrencyService);
 
   // ── Data ────────────────────────────────────────────────────────────────
   page       = signal<PageResponse<MovementResponse> | null>(null);
@@ -100,10 +106,27 @@ export class MovimientosComponent implements OnInit {
   categories = signal<CategoryResponse[]>([]);
   accounts   = signal<AccountResponse[]>([]);
   cards      = signal<CardResponse[]>([]);
+  cardFaces  = signal<CardFace[]>([]);
 
   // ── Filters ─────────────────────────────────────────────────────────────
-  fFrom       = signal(monthStartISO());
-  fTo         = signal(monthEndISO());
+  currentMonthYear = signal(currentYearMonth());
+
+  readonly fFrom = computed(() => {
+    const { year, month } = this.currentMonthYear();
+    return toISO(new Date(year, month, 1));
+  });
+
+  readonly fTo = computed(() => {
+    const { year, month } = this.currentMonthYear();
+    return toISO(new Date(year, month + 1, 0));
+  });
+
+  readonly monthLabel = computed(() => {
+    const { year, month } = this.currentMonthYear();
+    const mo = new Date(year, month, 1).toLocaleDateString('es-AR', { month: 'long' });
+    return `${mo} de ${year}`;
+  });
+
   fType       = signal<TypeFilter>('Todos');
   fCategoryId = signal('');
   fQ          = signal('');
@@ -137,6 +160,35 @@ export class MovimientosComponent implements OnInit {
   /** Las cuotas solo aplican a egresos pagados con tarjeta. */
   showInstallments = computed(() => this.formType() === 'EXPENSE' && this.formSource().startsWith('card:'));
 
+  /** Face de la tarjeta seleccionada en el formulario (con consumido y límite). */
+  selectedCardFace = computed(() => {
+    const src = this.formSource();
+    if (!src.startsWith('card:')) return null;
+    return this.cardFaces().find(f => f.id === src.slice(5)) ?? null;
+  });
+
+  /** Crédito disponible de la tarjeta seleccionada (null si no hay tarjeta). */
+  availableCredit = computed(() => {
+    const face = this.selectedCardFace();
+    return face ? face.creditLimit - face.consumido : null;
+  });
+
+  /** Mensaje de error si el monto supera el saldo disponible (null si todo OK). */
+  creditLimitError = computed(() => {
+    if (this.formType() !== 'EXPENSE') return null;
+    const avail = this.availableCredit();
+    if (avail === null) return null;
+    const amount = Number(this.formValues().amount) || 0;
+    if (amount <= 0) return null;
+    const cardCcy = this.selectedCardFace()?.ccy ?? 'ARS';
+    const formCcy = (this.formValues().ccy ?? 'ARS') as MovementCcy;
+    if (formCcy !== cardCcy) return null; // conversión bimoneda pendiente (AF411954-12)
+    if (amount > avail) {
+      return `El monto supera el saldo disponible (${this.fmtAmount(avail, formCcy)} disponibles)`;
+    }
+    return null;
+  });
+
   /** Categorías válidas para el tipo seleccionado (incluye BOTH). */
   formCategories = computed(() => {
     const t = this.formType();
@@ -155,6 +207,7 @@ export class MovimientosComponent implements OnInit {
     this.loadCategories();
     this.loadAccounts();
     this.loadCards();
+    this.loadCardFaces();
     this.reload();
   }
 
@@ -175,6 +228,13 @@ export class MovimientosComponent implements OnInit {
   private loadCards(): void {
     this.creditCardService.getCards().subscribe({
       next: list => this.cards.set(list),
+      error: () => {},
+    });
+  }
+
+  private loadCardFaces(): void {
+    this.cardProjectionService.getOverview().subscribe({
+      next: ov => this.cardFaces.set(ov.cards),
       error: () => {},
     });
   }
@@ -208,8 +268,21 @@ export class MovimientosComponent implements OnInit {
     this.reload();
   }
 
-  onFromChange(value: string): void { this.fFrom.set(value); this.reloadFromFirstPage(); }
-  onToChange(value: string): void { this.fTo.set(value); this.reloadFromFirstPage(); }
+  prevMonth(): void {
+    this.currentMonthYear.update(({ year, month }) => {
+      const d = new Date(year, month - 1, 1);
+      return { year: d.getFullYear(), month: d.getMonth() };
+    });
+    this.reloadFromFirstPage();
+  }
+
+  nextMonth(): void {
+    this.currentMonthYear.update(({ year, month }) => {
+      const d = new Date(year, month + 1, 1);
+      return { year: d.getFullYear(), month: d.getMonth() };
+    });
+    this.reloadFromFirstPage();
+  }
 
   onTypeFilter(t: TypeFilter): void {
     this.fType.set(t);
@@ -226,8 +299,7 @@ export class MovimientosComponent implements OnInit {
   }
 
   clearFilters(): void {
-    this.fFrom.set(monthStartISO());
-    this.fTo.set(monthEndISO());
+    this.currentMonthYear.set(currentYearMonth());
     this.fType.set('Todos');
     this.fCategoryId.set('');
     this.fQ.set('');
@@ -254,7 +326,23 @@ export class MovimientosComponent implements OnInit {
   }
 
   openEdit(m: MovementResponse): void {
-    if (m.installment) return; // las cuotas no se editan individualmente
+    if (m.installment) {
+      // Cuota: solo edita descripción base y categoría del grupo completo.
+      const baseDesc = m.description.replace(/ — cuota \d+\/\d+$/, '');
+      this.movementForm.reset({
+        description: baseDesc,
+        type: m.type,
+        categoryId: m.categoryId,
+        paymentSource: '',
+        ccy: m.ccy,
+        amount: m.amount,
+        transactionDate: m.transactionDate,
+        installments: 1,
+      });
+      this.formError.set(null);
+      this.modal.set({ mode: 'edit', id: m.id, isInstallment: true, installmentGroupId: m.installmentGroupId ?? undefined });
+      return;
+    }
     const paymentSource = m.accountId ? `acc:${m.accountId}`
                         : m.cardId    ? `card:${m.cardId}`
                         : '';
@@ -301,10 +389,12 @@ export class MovimientosComponent implements OnInit {
         this.movementForm.patchValue({ categoryId: null });
       }
     }
+    this.formError.set(null);
   }
 
   submit(): void {
     if (this.movementForm.invalid || this.submitting()) return;
+    if (this.creditLimitError()) return;
     this.submitting.set(true);
     this.formError.set(null);
     const v = this.movementForm.getRawValue();
@@ -323,6 +413,26 @@ export class MovimientosComponent implements OnInit {
     };
     const m = this.modal();
     if (!m) return;
+
+    // Edición de plan de cuotas: solo descripción base + categoría
+    if (m.isInstallment && m.installmentGroupId) {
+      const groupReq: GroupMovementUpdateRequest = {
+        description: v.description,
+        categoryId: v.categoryId || null,
+      };
+      this.movementService.updateGroup(m.installmentGroupId, groupReq).subscribe({
+        next: () => {
+          this.submitting.set(false);
+          this.closeModal();
+          this.reload();
+        },
+        error: (err: HttpErrorResponse) => {
+          this.submitting.set(false);
+          this.formError.set(err.error?.message ?? 'Ocurrió un error al guardar');
+        },
+      });
+      return;
+    }
 
     const op$ = m.id
       ? this.movementService.update(m.id, req).pipe(map(() => void 0))
@@ -424,7 +534,7 @@ export class MovimientosComponent implements OnInit {
   }
 
   signedAmount(m: MovementResponse): string {
-    const prefix = m.type === 'EXPENSE' ? '- ' : '';
+    const prefix = m.type === 'EXPENSE' ? '- ' : '+ ';
     return prefix + this.fmtAmount(m.amount, m.ccy);
   }
 }
@@ -435,11 +545,7 @@ function toISO(d: Date): string {
   return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
 }
 function todayISO(): string { return toISO(new Date()); }
-function monthStartISO(): string {
+function currentYearMonth(): { year: number; month: number } {
   const n = new Date();
-  return toISO(new Date(n.getFullYear(), n.getMonth(), 1));
-}
-function monthEndISO(): string {
-  const n = new Date();
-  return toISO(new Date(n.getFullYear(), n.getMonth() + 1, 0));
+  return { year: n.getFullYear(), month: n.getMonth() };
 }

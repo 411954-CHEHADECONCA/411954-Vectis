@@ -20,12 +20,29 @@ public interface TransactionRepository extends JpaRepository<Transaction, UUID> 
 
     List<Transaction> findAllByInstallmentGroupIdAndDeletedAtIsNull(UUID installmentGroupId);
 
-    /** Listado paginado con filtros opcionales. EntityGraph evita N+1 al traer las relaciones. */
+    /** Deuda de tarjeta vigente del usuario (pendiente + futura) para la vista de Tarjetas. */
+    @EntityGraph(attributePaths = {"category", "card"})
+    @Query("""
+        SELECT t FROM Transaction t
+        WHERE t.user.id = :userId AND t.deletedAt IS NULL
+          AND t.card IS NOT NULL
+          AND t.dueDate >= :fromDate
+        ORDER BY t.card.id, t.installmentGroupId, t.installmentNumber, t.dueDate
+        """)
+    List<Transaction> findCardDebt(@Param("userId") UUID userId, @Param("fromDate") LocalDate fromDate);
+
+    /**
+     * Listado paginado con filtros opcionales. EntityGraph evita N+1 al traer las relaciones.
+     * Criterio de fecha: cuotas (installment=true) por dueDate; pagos únicos por transactionDate.
+     * Esto permite que una compra con tarjeta de pago único aparezca en el mes de compra,
+     * mientras que cada cuota aparece en su mes de vencimiento (proyección financiera).
+     */
     @EntityGraph(attributePaths = {"category", "account", "card"})
     @Query("""
         SELECT t FROM Transaction t
         WHERE t.user.id = :userId AND t.deletedAt IS NULL
-          AND t.dueDate BETWEEN :from AND :to
+          AND ((t.installment = true  AND t.dueDate         BETWEEN :from AND :to)
+            OR (t.installment = false AND t.transactionDate BETWEEN :from AND :to))
           AND (:type IS NULL OR t.type = :type)
           AND (:categoryId IS NULL OR t.category.id = :categoryId)
           AND (:q IS NULL OR LOWER(t.description) LIKE LOWER(CONCAT('%', CAST(:q AS string), '%')))
@@ -44,7 +61,8 @@ public interface TransactionRepository extends JpaRepository<Transaction, UUID> 
         SELECT COALESCE(SUM(t.amount), 0) FROM Transaction t
         WHERE t.user.id = :userId AND t.deletedAt IS NULL
           AND t.type = :type
-          AND t.dueDate BETWEEN :from AND :to
+          AND ((t.installment = true  AND t.dueDate         BETWEEN :from AND :to)
+            OR (t.installment = false AND t.transactionDate BETWEEN :from AND :to))
           AND (:categoryId IS NULL OR t.category.id = :categoryId)
           AND (:q IS NULL OR LOWER(t.description) LIKE LOWER(CONCAT('%', CAST(:q AS string), '%')))
         """)
@@ -59,7 +77,8 @@ public interface TransactionRepository extends JpaRepository<Transaction, UUID> 
     @Query("""
         SELECT COUNT(t) FROM Transaction t
         WHERE t.user.id = :userId AND t.deletedAt IS NULL
-          AND t.dueDate BETWEEN :from AND :to
+          AND ((t.installment = true  AND t.dueDate         BETWEEN :from AND :to)
+            OR (t.installment = false AND t.transactionDate BETWEEN :from AND :to))
           AND (:type IS NULL OR t.type = :type)
           AND (:categoryId IS NULL OR t.category.id = :categoryId)
           AND (:q IS NULL OR LOWER(t.description) LIKE LOWER(CONCAT('%', CAST(:q AS string), '%')))

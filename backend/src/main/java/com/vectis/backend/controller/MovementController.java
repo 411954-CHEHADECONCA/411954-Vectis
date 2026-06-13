@@ -1,6 +1,7 @@
 package com.vectis.backend.controller;
 
 import com.vectis.backend.domain.entity.User;
+import com.vectis.backend.dto.GroupMovementUpdateRequest;
 import com.vectis.backend.dto.MovementRequest;
 import com.vectis.backend.dto.MovementResponse;
 import com.vectis.backend.dto.MovementSummaryResponse;
@@ -116,6 +117,26 @@ public class MovementController {
             @Valid @RequestBody MovementRequest request,
             @AuthenticationPrincipal User user) {
         return transactionService.update(id, request, user);
+    }
+
+    @PatchMapping("/group/{groupId}")
+    @Operation(summary = "Editar descripción y categoría de un plan de cuotas completo")
+    @ApiResponses({
+        @ApiResponse(responseCode = "200", description = "Plan de cuotas actualizado"),
+        @ApiResponse(responseCode = "400", description = "Datos inválidos",
+            content = @Content(schema = @Schema(implementation = ErrorResponse.class))),
+        @ApiResponse(responseCode = "401", description = "Token JWT ausente o inválido",
+            content = @Content(schema = @Schema(implementation = ErrorResponse.class))),
+        @ApiResponse(responseCode = "403", description = "Plan de otro usuario",
+            content = @Content(schema = @Schema(implementation = ErrorResponse.class))),
+        @ApiResponse(responseCode = "404", description = "Grupo de cuotas no encontrado",
+            content = @Content(schema = @Schema(implementation = ErrorResponse.class)))
+    })
+    public List<MovementResponse> updateGroup(
+            @PathVariable UUID groupId,
+            @Valid @RequestBody GroupMovementUpdateRequest request,
+            @AuthenticationPrincipal User user) {
+        return transactionService.updateGroup(groupId, request, user);
     }
 
     @DeleteMapping("/{id}")

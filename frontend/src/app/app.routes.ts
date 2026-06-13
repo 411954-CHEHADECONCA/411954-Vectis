@@ -49,6 +49,13 @@ export const routes: Routes = [
           ),
       },
       {
+        path: 'tarjetas',
+        loadComponent: () =>
+          import('./features/tarjetas/tarjetas.component').then(
+            m => m.TarjetasComponent
+          ),
+      },
+      {
         path: 'config',
         loadComponent: () =>
           import('./features/config/configuracion/configuracion.component').then(

@@ -5,6 +5,7 @@ e2e/
 .design/
 .playwright/
 .playwright-cli/
+.playwright-mcp/
 # Documentación y recursos locales
 CLAUDE.md
 DESIGN.md
@@ -12,3 +13,16 @@ ROADMAP.md
 resources/
 skills-lock.json
 .env
+
+# Maven build output
+backend/target/
+
+# Node / Angular build output
+frontend/node_modules/
+frontend/dist/
+frontend/.angular/
+
+# IDE
+.idea/
+*.iml
+.vscode/

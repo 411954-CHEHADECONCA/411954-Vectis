@@ -43,6 +43,11 @@ export interface MovementSummary {
   count: number;
 }
 
+export interface GroupMovementUpdateRequest {
+  description: string;
+  categoryId: string | null;
+}
+
 /** Filtros del listado/resumen de movimientos. */
 export interface MovementFilters {
   from: string;
