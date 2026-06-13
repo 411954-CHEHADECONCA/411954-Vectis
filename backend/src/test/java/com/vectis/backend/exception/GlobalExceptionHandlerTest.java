@@ -101,25 +101,25 @@ class GlobalExceptionHandlerTest {
     // ─── MethodArgumentNotValidException → 400 con detalles del campo ────────
 
     @Test
-    @DisplayName("@Valid con campo en blanco → 400 con nombre del campo en el mensaje")
-    void validation_blankField_returns400WithFieldName() throws Exception {
+    @DisplayName("@Valid con campo en blanco → 400 con el mensaje de validación sin prefijo de campo")
+    void validation_blankField_returns400WithMessage() throws Exception {
         mockMvc.perform(post("/test/validation")
                         .contentType(MediaType.APPLICATION_JSON)
                         .content("{\"field\":\"\"}"))
                 .andExpect(status().isBadRequest())
                 .andExpect(jsonPath("$.status").value(400))
-                .andExpect(jsonPath("$.message").value(containsString("field")));
+                .andExpect(jsonPath("$.message").value("Field is required"));
     }
 
     @Test
-    @DisplayName("@Valid con campo nulo → 400 con nombre del campo en el mensaje")
-    void validation_nullField_returns400WithFieldName() throws Exception {
+    @DisplayName("@Valid con campo nulo → 400 con el mensaje de validación sin prefijo de campo")
+    void validation_nullField_returns400WithMessage() throws Exception {
         mockMvc.perform(post("/test/validation")
                         .contentType(MediaType.APPLICATION_JSON)
                         .content("{}"))
                 .andExpect(status().isBadRequest())
                 .andExpect(jsonPath("$.status").value(400))
-                .andExpect(jsonPath("$.message").value(containsString("field")));
+                .andExpect(jsonPath("$.message").value("Field is required"));
     }
 
     // ─── Exception genérica → 500 con mensaje opaco ──────────────────────────

@@ -4,6 +4,7 @@ import { Observable } from 'rxjs';
 import { environment } from '../../../environments/environment';
 import { PageResponse } from '../models/pagination.models';
 import {
+  GroupMovementUpdateRequest,
   MovementFilters,
   MovementRequest,
   MovementResponse,
@@ -33,6 +34,10 @@ export class MovementService {
 
   update(id: string, req: MovementRequest): Observable<MovementResponse> {
     return this.http.put<MovementResponse>(`${this.baseUrl}/${id}`, req);
+  }
+
+  updateGroup(groupId: string, req: GroupMovementUpdateRequest): Observable<MovementResponse[]> {
+    return this.http.patch<MovementResponse[]>(`${this.baseUrl}/group/${groupId}`, req);
   }
 
   delete(id: string): Observable<void> {

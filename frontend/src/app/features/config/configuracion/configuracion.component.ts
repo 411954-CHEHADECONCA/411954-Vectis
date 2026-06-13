@@ -15,6 +15,8 @@ import {
 import { NgTemplateOutlet } from '@angular/common';
 import { HttpErrorResponse } from '@angular/common/http';
 import { toSignal } from '@angular/core/rxjs-interop';
+import { ActivatedRoute } from '@angular/router';
+import { take } from 'rxjs';
 import {
   LucidePlus,
   LucidePencil,
@@ -136,10 +138,11 @@ export const CARD_PALETTE = [
   ],
 })
 export class ConfiguracionComponent implements OnInit {
-  private readonly categoryService         = inject(CategoryService);
-  private readonly accountService          = inject(AccountService);
-  private readonly creditCardService       = inject(CreditCardService);
+  private readonly categoryService          = inject(CategoryService);
+  private readonly accountService           = inject(AccountService);
+  private readonly creditCardService        = inject(CreditCardService);
   private readonly recurringMovementService = inject(RecurringMovementService);
+  private readonly route                    = inject(ActivatedRoute);
 
   // ── Exposed constants ─────────────────────────────────────────────────────
   readonly categoryIcons = CATEGORY_ICONS;
@@ -274,6 +277,11 @@ export class ConfiguracionComponent implements OnInit {
     this.loadCards();
     this.loadCategories();
     this.loadRecurringMovements();
+    // Navegación desde /tarjetas → "Agregar tarjeta"
+    this.route.queryParams.pipe(take(1)).subscribe(params => {
+      if (params['tab']) this.setTab(params['tab'] as Tab);
+      if (params['modal'] === 'create-card') this.openCreateCard();
+    });
   }
 
   loadAccounts(): void {

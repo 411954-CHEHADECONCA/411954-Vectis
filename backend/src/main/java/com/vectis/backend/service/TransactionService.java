@@ -5,6 +5,7 @@ import com.vectis.backend.domain.entity.Category;
 import com.vectis.backend.domain.entity.CreditCard;
 import com.vectis.backend.domain.entity.Transaction;
 import com.vectis.backend.domain.entity.User;
+import com.vectis.backend.dto.GroupMovementUpdateRequest;
 import com.vectis.backend.dto.MovementRequest;
 import com.vectis.backend.dto.MovementResponse;
 import com.vectis.backend.dto.MovementSummaryResponse;
@@ -92,6 +93,14 @@ public class TransactionService {
             return createInstallmentPlan(request, user, category, card);
         }
 
+        // Pago único. Si es con tarjeta, la deuda se factura en el ciclo (closing/due day),
+        // no en la fecha de compra. Sin tarjeta, impacta el mismo día.
+        LocalDate dueDate = card != null
+                ? installmentCalculator
+                    .split(request.amount(), request.transactionDate(), card.getClosingDay(), card.getDueDay(), 1)
+                    .get(0).dueDate()
+                : request.transactionDate();
+
         Transaction tx = Transaction.builder()
                 .user(user)
                 .type(request.type())
@@ -102,7 +111,7 @@ public class TransactionService {
                 .account(account)
                 .card(card)
                 .transactionDate(request.transactionDate())
-                .dueDate(request.transactionDate())
+                .dueDate(dueDate)
                 .installment(false)
                 .build();
 
@@ -178,6 +187,26 @@ public class TransactionService {
         tx.setDueDate(request.transactionDate());
 
         return transactionMapper.toResponse(transactionRepository.save(tx));
+    }
+
+    public List<MovementResponse> updateGroup(UUID groupId, GroupMovementUpdateRequest request, User user) {
+        List<Transaction> group = transactionRepository.findAllByInstallmentGroupIdAndDeletedAtIsNull(groupId);
+        if (group.isEmpty()) {
+            throw new VectisException("Grupo de cuotas no encontrado: " + groupId, HttpStatus.NOT_FOUND);
+        }
+        requireOwnership(group.get(0), user, "modificar");
+
+        Category category = resolveCategory(request.categoryId());
+
+        for (Transaction tx : group) {
+            tx.setDescription(request.description() + " — cuota "
+                    + tx.getInstallmentNumber() + "/" + tx.getTotalInstallments());
+            tx.setCategory(category);
+        }
+
+        return transactionRepository.saveAll(group).stream()
+                .map(transactionMapper::toResponse)
+                .toList();
     }
 
     public void delete(UUID id, User user) {

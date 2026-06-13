@@ -3,6 +3,7 @@ package com.vectis.backend.service;
 import com.vectis.backend.domain.entity.CreditCard;
 import com.vectis.backend.domain.entity.Transaction;
 import com.vectis.backend.domain.entity.User;
+import com.vectis.backend.dto.GroupMovementUpdateRequest;
 import com.vectis.backend.dto.MovementRequest;
 import com.vectis.backend.dto.MovementResponse;
 import com.vectis.backend.dto.MovementSummaryResponse;
@@ -19,6 +20,7 @@ import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.ArgumentCaptor;
+import org.mockito.ArgumentMatchers;
 import org.mockito.InjectMocks;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
@@ -92,6 +94,32 @@ class TransactionServiceTest {
         assertThat(saved.isInstallment()).isFalse();
         assertThat(saved.getDueDate()).isEqualTo(LocalDate.of(2026, 6, 10));
         assertThat(saved.getUser().getId()).isEqualTo(userId);
+    }
+
+    @Test
+    @DisplayName("create de pago único con tarjeta factura en el ciclo (no en la fecha de compra)")
+    void create_cardSinglePayment_billedByCycle() {
+        UUID cardId = UUID.randomUUID();
+        CreditCard card = card(cardId, user);
+        MovementRequest req = new MovementRequest(
+                "Compra", new BigDecimal("50000"), "ARS", "EXPENSE",
+                null, null, cardId, LocalDate.of(2026, 4, 7), 1);
+
+        given(creditCardRepository.findById(cardId)).willReturn(Optional.of(card));
+        given(installmentCalculator.split(any(), any(), anyInt(), anyInt(), anyInt()))
+                .willReturn(List.of(new InstallmentCalculator.Installment(
+                        1, LocalDate.of(2026, 6, 15), new BigDecimal("50000"))));
+        given(transactionRepository.save(any(Transaction.class))).willAnswer(inv -> inv.getArgument(0));
+        given(transactionMapper.toResponse(any(Transaction.class))).willReturn(mock());
+
+        transactionService.create(req, user);
+
+        ArgumentCaptor<Transaction> captor = ArgumentCaptor.forClass(Transaction.class);
+        verify(transactionRepository).save(captor.capture());
+        Transaction saved = captor.getValue();
+        assertThat(saved.isInstallment()).isFalse();
+        assertThat(saved.getDueDate()).isEqualTo(LocalDate.of(2026, 6, 15));
+        assertThat(saved.getTransactionDate()).isEqualTo(LocalDate.of(2026, 4, 7));
     }
 
     // ─── create con cuotas ──────────────────────────────────────────────────────
@@ -321,6 +349,72 @@ class TransactionServiceTest {
         assertThat(tx.getAmount()).isEqualByComparingTo("99999");
         assertThat(tx.getDueDate()).isEqualTo(LocalDate.of(2026, 6, 12));
         verify(transactionRepository).save(tx);
+    }
+
+    // ─── updateGroup ─────────────────────────────────────────────────────────
+
+    @Test
+    @DisplayName("updateGroup actualiza descripción y categoría de todas las filas del grupo")
+    void updateGroup_updatesAllRows() {
+        UUID groupId = UUID.randomUUID();
+        Transaction t1 = Transaction.builder()
+                .id(UUID.randomUUID()).user(user).type("EXPENSE")
+                .description("Notebook — cuota 1/3").amount(new BigDecimal("20000")).ccy("ARS")
+                .installment(true).installmentNumber(1).totalInstallments(3).installmentGroupId(groupId)
+                .transactionDate(LocalDate.of(2026, 6, 1)).dueDate(LocalDate.of(2026, 7, 15))
+                .createdAt(OffsetDateTime.now()).build();
+        Transaction t2 = Transaction.builder()
+                .id(UUID.randomUUID()).user(user).type("EXPENSE")
+                .description("Notebook — cuota 2/3").amount(new BigDecimal("20000")).ccy("ARS")
+                .installment(true).installmentNumber(2).totalInstallments(3).installmentGroupId(groupId)
+                .transactionDate(LocalDate.of(2026, 6, 1)).dueDate(LocalDate.of(2026, 8, 15))
+                .createdAt(OffsetDateTime.now()).build();
+
+        given(transactionRepository.findAllByInstallmentGroupIdAndDeletedAtIsNull(groupId))
+                .willReturn(List.of(t1, t2));
+        given(transactionRepository.saveAll(ArgumentMatchers.<List<Transaction>>any()))
+                .willAnswer(inv -> inv.getArgument(0));
+        given(transactionMapper.toResponse(any())).willReturn(mock());
+
+        GroupMovementUpdateRequest req = new GroupMovementUpdateRequest("Laptop", null);
+        List<MovementResponse> result = transactionService.updateGroup(groupId, req, user);
+
+        assertThat(result).hasSize(2);
+        assertThat(t1.getDescription()).isEqualTo("Laptop — cuota 1/3");
+        assertThat(t2.getDescription()).isEqualTo("Laptop — cuota 2/3");
+        assertThat(t1.getCategory()).isNull();
+    }
+
+    @Test
+    @DisplayName("updateGroup con grupo vacío lanza 404")
+    void updateGroup_groupNotFound_throws404() {
+        UUID groupId = UUID.randomUUID();
+        given(transactionRepository.findAllByInstallmentGroupIdAndDeletedAtIsNull(groupId))
+                .willReturn(List.of());
+
+        GroupMovementUpdateRequest req = new GroupMovementUpdateRequest("X", null);
+        assertThatThrownBy(() -> transactionService.updateGroup(groupId, req, user))
+                .isInstanceOf(VectisException.class)
+                .satisfies(e -> assertThat(((VectisException) e).getStatus()).isEqualTo(HttpStatus.NOT_FOUND));
+    }
+
+    @Test
+    @DisplayName("updateGroup con propietario incorrecto lanza 403")
+    void updateGroup_wrongOwner_throws403() {
+        UUID groupId = UUID.randomUUID();
+        Transaction t1 = Transaction.builder()
+                .id(UUID.randomUUID()).user(otherUser).type("EXPENSE")
+                .description("X — cuota 1/2").amount(new BigDecimal("1000")).ccy("ARS")
+                .installment(true).installmentNumber(1).totalInstallments(2).installmentGroupId(groupId)
+                .transactionDate(LocalDate.now()).dueDate(LocalDate.now())
+                .createdAt(OffsetDateTime.now()).build();
+        given(transactionRepository.findAllByInstallmentGroupIdAndDeletedAtIsNull(groupId))
+                .willReturn(List.of(t1));
+
+        GroupMovementUpdateRequest req = new GroupMovementUpdateRequest("X", null);
+        assertThatThrownBy(() -> transactionService.updateGroup(groupId, req, user))
+                .isInstanceOf(VectisException.class)
+                .satisfies(e -> assertThat(((VectisException) e).getStatus()).isEqualTo(HttpStatus.FORBIDDEN));
     }
 
     // ─── Helpers ──────────────────────────────────────────────────────────────
