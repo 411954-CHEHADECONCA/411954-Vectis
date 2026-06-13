@@ -42,13 +42,10 @@
   <div class="panel">
     <div class="section-title">
       <h3>Todos los movimientos</h3>
-      @if (page(); as p) {
-        <p class="section-sub">{{ p.content.length }} de {{ p.totalElements }} movimientos</p>
-      }
     </div>
 
-    <!-- Filters -->
-    <div class="filters">
+    <!-- Filters bar -->
+    <div class="filters-bar">
       <div class="search-field">
         <span class="search-icon"><svg lucideSearch [size]="17"></svg></span>
         <input
@@ -59,13 +56,14 @@
           (input)="onSearchInput($any($event.target).value)" />
       </div>
 
-      <div class="date-field">
-        <label class="cfg-label">Desde</label>
-        <input type="date" class="text-input" [value]="fFrom()" (change)="onFromChange($any($event.target).value)" />
-      </div>
-      <div class="date-field">
-        <label class="cfg-label">Hasta</label>
-        <input type="date" class="text-input" [value]="fTo()" (change)="onToChange($any($event.target).value)" />
+      <div class="month-picker">
+        <button type="button" class="month-nav-btn" (click)="prevMonth()" aria-label="Mes anterior">
+          <svg lucideChevronLeft [size]="15" [strokeWidth]="2.2"></svg>
+        </button>
+        <span class="month-label">{{ monthLabel() }}</span>
+        <button type="button" class="month-nav-btn" (click)="nextMonth()" aria-label="Mes siguiente">
+          <svg lucideChevronRight [size]="15" [strokeWidth]="2.2"></svg>
+        </button>
       </div>
 
       <div class="segmented">
@@ -78,8 +76,8 @@
         }
       </div>
 
-      <select class="text-input filter-select" [value]="fCategoryId()" (change)="onCategoryFilter($any($event.target).value)">
-        <option value="">Todas las categorías</option>
+      <select id="filter-cat" class="text-input filter-select" [value]="fCategoryId()" (change)="onCategoryFilter($any($event.target).value)">
+        <option value="">Categorías</option>
         @for (c of filterCategories(); track c.id) {
           <option [value]="c.id">{{ c.name }}</option>
         }
@@ -124,8 +122,7 @@
               <div class="row-actions">
                 <button
                   class="icon-btn"
-                  [disabled]="m.installment"
-                  [title]="m.installment ? 'Las cuotas no se editan individualmente' : 'Editar'"
+                  [title]="m.installment ? 'Editar plan de cuotas' : 'Editar'"
                   (click)="openEdit(m)">
                   <svg lucidePencil [size]="16"></svg>
                 </button>
@@ -167,125 +164,155 @@
           </div>
 
           <form class="modal-body" [formGroup]="movementForm" (ngSubmit)="submit()">
-            <!-- Tipo -->
-            <div class="cfg-field">
-              <label class="cfg-label">Tipo de movimiento</label>
-              <div class="segmented">
-                @for (t of [{ v: 'INCOME', l: 'Ingreso' }, { v: 'EXPENSE', l: 'Egreso' }]; track t.v) {
-                  <button
-                    type="button"
-                    class="segmented-btn"
-                    [class.segmented-btn--active]="formType() === t.v"
-                    (click)="movementForm.controls.type.setValue($any(t.v)); onTypeOrSourceChange()">{{ t.l }}</button>
-                }
-              </div>
-            </div>
 
-            <!-- Descripción -->
-            <div class="cfg-field">
-              <label class="cfg-label" for="mv-desc">Descripción</label>
-              <input id="mv-desc" type="text" class="text-input" formControlName="description" placeholder="Ej. Coto — compra semanal" />
-            </div>
+            @if (m.isInstallment) {
+              <!-- Formulario restringido para edición de planes de cuotas -->
+              <p class="installment-notice">Solo podés cambiar la descripción y la categoría del plan completo. El monto, la moneda y las fechas de las cuotas no se modifican.</p>
 
-            <!-- Categoría + Medio de pago -->
-            <div class="form-grid-2 form-grid-even">
               <div class="cfg-field">
-                <label class="cfg-label" for="mv-cat">Categoría</label>
-                <select id="mv-cat" class="text-input" formControlName="categoryId">
+                <label class="cfg-label" for="mv-desc-g">Descripción del plan</label>
+                <input id="mv-desc-g" type="text" class="text-input" formControlName="description" placeholder="Ej. Notebook" />
+              </div>
+
+              <div class="cfg-field">
+                <label class="cfg-label" for="mv-cat-g">Categoría</label>
+                <select id="mv-cat-g" class="text-input" formControlName="categoryId">
                   <option [ngValue]="null">Sin categoría</option>
                   @for (c of formCategories(); track c.id) {
                     <option [ngValue]="c.id">{{ c.name }}</option>
                   }
                 </select>
               </div>
-              <div class="cfg-field">
-                <label class="cfg-label" for="mv-payment">Medio de pago <span class="cfg-hint">(opcional)</span></label>
-                <select id="mv-payment" class="text-input" formControlName="paymentSource" (change)="onTypeOrSourceChange()">
-                  <option value="">Sin medio de pago</option>
-                  @if (accounts().length > 0) {
-                    <optgroup label="Cuentas bancarias">
-                      @for (a of accounts(); track a.id) {
-                        <option [value]="'acc:' + a.id">{{ a.name }}</option>
-                      }
-                    </optgroup>
-                  }
-                  @if (formType() === 'EXPENSE' && cards().length > 0) {
-                    <optgroup label="Tarjetas de crédito">
-                      @for (c of cards(); track c.id) {
-                        <option [value]="'card:' + c.id">{{ c.bank }} ····{{ c.last4 }}</option>
-                      }
-                    </optgroup>
-                  }
-                </select>
-              </div>
-            </div>
 
-            <!-- Moneda + Monto -->
-            <div class="form-grid-2">
+            } @else {
+              <!-- Formulario completo para movimientos normales -->
+
+              <!-- Tipo -->
               <div class="cfg-field">
-                <label class="cfg-label">Moneda</label>
+                <label class="cfg-label">Tipo de movimiento</label>
                 <div class="segmented">
-                  @for (c of ['ARS', 'USD']; track c) {
+                  @for (t of [{ v: 'INCOME', l: 'Ingreso' }, { v: 'EXPENSE', l: 'Egreso' }]; track t.v) {
                     <button
                       type="button"
                       class="segmented-btn"
-                      [class.segmented-btn--active]="movementForm.controls.ccy.value === c"
-                      (click)="movementForm.controls.ccy.setValue($any(c))">{{ c }}</button>
+                      [class.segmented-btn--active]="formType() === t.v"
+                      (click)="movementForm.controls.type.setValue($any(t.v)); onTypeOrSourceChange()">{{ t.l }}</button>
                   }
                 </div>
               </div>
+
+              <!-- Descripción -->
               <div class="cfg-field">
-                <label class="cfg-label" for="mv-amount">Monto {{ movementForm.controls.ccy.value === 'USD' ? '(US$)' : '($)' }}</label>
-                <input id="mv-amount" type="number" class="text-input text-input--mono" formControlName="amount" placeholder="0" min="0" step="0.01" />
+                <label class="cfg-label" for="mv-desc">Descripción</label>
+                <input id="mv-desc" type="text" class="text-input" formControlName="description" placeholder="Ej. Coto — compra semanal" />
               </div>
-            </div>
 
-            <!-- Fecha -->
-            <div class="cfg-field">
-              <label class="cfg-label" for="mv-date">Fecha</label>
-              <input id="mv-date" type="date" class="text-input" formControlName="transactionDate" />
-            </div>
+              <!-- Categoría + Medio de pago -->
+              <div class="form-grid-2 form-grid-even">
+                <div class="cfg-field">
+                  <label class="cfg-label" for="mv-cat">Categoría</label>
+                  <select id="mv-cat" class="text-input" formControlName="categoryId">
+                    <option [ngValue]="null">Sin categoría</option>
+                    @for (c of formCategories(); track c.id) {
+                      <option [ngValue]="c.id">{{ c.name }}</option>
+                    }
+                  </select>
+                </div>
+                <div class="cfg-field">
+                  <label class="cfg-label" for="mv-payment">Medio de pago <span class="cfg-hint">(opcional)</span></label>
+                  <select id="mv-payment" class="text-input" formControlName="paymentSource" (change)="onTypeOrSourceChange()">
+                    <option value="">Sin medio de pago</option>
+                    @if (accounts().length > 0) {
+                      <optgroup label="Cuentas bancarias">
+                        @for (a of accounts(); track a.id) {
+                          <option [value]="'acc:' + a.id">{{ a.name }}</option>
+                        }
+                      </optgroup>
+                    }
+                    @if (formType() === 'EXPENSE' && cards().length > 0) {
+                      <optgroup label="Tarjetas de crédito">
+                        @for (c of cards(); track c.id) {
+                          <option [value]="'card:' + c.id">{{ c.bank }} ····{{ c.last4 }}</option>
+                        }
+                      </optgroup>
+                    }
+                  </select>
+                  @if (availableCredit() !== null) {
+                    <span class="cfg-hint" [class.cfg-hint--error]="creditLimitError() !== null">
+                      Disponible: {{ fmtAmount(availableCredit()!, selectedCardFace()!.ccy) }}
+                    </span>
+                  }
+                </div>
+              </div>
 
-            <!-- Cuotas (solo egreso con tarjeta) -->
-            @if (showInstallments()) {
+              <!-- Moneda + Monto -->
+              <div class="form-grid-2">
+                <div class="cfg-field">
+                  <label class="cfg-label">Moneda</label>
+                  <div class="segmented">
+                    @for (c of ['ARS', 'USD']; track c) {
+                      <button
+                        type="button"
+                        class="segmented-btn"
+                        [class.segmented-btn--active]="movementForm.controls.ccy.value === c"
+                        (click)="movementForm.controls.ccy.setValue($any(c))">{{ c }}</button>
+                    }
+                  </div>
+                </div>
+                <div class="cfg-field">
+                  <label class="cfg-label" for="mv-amount">Monto {{ movementForm.controls.ccy.value === 'USD' ? '(US$)' : '($)' }}</label>
+                  <input id="mv-amount" type="number" class="text-input text-input--mono" formControlName="amount" placeholder="0" min="0" step="0.01" />
+                </div>
+              </div>
+
+              <!-- Fecha -->
               <div class="cfg-field">
-                <label class="cfg-label" for="mv-installments">Cantidad de cuotas</label>
-                <input
-                  id="mv-installments"
-                  type="number"
-                  class="text-input text-input--mono"
-                  formControlName="installments"
-                  min="1"
-                  max="360"
-                  step="1"
-                  placeholder="1" />
-                @if (movementForm.controls.installments.value > 1) {
-                  <span class="cfg-hint">
-                    {{ movementForm.controls.installments.value }} cuotas de
-                    {{ fmtAmount(previewInstallmentAmount(), movementForm.controls.ccy.value) }}
+                <label class="cfg-label" for="mv-date">Fecha</label>
+                <input id="mv-date" type="date" class="text-input" formControlName="transactionDate" />
+              </div>
+
+              <!-- Cuotas (solo egreso con tarjeta) -->
+              @if (showInstallments()) {
+                <div class="cfg-field">
+                  <label class="cfg-label" for="mv-installments">Cantidad de cuotas</label>
+                  <input
+                    id="mv-installments"
+                    type="number"
+                    class="text-input text-input--mono"
+                    formControlName="installments"
+                    min="1"
+                    max="360"
+                    step="1"
+                    placeholder="1" />
+                  @if (movementForm.controls.installments.value > 1) {
+                    <span class="cfg-hint">
+                      {{ movementForm.controls.installments.value }} cuotas de
+                      {{ fmtAmount(previewInstallmentAmount(), movementForm.controls.ccy.value) }}
+                    </span>
+                  } @else {
+                    <span class="cfg-hint">1 = pago único. Ingresá la cantidad de cuotas.</span>
+                  }
+                </div>
+              }
+
+              <!-- Vista previa -->
+              <div class="preview-box">
+                <ng-container *ngTemplateOutlet="iconChip; context: { icon: preview().catIcon, color: preview().catColor }"></ng-container>
+                <div class="preview-info">
+                  <span class="preview-name">{{ preview().desc }}</span>
+                  <span class="preview-hint">
+                    {{ preview().catName }}@if (preview().paymentName) { · {{ preview().paymentName }} }@if (preview().dateLabel) { · {{ preview().dateLabel }} }
                   </span>
-                } @else {
-                  <span class="cfg-hint">1 = pago único. Ingresá la cantidad de cuotas.</span>
-                }
-              </div>
-            }
-
-            <!-- Vista previa -->
-            <div class="preview-box">
-              <ng-container *ngTemplateOutlet="iconChip; context: { icon: preview().catIcon, color: preview().catColor }"></ng-container>
-              <div class="preview-info">
-                <span class="preview-name">{{ preview().desc }}</span>
-                <span class="preview-hint">
-                  {{ preview().catName }}@if (preview().paymentName) { · {{ preview().paymentName }} }@if (preview().dateLabel) { · {{ preview().dateLabel }} }
+                </div>
+                <span class="preview-amount" [class.preview-amount--out]="preview().type === 'EXPENSE'" [class.preview-amount--in]="preview().type === 'INCOME'">
+                  {{ preview().amountLabel }}
                 </span>
               </div>
-              <span class="preview-amount" [class.preview-amount--out]="preview().type === 'EXPENSE'" [class.preview-amount--in]="preview().type === 'INCOME'">
-                {{ preview().amountLabel }}
-              </span>
-            </div>
 
-            @if (formError(); as fe) {
-              <p class="form-error">{{ fe }}</p>
+            }
+
+            @if (creditLimitError() || formError()) {
+              <p class="form-error">{{ creditLimitError() ?? formError() }}</p>
             }
           </form>
 

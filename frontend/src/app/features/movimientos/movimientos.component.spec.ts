@@ -8,11 +8,13 @@ import { MovementService } from '../../core/services/movement.service';
 import { CategoryService } from '../../core/services/category.service';
 import { AccountService } from '../../core/services/account.service';
 import { CreditCardService } from '../../core/services/credit-card.service';
+import { CardProjectionService } from '../../core/services/card-projection.service';
 import { MovementResponse } from '../../core/models/movement.models';
 import { PageResponse } from '../../core/models/pagination.models';
 import { CategoryResponse } from '../../core/models/category.models';
 import { AccountResponse } from '../../core/models/account.models';
 import { CardResponse } from '../../core/models/card.models';
+import { CardFace, CardOverview } from '../../core/models/card-projection.models';
 
 const MOCK_CATS: CategoryResponse[] = [
   { id: '1', name: 'Sueldo',       icon: 'briefcase', color: '#52eacd', type: 'INCOME',  isDefault: true,  estimatedAmount: null },
@@ -29,6 +31,18 @@ const MOCK_CARD: CardResponse = {
   id: 'card-1', bank: 'Galicia', network: 'Visa', last4: '4821',
   ccy: 'ARS', creditLimit: 500000, closingDay: 5, dueDay: 15, accent: '#52eacd',
   createdAt: '2026-06-10T00:00:00Z', updatedAt: '2026-06-10T00:00:00Z',
+};
+
+const MOCK_CARD_FACE: CardFace = {
+  id: 'card-1', bank: 'Galicia', network: 'Visa', last4: '4821',
+  ccy: 'ARS', accent: '#52eacd', creditLimit: 500000, consumido: 50000,
+  nextClosingDate: '2026-07-05', nextDueDate: '2026-07-15',
+};
+
+const MOCK_OVERVIEW: CardOverview = {
+  cards: [MOCK_CARD_FACE], totalDue: 50000,
+  nextDueCardName: 'Galicia ····4821', nextDueDate: '2026-07-15', nextDueAmount: 50000,
+  cuotasActivas: [], vencimientos: [],
 };
 
 const MOCK_MOVEMENT: MovementResponse = {
@@ -57,14 +71,16 @@ describe('MovimientosComponent', () => {
   let catServiceSpy: jasmine.SpyObj<CategoryService>;
   let accServiceSpy: jasmine.SpyObj<AccountService>;
   let cardServiceSpy: jasmine.SpyObj<CreditCardService>;
+  let cardProjectionSpy: jasmine.SpyObj<CardProjectionService>;
 
   beforeEach(async () => {
     movServiceSpy = jasmine.createSpyObj<MovementService>('MovementService',
-      ['search', 'summary', 'create', 'update', 'delete']);
+      ['search', 'summary', 'create', 'update', 'updateGroup', 'delete']);
     movServiceSpy.search.and.returnValue(of(pageOf([MOCK_MOVEMENT])));
     movServiceSpy.summary.and.returnValue(of({ totalIncome: 0, totalExpense: 86400, net: -86400, count: 1 }));
     movServiceSpy.create.and.returnValue(of([MOCK_MOVEMENT]));
     movServiceSpy.update.and.returnValue(of(MOCK_MOVEMENT));
+    movServiceSpy.updateGroup.and.returnValue(of([MOCK_INSTALLMENT]));
     movServiceSpy.delete.and.returnValue(of(void 0));
 
     catServiceSpy = jasmine.createSpyObj<CategoryService>('CategoryService', ['getCategories']);
@@ -76,15 +92,19 @@ describe('MovimientosComponent', () => {
     cardServiceSpy = jasmine.createSpyObj<CreditCardService>('CreditCardService', ['getCards']);
     cardServiceSpy.getCards.and.returnValue(of([MOCK_CARD]));
 
+    cardProjectionSpy = jasmine.createSpyObj<CardProjectionService>('CardProjectionService', ['getOverview']);
+    cardProjectionSpy.getOverview.and.returnValue(of(MOCK_OVERVIEW));
+
     await TestBed.configureTestingModule({
       imports: [MovimientosComponent, ReactiveFormsModule],
       providers: [
         provideHttpClient(),
         provideHttpClientTesting(),
-        { provide: MovementService,   useValue: movServiceSpy  },
-        { provide: CategoryService,   useValue: catServiceSpy  },
-        { provide: AccountService,    useValue: accServiceSpy  },
-        { provide: CreditCardService, useValue: cardServiceSpy },
+        { provide: MovementService,       useValue: movServiceSpy       },
+        { provide: CategoryService,       useValue: catServiceSpy       },
+        { provide: AccountService,        useValue: accServiceSpy       },
+        { provide: CreditCardService,     useValue: cardServiceSpy      },
+        { provide: CardProjectionService, useValue: cardProjectionSpy   },
       ],
     }).compileComponents();
 
@@ -152,9 +172,22 @@ describe('MovimientosComponent', () => {
     expect(req.installments).toBe(1);
   });
 
-  it('openEdit does not open the modal for an installment row', () => {
+  it('openEdit opens a restricted modal for an installment row with the base description', () => {
     component.openEdit(MOCK_INSTALLMENT);
-    expect(component.modal()).toBeNull();
+    const m = component.modal();
+    expect(m).not.toBeNull();
+    expect(m!.isInstallment).toBeTrue();
+    expect(m!.installmentGroupId).toBe('grp-1');
+    expect(component.movementForm.controls.description.value).toBe('Notebook');
+  });
+
+  it('submit calls updateGroup for installment edits and reloads', () => {
+    component.openEdit(MOCK_INSTALLMENT);
+    component.movementForm.patchValue({ description: 'Laptop', categoryId: '2' });
+    component.submit();
+
+    expect(movServiceSpy.updateGroup).toHaveBeenCalledWith('grp-1', { description: 'Laptop', categoryId: '2' });
+    expect(movServiceSpy.search).toHaveBeenCalled();
   });
 
   it('confirmDelete calls the service and reloads', () => {
@@ -173,5 +206,31 @@ describe('MovimientosComponent', () => {
     expect(component.pageIndex()).toBe(0);
     const args = movServiceSpy.search.calls.mostRecent().args[0];
     expect(args.type).toBe('INCOME');
+  });
+
+  it('blocks submit when amount exceeds available card credit', () => {
+    // card-1 tiene creditLimit=500000 y consumido=50000 → disponible=450000
+    component.openCreate();
+    component.movementForm.setValue({
+      description: 'Compra grande', type: 'EXPENSE', categoryId: '2', paymentSource: 'card:card-1',
+      ccy: 'ARS', amount: 500000, transactionDate: '2026-06-12', installments: 1,
+    });
+
+    component.submit();
+
+    expect(movServiceSpy.create).not.toHaveBeenCalled();
+    expect(component.creditLimitError()).toContain('supera el saldo disponible');
+  });
+
+  it('allows submit when amount is within available credit', () => {
+    component.openCreate();
+    component.movementForm.setValue({
+      description: 'Compra ok', type: 'EXPENSE', categoryId: '2', paymentSource: 'card:card-1',
+      ccy: 'ARS', amount: 100000, transactionDate: '2026-06-12', installments: 1,
+    });
+
+    component.submit();
+
+    expect(movServiceSpy.create).toHaveBeenCalled();
   });
 });

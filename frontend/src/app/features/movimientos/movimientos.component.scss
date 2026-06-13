@@ -63,7 +63,7 @@
 
 .summary-value {
   font-size: var(--text-h3);
-  font-weight: var(--weight-semibold);
+  font-weight: var(--weight-bold);
   color: var(--color-on-surface);
   font-variant-numeric: tabular-nums;
 }
@@ -102,43 +102,107 @@
   margin: 0;
 }
 
-// ── Filters ───────────────────────────────────────────────────────────────────
+// ── Filters bar ───────────────────────────────────────────────────────────────
+// Grid garantiza que 1fr (búsqueda) absorba todo el espacio sobrante,
+// mientras month picker, segmented y select mantienen su ancho natural.
 
-.filters {
-  display: flex;
-  align-items: flex-end;
-  gap: 12px;
-  flex-wrap: wrap;
+.filters-bar {
+  display: grid;
+  grid-template-columns: 1fr auto auto auto;
+  align-items: center;
+  gap: 10px;
   margin-bottom: 16px;
+
+  // Altura uniforme: todos los controles = 40px total (border-box)
+  .text-input {
+    height: 40px;
+    padding-top: 0;
+    padding-bottom: 0;
+  }
+
+  .segmented {
+    height: 40px;
+
+    .segmented-btn {
+      height: 32px;   // 40px − 2×3px padding contenedor − 2px bordes
+      padding: 0 12px;
+    }
+  }
 }
 
 .search-field {
   position: relative;
   display: flex;
   align-items: center;
-  flex: 1;
-  min-width: 220px;
+  min-width: 0;       // permite que 1fr se encoja sin desbordarse
+
+  // Especificidad .search-field .search-input > .text-input → no puede ser pisado
+  // por el shorthand `padding: 11px 13px` de .text-input (que viene más adelante en el archivo)
+  .search-input { padding-left: 38px; }
 }
 
 .search-icon {
   position: absolute;
   left: 12px;
+  top: 50%;
+  transform: translateY(-50%);
   display: inline-flex;
   color: var(--color-outline);
   pointer-events: none;
 }
 
-.search-input { padding-left: 38px; }
+// ── Month picker ──────────────────────────────────────────────────────────────
 
-.date-field {
-  display: flex;
-  flex-direction: column;
-  gap: 6px;
-
-  .text-input { width: 160px; color-scheme: dark; font-variant-numeric: tabular-nums; }
+.month-picker {
+  display: inline-flex;
+  align-items: stretch;
+  background: var(--color-surface-container-low);
+  border: 1px solid var(--color-outline-variant);
+  border-radius: var(--radius);
+  height: 40px;          // alineado con los demás controles de la barra
+  overflow: hidden;
+  flex-shrink: 0;
 }
 
-.filter-select { width: 200px; cursor: pointer; color-scheme: dark; }
+.month-nav-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 28px;
+  height: 100%;
+  background: transparent;
+  border: none;
+  color: var(--color-outline);
+  cursor: pointer;
+  flex-shrink: 0;
+  transition: background-color var(--dur-fast) var(--ease-standard), color var(--dur-fast) var(--ease-standard);
+
+  &:hover {
+    background: var(--color-surface-container-high);
+    color: var(--color-on-surface);
+  }
+
+  &:focus-visible {
+    outline: 2px solid var(--color-primary);
+    outline-offset: -2px;
+  }
+}
+
+.month-label {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: var(--text-sm);
+  font-weight: var(--weight-medium);
+  color: var(--color-on-surface-variant);
+  padding: 0 6px;
+  min-width: 108px;
+  text-align: center;
+  white-space: nowrap;
+  user-select: none;
+}
+
+.filter-select { width: 140px; cursor: pointer; color-scheme: dark; flex-shrink: 0; }
 
 // ── List rows ─────────────────────────────────────────────────────────────────
 
@@ -251,6 +315,11 @@
     border-color: var(--color-outline-variant);
   }
 
+  &:focus-visible {
+    outline: 2px solid var(--color-primary);
+    outline-offset: 2px;
+  }
+
   &:disabled { opacity: 0.4; cursor: not-allowed; }
 }
 
@@ -299,6 +368,7 @@
 
   &:hover { filter: brightness(1.1); }
   &:active { transform: scale(var(--press-scale)); }
+  &:focus-visible { outline: 2px solid var(--color-primary); outline-offset: 2px; }
 }
 
 .btn-secondary {
@@ -317,6 +387,7 @@
   transition: background-color var(--dur-base) var(--ease-standard), color var(--dur-base) var(--ease-standard);
 
   &:hover { background: var(--color-surface-container-high); color: var(--color-on-surface); }
+  &:focus-visible { outline: 2px solid var(--color-primary); outline-offset: 2px; }
 }
 
 .btn-sm { padding: 7px 13px; font-size: var(--text-caption); }
@@ -372,6 +443,7 @@
   transition: background-color var(--dur-base) var(--ease-standard);
 
   &:hover { background: var(--color-surface-container-high); }
+  &:focus-visible { outline: 2px solid var(--color-primary); outline-offset: 2px; }
 }
 
 // ── Backdrop + Modal ────────────────────────────────────────────────────────
@@ -399,7 +471,7 @@
   background: var(--color-surface-container);
   border: 1px solid var(--color-outline-variant);
   border-radius: var(--radius-xl);
-  box-shadow: 0 24px 60px rgba(0, 0, 0, 0.5);
+  box-shadow: var(--shadow-modal);
   animation: mv-rise var(--dur-base) var(--ease-standard);
 }
 
@@ -446,6 +518,7 @@
   margin-right: -6px;
 
   &:hover { background: color-mix(in srgb, var(--color-on-surface) 8%, transparent); color: var(--color-on-surface); }
+  &:focus-visible { outline: 2px solid var(--color-primary); outline-offset: 2px; }
 }
 
 .modal-body {
@@ -476,6 +549,18 @@
 }
 
 .cfg-hint { font-size: var(--text-caption); color: var(--color-text-muted); }
+.cfg-hint--error { color: var(--color-error, #ffb4ab); font-weight: var(--weight-medium); }
+
+.installment-notice {
+  font-size: var(--text-caption);
+  color: var(--color-text-muted);
+  background: color-mix(in srgb, var(--color-surface-container-high) 60%, transparent);
+  border: 1px solid var(--color-outline-variant);
+  border-radius: var(--radius-sm);
+  padding: 8px 12px;
+  margin-bottom: 4px;
+  line-height: 1.4;
+}
 
 .text-input {
   width: 100%;
@@ -491,6 +576,7 @@
   transition: border-color var(--dur-fast) var(--ease-standard);
 
   &:focus { border-color: var(--color-primary); }
+  &:focus-visible { outline: 2px solid var(--color-primary); outline-offset: 0; }
   &::placeholder { color: var(--color-outline); }
 }
 
@@ -533,6 +619,11 @@
   color: var(--color-outline);
   white-space: nowrap;
   transition: background-color var(--dur-fast), color var(--dur-fast);
+
+  &:focus-visible {
+    outline: 2px solid var(--color-primary);
+    outline-offset: 1px;
+  }
 }
 
 .segmented-btn--active {
@@ -610,6 +701,7 @@
   transition: color var(--dur-base), background-color var(--dur-base);
 
   &:hover { color: var(--color-on-surface); background: color-mix(in srgb, var(--color-on-surface) 6%, transparent); }
+  &:focus-visible { outline: 2px solid var(--color-primary); outline-offset: 2px; }
 }
 
 .btn-confirm {
@@ -631,6 +723,7 @@
   &:hover:not(:disabled) { filter: brightness(1.1); }
   &:active:not(:disabled) { transform: scale(var(--press-scale)); }
   &:disabled { opacity: 0.45; cursor: not-allowed; }
+  &:focus-visible { outline: 2px solid var(--color-primary); outline-offset: 2px; }
 }
 
 // ── Delete confirm ────────────────────────────────────────────────────────────
@@ -683,6 +776,7 @@
 
   &:hover:not(:disabled) { background: var(--color-error); color: #2b0907; }
   &:disabled { opacity: 0.45; cursor: not-allowed; }
+  &:focus-visible { outline: 2px solid var(--color-error); outline-offset: 2px; }
 }
 
 // ── Reduced motion ────────────────────────────────────────────────────────────

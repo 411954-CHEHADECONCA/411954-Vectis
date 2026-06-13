@@ -1,0 +1,242 @@
+<div class="page">
+
+  <!-- ── PageHead ───────────────────────────────────────────────────────── -->
+  <div class="page-head">
+    <div>
+      <h1 class="page-head__title">Tarjetas</h1>
+      <p class="page-head__lead">Resúmenes, vencimientos y la proyección de tus cuotas activas.</p>
+    </div>
+    <button class="btn-primary" (click)="goToAddCard()">
+      <svg lucidePlus [size]="18" [strokeWidth]="2"></svg>
+      Agregar tarjeta
+    </button>
+  </div>
+
+  @if (loading()) {
+    <div class="skeleton-row"></div>
+    <div class="skeleton-row"></div>
+  } @else if (error()) {
+    <div class="error-state">
+      <p>{{ error() }}</p>
+      <button class="btn-retry" (click)="reload()"><svg lucideRefreshCw [size]="15"></svg> Reintentar</button>
+    </div>
+  } @else if (overview(); as ov) {
+
+    <!-- ── 3 stat cards fijas (no se mueven al agregar tarjetas) ──────────── -->
+    <div class="stats-row">
+      <div class="stat-card" [class.stat-card--warn]="ov.nextDueDate !== null">
+        <div class="stat-top">
+          <span class="stat-label">Próximo vencimiento</span>
+          <span class="stat-icon" [class.stat-icon--warn]="ov.nextDueDate !== null">
+            <svg lucideClock [size]="18"></svg>
+          </span>
+        </div>
+        @if (ov.nextDueDate) {
+          <span class="stat-value">{{ fmtAmount(ov.nextDueAmount ?? 0) }}</span>
+          <span class="stat-caption">{{ fmtDay(ov.nextDueDate) }} · {{ ov.nextDueCardName }} · en {{ daysUntil(ov.nextDueDate) }} días</span>
+        } @else {
+          <span class="stat-value">—</span>
+          <span class="stat-caption">Sin vencimientos próximos</span>
+        }
+      </div>
+
+      <div class="stat-card">
+        <div class="stat-top">
+          <span class="stat-label">Total próximo mes</span>
+          <span class="stat-icon"><svg lucideCreditCard [size]="18"></svg></span>
+        </div>
+        <span class="stat-value">{{ fmtAmount(nextMonthTotal()) }}</span>
+        <span class="stat-caption">suma de todas las tarjetas ese mes</span>
+      </div>
+
+      <div class="stat-card">
+        <div class="stat-top">
+          <span class="stat-label">Deuda total</span>
+          <span class="stat-icon"><svg lucideCreditCard [size]="18"></svg></span>
+        </div>
+        <span class="stat-value">{{ fmtAmount(ov.totalDue) }}</span>
+        <span class="stat-caption">resúmenes en curso</span>
+      </div>
+    </div>
+
+    <!-- ── Card faces ──────────────────────────────────────────────────────── -->
+    @if (ov.cards.length === 0) {
+      <div class="empty-state"><p>No tenés tarjetas de crédito. Agregá una para comenzar.</p></div>
+    } @else {
+      <div class="cards-grid">
+        @for (c of ov.cards; track c.id) {
+          <div class="card-face" [style.background]="cardGradient(c.accent)">
+            <div class="cf-top">
+              <div class="cf-header">
+                <span class="cf-bank">{{ c.bank }}</span>
+                <span class="cf-network" [style.color]="c.accent">{{ c.network }}</span>
+              </div>
+              <span class="cf-ccy">{{ c.ccy }}</span>
+            </div>
+            <div class="cf-digits">•••• {{ c.last4 }}</div>
+            <div class="cf-bottom">
+              <div class="cf-usage">
+                <span class="cf-muted">Consumido</span>
+                <span class="cf-muted cf-mono">{{ fmtAmount(c.consumido, c.ccy) }} / {{ fmtAmount(c.creditLimit, c.ccy) }}</span>
+              </div>
+              <div class="bar"><div class="bar-fill" [style.width.%]="pct(c.consumido, c.creditLimit)" [style.background]="c.accent"></div></div>
+              <div class="cf-dates">
+                <span class="cf-overline">Cierra <b>{{ fmtDay(c.nextClosingDate) }}</b></span>
+                <span class="cf-overline">Vence <b class="cf-warning">{{ fmtDay(c.nextDueDate) }}</b></span>
+              </div>
+            </div>
+          </div>
+        }
+      </div>
+    }
+
+    <!-- ── Tabs ─────────────────────────────────────────────────────────── -->
+    <div class="tabs">
+      @for (t of [{ v: 'cuotas', l: 'Cuotas activas' }, { v: 'venc', l: 'Vencimientos' }, { v: 'matriz', l: 'Matriz' }]; track t.v) {
+        <button class="tab" [class.tab--active]="activeTab() === t.v" (click)="setTab($any(t.v))">{{ t.l }}</button>
+      }
+    </div>
+
+    <!-- ── Tab: Cuotas activas ──────────────────────────────────────────── -->
+    @if (activeTab() === 'cuotas') {
+      <div class="panel">
+        <div class="section-title"><h3>Proyección de cuotas</h3>
+          <p class="section-sub">{{ ov.cuotasActivas.length }} planes en curso</p>
+        </div>
+        @if (ov.cuotasActivas.length === 0) {
+          <div class="empty-state"><p>No tenés cuotas activas.</p></div>
+        } @else {
+          <div class="cfg-list">
+            @for (p of ov.cuotasActivas; track p.groupId) {
+              <div class="cfg-row" [class.cfg-row--divider]="!$first">
+                <ng-container *ngTemplateOutlet="iconChip; context: { icon: p.categoryIcon ?? 'credit-card', color: p.categoryColor ?? '#9ed1c5' }"></ng-container>
+                <div class="row-info">
+                  <div class="row-name">{{ p.description }}</div>
+                  <div class="row-sub">{{ p.cardName }}</div>
+                </div>
+                <div class="cuota-progress">
+                  <span class="cuota-label">Cuota {{ p.currentNumber }}/{{ p.totalInstallments }}</span>
+                  <div class="bar"><div class="bar-fill" [style.width.%]="(p.currentNumber / p.totalInstallments) * 100"></div></div>
+                </div>
+                <span class="row-amount">{{ fmtAmount(p.monthlyAmount, p.ccy) }}</span>
+              </div>
+            }
+          </div>
+        }
+      </div>
+    }
+
+    <!-- ── Tab: Vencimientos ────────────────────────────────────────────── -->
+    @if (activeTab() === 'venc') {
+      <div class="panel">
+        <div class="section-title"><h3>Próximos vencimientos</h3>
+          <p class="section-sub">Ordenados por fecha</p>
+        </div>
+        @if (ov.vencimientos.length === 0) {
+          <div class="empty-state"><p>No hay vencimientos próximos.</p></div>
+        } @else {
+          <div class="cfg-list">
+            @for (v of ov.vencimientos; track v.cardId; let i = $index) {
+              <div class="cfg-row" [class.cfg-row--divider]="!$first">
+                <span class="venc-chip" [class.venc-chip--warn]="i === 0"><svg lucideCalendar [size]="18"></svg></span>
+                <div class="row-info">
+                  <div class="row-name">{{ v.cardName }}</div>
+                  <div class="row-sub">Vence {{ fmtDay(v.dueDate) }} · en {{ daysUntil(v.dueDate) }} días</div>
+                </div>
+                <span class="row-badge" [class.row-badge--warn]="i === 0">{{ i === 0 ? 'Próximo' : 'Programado' }}</span>
+                <span class="row-amount">{{ fmtAmount(v.amount) }}</span>
+              </div>
+            }
+          </div>
+        }
+      </div>
+    }
+
+    <!-- ── Tab: Matriz (Pivot Tree Grid) ────────────────────────────────── -->
+    @if (activeTab() === 'matriz') {
+      <div class="panel">
+        <div class="section-title"><h3>Matriz de financiamiento</h3>
+          <div class="segmented">
+            @for (n of monthOptions; track n) {
+              <button class="segmented-btn" [class.segmented-btn--active]="months() === n" (click)="setMonths(n)">{{ n }} meses</button>
+            }
+          </div>
+        </div>
+
+        @if (matrix(); as mx) {
+          @if (mx.cards.length === 0) {
+            <div class="empty-state"><p>No hay deuda de tarjeta proyectada.</p></div>
+          } @else {
+            <div class="matrix-scroll">
+              <table class="matrix">
+                <thead>
+                  <tr>
+                    <th class="mx-rowhead">Consumo</th>
+                    @for (m of mx.months; track m) { <th class="mx-num">{{ fmtMonth(m) }}</th> }
+                  </tr>
+                </thead>
+                <tbody>
+                  @for (card of mx.cards; track card.cardId) {
+                    <tr class="mx-card" (click)="toggleCard(card.cardId)">
+                      <td class="mx-rowhead">
+                        <span class="mx-chevron">
+                          @if (isExpanded(card.cardId)) { <svg lucideChevronDown [size]="16"></svg> }
+                          @else { <svg lucideChevronRight [size]="16"></svg> }
+                        </span>
+                        <span class="mx-accent" [style.background]="card.accent"></span>
+                        {{ card.cardName }}
+                      </td>
+                      @for (st of card.subtotalsByMonth; track $index) { <td class="mx-num mx-subtotal">{{ fmtCell(st) }}</td> }
+                    </tr>
+                    @if (isExpanded(card.cardId)) {
+                      @for (consumo of card.consumos; track consumo.description) {
+                        <tr class="mx-consumo">
+                          <td class="mx-rowhead mx-child">
+                            <ng-container *ngTemplateOutlet="iconChip; context: { icon: consumo.categoryIcon ?? 'credit-card', color: consumo.categoryColor ?? '#9ed1c5', sm: true }"></ng-container>
+                            <span class="mx-desc">{{ consumo.description }}</span>
+                            @if (consumo.installmentLabel) { <span class="mx-cuota">{{ consumo.installmentLabel }}</span> }
+                          </td>
+                          @for (cell of consumo.cellsByMonth; track $index) { <td class="mx-num">{{ fmtCell(cell) }}</td> }
+                        </tr>
+                      }
+                    }
+                  }
+                </tbody>
+                <tfoot>
+                  <tr class="mx-total">
+                    <td class="mx-rowhead">TOTAL</td>
+                    @for (t of mx.totalsByMonth; track $index) { <td class="mx-num">{{ fmtCell(t) }}</td> }
+                  </tr>
+                </tfoot>
+              </table>
+            </div>
+          }
+        }
+      </div>
+    }
+  }
+</div>
+
+<!-- ── Icon chip (categoría) ──────────────────────────────────────────────── -->
+<ng-template #iconChip let-icon="icon" let-color="color" let-sm="sm">
+  <span class="icon-chip" [class.icon-chip--sm]="sm" [style.background]="tint(color)" [style.color]="color">
+    @switch (icon) {
+      @case ('utensils') { <svg lucideUtensils [size]="sm ? 15 : 18" [strokeWidth]="2"></svg> }
+      @case ('car') { <svg lucideCar [size]="sm ? 15 : 18" [strokeWidth]="2"></svg> }
+      @case ('zap') { <svg lucideZap [size]="sm ? 15 : 18" [strokeWidth]="2"></svg> }
+      @case ('repeat') { <svg lucideRepeat [size]="sm ? 15 : 18" [strokeWidth]="2"></svg> }
+      @case ('music') { <svg lucideMusic [size]="sm ? 15 : 18" [strokeWidth]="2"></svg> }
+      @case ('heart') { <svg lucideHeart [size]="sm ? 15 : 18" [strokeWidth]="2"></svg> }
+      @case ('book') { <svg lucideBook [size]="sm ? 15 : 18" [strokeWidth]="2"></svg> }
+      @case ('shirt') { <svg lucideShirt [size]="sm ? 15 : 18" [strokeWidth]="2"></svg> }
+      @case ('home') { <svg lucideHome [size]="sm ? 15 : 18" [strokeWidth]="2"></svg> }
+      @case ('briefcase') { <svg lucideBriefcase [size]="sm ? 15 : 18" [strokeWidth]="2"></svg> }
+      @case ('monitor') { <svg lucideMonitor [size]="sm ? 15 : 18" [strokeWidth]="2"></svg> }
+      @case ('trending-up') { <svg lucideTrendingUp [size]="sm ? 15 : 18" [strokeWidth]="2"></svg> }
+      @case ('arrow-right-left') { <svg lucideArrowRightLeft [size]="sm ? 15 : 18" [strokeWidth]="2"></svg> }
+      @case ('dumbbell') { <svg lucideDumbbell [size]="sm ? 15 : 18" [strokeWidth]="2"></svg> }
+      @case ('credit-card') { <svg lucideCreditCard [size]="sm ? 15 : 18" [strokeWidth]="2"></svg> }
+      @default { <svg lucideCircle [size]="sm ? 15 : 18" [strokeWidth]="2"></svg> }
+    }
+  </span>
+</ng-template>
