@@ -2,6 +2,7 @@ package com.vectis.backend.service;
 
 import com.vectis.backend.domain.entity.Account;
 import com.vectis.backend.domain.entity.User;
+import com.vectis.backend.dto.AccountBalanceResponse;
 import com.vectis.backend.dto.AccountRequest;
 import com.vectis.backend.dto.AccountResponse;
 import com.vectis.backend.exception.AccountNotFoundException;
@@ -18,6 +19,7 @@ import org.mockito.junit.jupiter.MockitoExtension;
 import org.springframework.http.HttpStatus;
 
 import java.math.BigDecimal;
+import java.time.LocalDate;
 import java.time.OffsetDateTime;
 import java.util.List;
 import java.util.Optional;
@@ -26,6 +28,7 @@ import java.util.UUID;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.BDDMockito.given;
 import static org.mockito.Mockito.verify;
 
@@ -41,6 +44,9 @@ class AccountServiceTest {
 
     @Mock
     private AccountMapper accountMapper;
+
+    @Mock
+    private BalanceService balanceService;
 
     private User user;
     private User otherUser;
@@ -70,35 +76,81 @@ class AccountServiceTest {
     // ─── getAccounts ──────────────────────────────────────────────────────────
 
     @Test
-    @DisplayName("getAccounts devuelve solo las cuentas del usuario")
-    void getAccounts_returnsOnlyUserAccounts() {
+    @DisplayName("getAccounts devuelve solo las cuentas del usuario con computedBalance")
+    void getAccounts_returnsOnlyUserAccountsWithComputedBalance() {
         Account account = buildAccount(user);
-        AccountResponse response = buildResponse(account);
+        AccountResponse baseResponse = buildResponse(account, null);
 
         given(accountRepository.findAllByUser_IdOrderByCreatedAtAsc(userId)).willReturn(List.of(account));
-        given(accountMapper.toResponse(account)).willReturn(response);
+        given(accountMapper.toResponse(account)).willReturn(baseResponse);
+        given(balanceService.currentBalance(account, userId)).willReturn(new BigDecimal("163500.0000"));
 
         List<AccountResponse> result = accountService.getAccounts(userId);
 
         assertThat(result).hasSize(1);
+        assertThat(result.get(0).computedBalance()).isEqualByComparingTo("163500.0000");
         verify(accountRepository).findAllByUser_IdOrderByCreatedAtAsc(userId);
+        verify(balanceService).currentBalance(account, userId);
+    }
+
+    // ─── getBalance ───────────────────────────────────────────────────────────
+
+    @Test
+    @DisplayName("getBalance retorna el saldo calculado a la fecha indicada")
+    void getBalance_returnsComputedBalanceAtDate() {
+        UUID id = UUID.randomUUID();
+        Account account = buildAccount(user);
+        LocalDate asOf = LocalDate.of(2025, 1, 31);
+
+        given(accountRepository.findById(id)).willReturn(Optional.of(account));
+        given(balanceService.balanceAtDate(account, userId, asOf)).willReturn(new BigDecimal("113500.0000"));
+
+        AccountBalanceResponse result = accountService.getBalance(id, user, asOf);
+
+        assertThat(result.computedBalance()).isEqualByComparingTo("113500.0000");
+        assertThat(result.openingBalance()).isEqualByComparingTo("150000.0000");
+        assertThat(result.asOf()).isEqualTo(asOf);
+    }
+
+    @Test
+    @DisplayName("getBalance de cuenta inexistente lanza NOT_FOUND")
+    void getBalance_notFound_throwsAccountNotFoundException() {
+        UUID id = UUID.randomUUID();
+        given(accountRepository.findById(id)).willReturn(Optional.empty());
+
+        assertThatThrownBy(() -> accountService.getBalance(id, user, LocalDate.now()))
+                .isInstanceOf(AccountNotFoundException.class);
+    }
+
+    @Test
+    @DisplayName("getBalance de cuenta de otro usuario lanza FORBIDDEN")
+    void getBalance_otherUserAccount_throwsForbidden() {
+        UUID id = UUID.randomUUID();
+        Account otherAccount = buildAccount(otherUser);
+        given(accountRepository.findById(id)).willReturn(Optional.of(otherAccount));
+
+        assertThatThrownBy(() -> accountService.getBalance(id, user, LocalDate.now()))
+                .isInstanceOf(VectisException.class)
+                .satisfies(ex -> assertThat(((VectisException) ex).getStatus()).isEqualTo(HttpStatus.FORBIDDEN));
     }
 
     // ─── createAccount ────────────────────────────────────────────────────────
 
     @Test
-    @DisplayName("createAccount persiste con el usuario autenticado")
+    @DisplayName("createAccount persiste con el usuario autenticado y retorna computedBalance")
     void createAccount_persistsWithAuthenticatedUser() {
         AccountRequest request = buildRequest(false, null);
         Account saved = buildAccount(user);
-        AccountResponse response = buildResponse(saved);
+        AccountResponse baseResponse = buildResponse(saved, null);
 
         given(accountRepository.save(any(Account.class))).willReturn(saved);
-        given(accountMapper.toResponse(saved)).willReturn(response);
+        given(accountMapper.toResponse(saved)).willReturn(baseResponse);
+        given(balanceService.currentBalance(saved, userId)).willReturn(new BigDecimal("150000.0000"));
 
         AccountResponse result = accountService.createAccount(request, user);
 
         assertThat(result.name()).isEqualTo("Cuenta Test");
+        assertThat(result.computedBalance()).isEqualByComparingTo("150000.0000");
         verify(accountRepository).save(any(Account.class));
     }
 
@@ -107,10 +159,11 @@ class AccountServiceTest {
     void createAccount_nonRemunerada_tnaNullAllowed() {
         AccountRequest request = buildRequest(false, null);
         Account saved = buildAccount(user);
-        AccountResponse response = buildResponse(saved);
+        AccountResponse baseResponse = buildResponse(saved, null);
 
         given(accountRepository.save(any(Account.class))).willReturn(saved);
-        given(accountMapper.toResponse(saved)).willReturn(response);
+        given(accountMapper.toResponse(saved)).willReturn(baseResponse);
+        given(balanceService.currentBalance(eq(saved), eq(userId))).willReturn(new BigDecimal("150000.0000"));
 
         AccountResponse result = accountService.createAccount(request, user);
 
@@ -122,10 +175,11 @@ class AccountServiceTest {
     void createAccount_remunerada_persistsTna() {
         AccountRequest request = buildRequest(true, new BigDecimal("81.0000"));
         Account saved = buildAccount(user);
-        AccountResponse response = buildResponse(saved);
+        AccountResponse baseResponse = buildResponse(saved, null);
 
         given(accountRepository.save(any(Account.class))).willReturn(saved);
-        given(accountMapper.toResponse(saved)).willReturn(response);
+        given(accountMapper.toResponse(saved)).willReturn(baseResponse);
+        given(balanceService.currentBalance(eq(saved), eq(userId))).willReturn(new BigDecimal("150000.0000"));
 
         AccountResponse result = accountService.createAccount(request, user);
 
@@ -158,22 +212,24 @@ class AccountServiceTest {
     }
 
     @Test
-    @DisplayName("updateAccount propia actualiza todos los campos")
+    @DisplayName("updateAccount propia actualiza todos los campos y retorna computedBalance")
     void updateAccount_ownAccount_updatesAllFields() {
         UUID id = UUID.randomUUID();
         Account account = buildAccount(user);
         AccountRequest request = new AccountRequest(
                 "Cuenta Actualizada", "Banco", "Caja Ahorro $", "USD",
                 new BigDecimal("200000.0000"), true, new BigDecimal("95.0000"));
-        AccountResponse response = buildResponse(account);
+        AccountResponse baseResponse = buildResponse(account, null);
 
         given(accountRepository.findById(id)).willReturn(Optional.of(account));
         given(accountRepository.save(account)).willReturn(account);
-        given(accountMapper.toResponse(account)).willReturn(response);
+        given(accountMapper.toResponse(account)).willReturn(baseResponse);
+        given(balanceService.currentBalance(account, userId)).willReturn(new BigDecimal("200000.0000"));
 
         AccountResponse result = accountService.updateAccount(id, request, user);
 
         assertThat(result).isNotNull();
+        assertThat(result.computedBalance()).isEqualByComparingTo("200000.0000");
         verify(accountRepository).save(account);
     }
 
@@ -237,9 +293,10 @@ class AccountServiceTest {
                 new BigDecimal("150000.0000"), remunerada, tna);
     }
 
-    private AccountResponse buildResponse(Account a) {
+    private AccountResponse buildResponse(Account a, BigDecimal computedBalance) {
         return new AccountResponse(
                 a.getId(), a.getName(), a.getKind(), a.getDetail(), a.getCcy(),
-                a.getBalance(), a.isRemunerada(), a.getTna(), a.getCreatedAt(), a.getUpdatedAt());
+                a.getBalance(), computedBalance,
+                a.isRemunerada(), a.getTna(), a.getCreatedAt(), a.getUpdatedAt());
     }
 }

@@ -26,8 +26,11 @@ public record AccountResponse(
     @Schema(description = "Moneda", example = "ARS")
     String ccy,
 
-    @Schema(description = "Saldo actual", example = "150000.0000")
+    @Schema(description = "Saldo inicial ingresado por el usuario al crear la cuenta", example = "150000.0000")
     BigDecimal balance,
+
+    @Schema(description = "Saldo calculado: saldo inicial + suma neta de movimientos hasta hoy", example = "163500.0000")
+    BigDecimal computedBalance,
 
     @Schema(description = "Indica si la cuenta genera intereses", example = "true")
     boolean remunerada,

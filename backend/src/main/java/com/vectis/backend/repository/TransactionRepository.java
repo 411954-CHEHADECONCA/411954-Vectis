@@ -89,4 +89,18 @@ public interface TransactionRepository extends JpaRepository<Transaction, UUID> 
                        @Param("type") String type,
                        @Param("categoryId") UUID categoryId,
                        @Param("q") String q);
+
+    /** Suma neta de movimientos de cuenta hasta una fecha (INCOME positivo, EXPENSE negativo). */
+    @Query("""
+        SELECT COALESCE(
+            SUM(CASE WHEN t.type = 'INCOME' THEN t.amount ELSE -t.amount END), 0)
+        FROM Transaction t
+        WHERE t.user.id    = :userId
+          AND t.account.id = :accountId
+          AND t.deletedAt  IS NULL
+          AND t.transactionDate <= :upTo
+        """)
+    BigDecimal netMovementsForAccount(@Param("userId")    UUID userId,
+                                      @Param("accountId") UUID accountId,
+                                      @Param("upTo")      LocalDate upTo);
 }

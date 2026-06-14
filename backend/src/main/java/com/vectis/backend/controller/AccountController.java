@@ -1,6 +1,7 @@
 package com.vectis.backend.controller;
 
 import com.vectis.backend.domain.entity.User;
+import com.vectis.backend.dto.AccountBalanceResponse;
 import com.vectis.backend.dto.AccountRequest;
 import com.vectis.backend.dto.AccountResponse;
 import com.vectis.backend.exception.GlobalExceptionHandler.ErrorResponse;
@@ -14,10 +15,13 @@ import io.swagger.v3.oas.annotations.security.SecurityRequirement;
 import io.swagger.v3.oas.annotations.tags.Tag;
 import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
+import org.springframework.format.annotation.DateTimeFormat;
 import org.springframework.http.HttpStatus;
+import org.springframework.http.ResponseEntity;
 import org.springframework.security.core.annotation.AuthenticationPrincipal;
 import org.springframework.web.bind.annotation.*;
 
+import java.time.LocalDate;
 import java.util.List;
 import java.util.UUID;
 
@@ -75,6 +79,25 @@ public class AccountController {
             @Valid @RequestBody AccountRequest request,
             @AuthenticationPrincipal User user) {
         return accountService.updateAccount(id, request, user);
+    }
+
+    @GetMapping("/{id}/balance")
+    @Operation(summary = "Calcula el saldo de una cuenta a una fecha (por defecto hoy)")
+    @ApiResponses({
+        @ApiResponse(responseCode = "200", description = "Saldo calculado"),
+        @ApiResponse(responseCode = "401", description = "Token JWT ausente o inválido",
+            content = @Content(schema = @Schema(implementation = ErrorResponse.class))),
+        @ApiResponse(responseCode = "403", description = "No se puede consultar una cuenta de otro usuario",
+            content = @Content(schema = @Schema(implementation = ErrorResponse.class))),
+        @ApiResponse(responseCode = "404", description = "Cuenta no encontrada",
+            content = @Content(schema = @Schema(implementation = ErrorResponse.class)))
+    })
+    public ResponseEntity<AccountBalanceResponse> getBalance(
+            @PathVariable UUID id,
+            @RequestParam(required = false) @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) LocalDate date,
+            @AuthenticationPrincipal User user) {
+        LocalDate asOf = date != null ? date : LocalDate.now();
+        return ResponseEntity.ok(accountService.getBalance(id, user, asOf));
     }
 
     @DeleteMapping("/{id}")

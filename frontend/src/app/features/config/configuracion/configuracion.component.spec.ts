@@ -29,7 +29,7 @@ const MOCK_CATS: CategoryResponse[] = [
 
 const MOCK_ACCOUNT: AccountResponse = {
   id: 'acc-1', name: 'Brubank', kind: 'Banco', detail: '****1234',
-  ccy: 'USD', balance: 5000, remunerada: false, tna: null,
+  ccy: 'USD', balance: 5000, computedBalance: 5000, remunerada: false, tna: null,
   createdAt: '2026-06-10T00:00:00Z', updatedAt: '2026-06-10T00:00:00Z',
 };
 
