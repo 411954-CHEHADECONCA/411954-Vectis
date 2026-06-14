@@ -8,12 +8,13 @@ const MOCK_ACCOUNT: AccountResponse = {
   name:       'Cuenta Galicia',
   kind:       'Banco',
   detail:     'Caja de Ahorro $',
-  ccy:        'ARS',
-  balance:    150000,
-  remunerada: false,
-  tna:        null,
-  createdAt:  '2026-06-10T00:00:00Z',
-  updatedAt:  '2026-06-10T00:00:00Z',
+  ccy:             'ARS',
+  balance:         150000,
+  computedBalance: 150000,
+  remunerada:      false,
+  tna:             null,
+  createdAt:       '2026-06-10T00:00:00Z',
+  updatedAt:       '2026-06-10T00:00:00Z',
 };
 
 const MOCK_REQUEST: AccountRequest = {

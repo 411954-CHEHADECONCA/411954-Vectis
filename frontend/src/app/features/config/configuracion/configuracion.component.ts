@@ -50,6 +50,7 @@ import { AccountService } from '../../../core/services/account.service';
 import { CreditCardService } from '../../../core/services/credit-card.service';
 import { RecurringMovementService } from '../../../core/services/recurring-movement.service';
 import { CategoryBadgeComponent } from '../../../shared/components/category-badge/category-badge.component';
+import { AccountBalanceCardComponent } from '../../../shared/components/account-balance-card/account-balance-card.component';
 import {
   CategoryRequest,
   CategoryResponse,
@@ -129,6 +130,7 @@ export const CARD_PALETTE = [
     ReactiveFormsModule,
     NgTemplateOutlet,
     CategoryBadgeComponent,
+    AccountBalanceCardComponent,
     LucidePlus, LucidePencil, LucideTrash2, LucideX,
     LucideAlertCircle, LucideRefreshCw, LucideLock,
     LucideBuilding2, LucideWallet, LucideBanknote, LucideCreditCard,

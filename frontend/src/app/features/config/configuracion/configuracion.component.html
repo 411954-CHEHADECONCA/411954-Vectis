@@ -87,7 +87,12 @@
                 </div>
                 <div class="row-sub">{{ a.kind }} · {{ a.detail }}</div>
               </div>
-              <span class="row-amount">{{ fmtAmount(a.balance, a.ccy) }}</span>
+              <div class="row-balance-wrap">
+                <span class="row-amount">{{ fmtAmount(a.computedBalance ?? a.balance, a.ccy) }}</span>
+                @if (a.computedBalance != null && a.computedBalance !== a.balance) {
+                  <span class="row-balance-opening">Inicial: {{ fmtAmount(a.balance, a.ccy) }}</span>
+                }
+              </div>
               <div class="row-actions">
                 <button class="icon-btn" title="Editar" (click)="openEditAccount(a)">
                   <svg lucidePencil [size]="16" [strokeWidth]="1.75" />

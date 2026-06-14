@@ -23,7 +23,7 @@ const MOCK_CATS: CategoryResponse[] = [
 
 const MOCK_ACCOUNT: AccountResponse = {
   id: 'acc-1', name: 'Galicia', kind: 'Banco', detail: null,
-  ccy: 'ARS', balance: 0, remunerada: false, tna: null,
+  ccy: 'ARS', balance: 0, computedBalance: 0, remunerada: false, tna: null,
   createdAt: '2026-06-10T00:00:00Z', updatedAt: '2026-06-10T00:00:00Z',
 };
 
