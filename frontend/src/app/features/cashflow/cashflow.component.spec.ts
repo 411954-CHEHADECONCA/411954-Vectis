@@ -14,10 +14,10 @@ const MOCK_DATA: CashflowResponse = {
   openingBalance: { total: '8900000.0000', accounts: [
     { accountId: 'a1', name: 'Galicia', ccy: 'ARS', balance: '8900000.0000' },
   ]},
-  income:  { total: '1831420.0000', byCategory: [
+  income:  { total: '1831420.0000', totalBudgeted: '0', byCategory: [
     { categoryId: 'c1', name: 'Sueldo', icon: 'briefcase', color: '#52eacd', amount: '1831420.0000', pctOfTotal: '100.00', budgeted: null, pctOfBudget: null },
   ]},
-  expenses: { total: '1677400.0000', byCategory: [
+  expenses: { total: '1677400.0000', totalBudgeted: '460000.0000', byCategory: [
     { categoryId: 'c2', name: 'Vivienda', icon: 'home', color: '#ffb4ab', amount: '480000.0000', pctOfTotal: '28.62', budgeted: '460000.0000', pctOfBudget: '104.35' },
   ]},
   preInvestmentBalance: { balance: '9054020.0000', operativeResult: '153620.0000', savingRatePct: '8.39' },

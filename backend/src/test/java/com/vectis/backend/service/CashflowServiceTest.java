@@ -1,6 +1,9 @@
 package com.vectis.backend.service;
 
 import com.vectis.backend.domain.entity.Account;
+import com.vectis.backend.domain.entity.Category;
+import com.vectis.backend.domain.entity.CategoryBudget;
+import com.vectis.backend.domain.entity.CategoryType;
 import com.vectis.backend.domain.entity.User;
 import com.vectis.backend.dto.CashflowResponse;
 import com.vectis.backend.repository.AccountRepository;
@@ -26,6 +29,7 @@ import java.util.UUID;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.ArgumentMatchers.*;
 import static org.mockito.BDDMockito.given;
+import static org.mockito.Mockito.mock;
 
 @ExtendWith(MockitoExtension.class)
 @DisplayName("CashflowService")
@@ -166,6 +170,52 @@ class CashflowServiceTest {
 
         assertThat(result.status()).isEqualTo("cerrado");
         assertThat(result.isProjection()).isFalse();
+    }
+
+    // ─── income refleja presupuesto cuando existe CategoryBudget ─────────────
+
+    @Test
+    @DisplayName("getCashflow refleja budgeted y pctOfBudget en income.byCategory cuando existe presupuesto")
+    void getCashflow_income_conPresupuesto_refleja_budgetedYPct() {
+        LocalDate today    = LocalDate.now();
+        int year  = today.getYear();
+        int month = today.getMonthValue();
+        LocalDate firstDay = today.withDayOfMonth(1);
+        LocalDate lastDay  = firstDay.withDayOfMonth(firstDay.lengthOfMonth());
+
+        UUID incomeCatId    = UUID.randomUUID();
+        BigDecimal amount   = new BigDecimal("50000.00");
+        BigDecimal budgeted = new BigDecimal("60000.00");
+
+        given(accountRepository.findAllByUser_IdAndIncludeInCashflowTrue(userId)).willReturn(Collections.emptyList());
+        given(transactionRepository.groupByCategory(userId, "INCOME",  firstDay, lastDay))
+                .willReturn(List.of(proj(incomeCatId, "Sueldo", "briefcase", "#22c55e", amount)));
+        given(transactionRepository.groupByCategory(userId, "EXPENSE", firstDay, lastDay))
+                .willReturn(Collections.emptyList());
+
+        Category mockCat = mock(Category.class);
+        given(mockCat.getId()).willReturn(incomeCatId);
+        given(mockCat.getType()).willReturn(CategoryType.INCOME);
+        CategoryBudget mockBudget = mock(CategoryBudget.class);
+        given(mockBudget.getCategory()).willReturn(mockCat);
+        given(mockBudget.getAmount()).willReturn(budgeted);
+
+        given(categoryBudgetRepository.findAllByUser_IdAndValidFromEager(userId, firstDay))
+                .willReturn(List.of(mockBudget));
+
+        CashflowResponse result = cashflowService.getCashflow(user, year, month);
+
+        assertThat(result.income().byCategory()).hasSize(1);
+        // budgeted debe estar presente en la fila
+        assertThat(result.income().byCategory().get(0).budgeted()).isNotNull();
+        // pctOfBudget = 50000 / 60000 × 100 ≈ 83.33
+        assertThat(result.income().byCategory().get(0).pctOfBudget())
+                .isNotNull()
+                .isEqualByComparingTo("83.33");
+        // totalBudgeted incluye el presupuesto aunque no haya más categorías con transacciones
+        assertThat(result.income().totalBudgeted()).isEqualByComparingTo("60000.0000");
+        // egresos sin presupuesto → totalBudgeted = 0
+        assertThat(result.expenses().totalBudgeted()).isEqualByComparingTo(BigDecimal.ZERO);
     }
 
     // ─── savingRate se calcula correctamente ──────────────────────────────────

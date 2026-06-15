@@ -22,8 +22,9 @@ export interface CashflowCategoryRow {
 }
 
 export interface CashflowFlowSection {
-  total:      string;
-  byCategory: CashflowCategoryRow[];
+  total:          string;
+  totalBudgeted:  string;
+  byCategory:     CashflowCategoryRow[];
 }
 
 export interface CashflowSubtotal {

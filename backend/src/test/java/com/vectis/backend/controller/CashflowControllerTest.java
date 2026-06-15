@@ -148,7 +148,7 @@ class CashflowControllerTest {
         CashflowBalanceSection emptyBalance = new CashflowBalanceSection(
                 BigDecimal.ZERO, Collections.emptyList());
         CashflowFlowSection emptyFlow = new CashflowFlowSection(
-                BigDecimal.ZERO, Collections.emptyList());
+                BigDecimal.ZERO, BigDecimal.ZERO, Collections.emptyList());
         CashflowSubtotal subtotal = new CashflowSubtotal(
                 BigDecimal.ZERO, BigDecimal.ZERO, BigDecimal.ZERO);
         CashflowInvestmentSection emptyInvestments = new CashflowInvestmentSection(

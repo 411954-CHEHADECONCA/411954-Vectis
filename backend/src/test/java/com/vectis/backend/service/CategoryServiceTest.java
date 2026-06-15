@@ -184,17 +184,25 @@ class CategoryServiceTest {
     // ─── updateCategory ───────────────────────────────────────────────────────
 
     @Test
-    @DisplayName("updateCategory de categoría global lanza FORBIDDEN")
-    void updateCategory_globalCategory_throwsForbidden() {
+    @DisplayName("updateCategory de categoría sistema permite edición por cualquier usuario autenticado")
+    void updateCategory_systemCategory_succeeds() {
         UUID id = UUID.randomUUID();
         Category global = buildCategory(null, "Alimentos", true);
+        global.setId(id);
         CategoryRequest request = new CategoryRequest("Comida", "utensils", "#10B981", CategoryType.EXPENSE, null);
+        CategoryResponse response = buildResponse(global, null);
 
+        LocalDate month = LocalDate.now().withDayOfMonth(1);
         given(categoryRepository.findById(id)).willReturn(Optional.of(global));
+        given(categoryRepository.save(any(Category.class))).willReturn(global);
+        given(categoryBudgetRepository.findByCategory_IdAndUser_IdAndValidFrom(id, userId, month))
+                .willReturn(Optional.empty());
+        given(categoryMapper.toResponse(global, null)).willReturn(response);
 
-        assertThatThrownBy(() -> categoryService.updateCategory(id, request, user))
-                .isInstanceOf(VectisException.class)
-                .satisfies(ex -> assertThat(((VectisException) ex).getStatus()).isEqualTo(HttpStatus.FORBIDDEN));
+        CategoryResponse result = categoryService.updateCategory(id, request, user);
+
+        assertThat(result).isNotNull();
+        verify(categoryRepository).save(global);
     }
 
     @Test

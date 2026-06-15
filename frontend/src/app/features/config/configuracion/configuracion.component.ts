@@ -24,7 +24,6 @@ import {
   LucideX,
   LucideAlertCircle,
   LucideRefreshCw,
-  LucideLock,
   LucideBuilding2,
   LucideWallet,
   LucideBanknote,
@@ -131,7 +130,7 @@ export const CARD_PALETTE = [
     NgTemplateOutlet,
     CategoryBadgeComponent,
     LucidePlus, LucidePencil, LucideTrash2, LucideX,
-    LucideAlertCircle, LucideRefreshCw, LucideLock,
+    LucideAlertCircle, LucideRefreshCw,
     LucideBuilding2, LucideWallet, LucideBanknote, LucideCreditCard,
     LucideUtensils, LucideCar, LucideZap, LucideRepeat, LucideMusic,
     LucideHeart, LucideBook, LucideShirt, LucideHome, LucideBriefcase,
@@ -174,6 +173,13 @@ export class ConfiguracionComponent implements OnInit {
   ingresos = computed(() => this.categories().filter(c => c.type === 'INCOME'));
   egresos  = computed(() =>
     this.categories().filter(c => c.type === 'EXPENSE' || c.type === 'BOTH')
+  );
+
+  readonly totalIngresoBudget = computed(() =>
+    this.ingresos().reduce((s, c) => s + (c.estimatedAmount ?? 0), 0)
+  );
+  readonly totalEgresoBudget = computed(() =>
+    this.egresos().reduce((s, c) => s + (c.estimatedAmount ?? 0), 0)
   );
 
   // ── Recurring movements ───────────────────────────────────────────────────
@@ -676,6 +682,10 @@ export class ConfiguracionComponent implements OnInit {
       return `US$ ${balance.toLocaleString('es-AR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
     }
     return `$ ${Math.round(balance).toLocaleString('es-AR')}`;
+  }
+
+  fmtARS(value: number): string {
+    return `$ ${Math.round(value).toLocaleString('es-AR')}`;
   }
 
   cardGradient(accent: string): string {

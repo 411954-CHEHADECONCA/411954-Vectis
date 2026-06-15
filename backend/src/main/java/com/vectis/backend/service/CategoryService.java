@@ -83,7 +83,9 @@ public class CategoryService {
         Category category = categoryRepository.findById(id)
                 .orElseThrow(() -> new CategoryNotFoundException(id));
 
-        if (category.isDefault() || !category.getUser().getId().equals(user.getId())) {
+        // Categorías sistema (isDefault) son editables por cualquier usuario autenticado.
+        // Categorías propias solo por su dueño. Igual que updateBudget().
+        if (!category.isDefault() && !category.getUser().getId().equals(user.getId())) {
             throw new VectisException(
                     "No tenés permiso para modificar esta categoría",
                     HttpStatus.FORBIDDEN

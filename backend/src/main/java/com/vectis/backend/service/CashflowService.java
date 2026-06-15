@@ -2,6 +2,7 @@ package com.vectis.backend.service;
 
 import com.vectis.backend.domain.entity.Account;
 import com.vectis.backend.domain.entity.CategoryBudget;
+import com.vectis.backend.domain.entity.CategoryType;
 import com.vectis.backend.domain.entity.User;
 import com.vectis.backend.dto.*;
 import com.vectis.backend.repository.AccountRepository;
@@ -67,8 +68,14 @@ public class CashflowService {
             income   = buildProjectedSection(userId, "INCOME",  today);
             expenses = buildProjectedSection(userId, "EXPENSE", today);
         } else {
-            // Presupuestos del mes
-            Map<UUID, BigDecimal> budgets = loadBudgets(userId, firstDay);
+            // Presupuestos del mes, separados por tipo para calcular el total presupuestado correcto
+            List<CategoryBudget> allBudgets = categoryBudgetRepository.findAllByUser_IdAndValidFromEager(userId, firstDay);
+            Map<UUID, BigDecimal> incomeBudgets = allBudgets.stream()
+                    .filter(cb -> cb.getCategory().getType() == CategoryType.INCOME)
+                    .collect(Collectors.toMap(cb -> cb.getCategory().getId(), CategoryBudget::getAmount, (a, b) -> a));
+            Map<UUID, BigDecimal> expenseBudgets = allBudgets.stream()
+                    .filter(cb -> cb.getCategory().getType() == CategoryType.EXPENSE)
+                    .collect(Collectors.toMap(cb -> cb.getCategory().getId(), CategoryBudget::getAmount, (a, b) -> a));
 
             List<CategorySummaryProjection> incomeRows  = transactionRepository.groupByCategory(userId, "INCOME",  firstDay, lastDay);
             List<CategorySummaryProjection> expenseRows = transactionRepository.groupByCategory(userId, "EXPENSE", firstDay, lastDay);
@@ -76,8 +83,8 @@ public class CashflowService {
             BigDecimal totalIncome  = sumProjections(incomeRows);
             BigDecimal totalExpense = sumProjections(expenseRows);
 
-            income   = buildFlowSection(incomeRows,  totalIncome,  Collections.emptyMap());
-            expenses = buildFlowSection(expenseRows, totalExpense, budgets);
+            income   = buildFlowSection(incomeRows,  totalIncome,  incomeBudgets);
+            expenses = buildFlowSection(expenseRows, totalExpense, expenseBudgets);
         }
 
         // ── Pre-investment subtotal ───────────────────────────────────────────
@@ -169,7 +176,11 @@ public class CashflowService {
                 })
                 .toList();
 
-        return new CashflowFlowSection(total.setScale(4, RM), categoryRows);
+        BigDecimal totalBudgeted = budgets.values().stream()
+                .reduce(BigDecimal.ZERO, BigDecimal::add)
+                .setScale(4, RM);
+
+        return new CashflowFlowSection(total.setScale(4, RM), totalBudgeted, categoryRows);
     }
 
     /**
@@ -192,7 +203,7 @@ public class CashflowService {
         }
 
         if (historicalSections.isEmpty()) {
-            return new CashflowFlowSection(BigDecimal.ZERO.setScale(4, RM), Collections.emptyList());
+            return new CashflowFlowSection(BigDecimal.ZERO.setScale(4, RM), BigDecimal.ZERO.setScale(4, RM), Collections.emptyList());
         }
 
         // Promediar totales
@@ -224,7 +235,7 @@ public class CashflowService {
                 ))
                 .toList();
 
-        return new CashflowFlowSection(avgTotal, projectedRows);
+        return new CashflowFlowSection(avgTotal, BigDecimal.ZERO.setScale(4, RM), projectedRows);
     }
 
     private CashflowInvestmentSection buildInvestmentSection(CashflowFlowSection expenses,
@@ -254,16 +265,6 @@ public class CashflowService {
         }
 
         return new CashflowInvestmentSection(total, pctOfPreBalance, instruments);
-    }
-
-    private Map<UUID, BigDecimal> loadBudgets(UUID userId, LocalDate firstDay) {
-        return categoryBudgetRepository.findAllByUser_IdAndValidFromEager(userId, firstDay)
-                .stream()
-                .collect(Collectors.toMap(
-                        cb -> cb.getCategory().getId(),
-                        CategoryBudget::getAmount,
-                        (a, b) -> a  // en caso de duplicado, tomar el primero
-                ));
     }
 
     private BigDecimal sumProjections(List<CategorySummaryProjection> rows) {

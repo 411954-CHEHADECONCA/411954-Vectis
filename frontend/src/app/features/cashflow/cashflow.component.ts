@@ -154,8 +154,6 @@ function fmtPct(value: string | number): string {
     .step-label {
       font-size: var(--text-caption);
       font-weight: var(--weight-semibold);
-      letter-spacing: var(--tracking-overline);
-      text-transform: uppercase;
       color: var(--color-text-muted);
       margin-bottom: 4px;
     }
@@ -366,8 +364,6 @@ function fmtPct(value: string | number): string {
     .status-badge {
       font-size: var(--text-overline);
       font-weight: var(--weight-semibold);
-      letter-spacing: var(--tracking-wide);
-      text-transform: uppercase;
       padding: 3px 8px;
       border-radius: var(--radius-full);
     }
@@ -537,22 +533,31 @@ export class CashflowComponent implements OnInit {
     }
   });
 
-  /** Porcentaje de ejecución del presupuesto total de egresos. Calculado una sola vez cuando data() cambia. */
+  readonly hasBudgetsValue = computed(() =>
+    parseFloat(this.data()?.expenses.totalBudgeted ?? '0') > 0
+  );
   readonly budgetExecPctValue = computed(() => {
     const d = this.data();
     if (!d) return 0;
-    const totalBudgeted = d.expenses.byCategory
-      .filter(c => c.budgeted !== null)
-      .reduce((sum, c) => sum + parseFloat(c.budgeted!), 0);
-    if (totalBudgeted === 0) return 0;
-    return (parseFloat(d.expenses.total) / totalBudgeted) * 100;
+    const budgeted = parseFloat(d.expenses.totalBudgeted);
+    if (budgeted === 0) return 0;
+    return (parseFloat(d.expenses.total) / budgeted) * 100;
   });
-
   readonly budgetExecBarWidth = computed(() => `${Math.min(this.budgetExecPctValue(), 100)}%`);
   readonly budgetExecIsOver   = computed(() => this.budgetExecPctValue() > 100);
-  readonly hasBudgetsValue    = computed(() =>
-    this.data()?.expenses.byCategory.some(c => c.budgeted !== null) ?? false
+
+  readonly hasBudgetsIncome = computed(() =>
+    parseFloat(this.data()?.income.totalBudgeted ?? '0') > 0
   );
+  readonly budgetExecIncomePctValue = computed(() => {
+    const d = this.data();
+    if (!d) return 0;
+    const budgeted = parseFloat(d.income.totalBudgeted);
+    if (budgeted === 0) return 0;
+    return (parseFloat(d.income.total) / budgeted) * 100;
+  });
+  readonly budgetExecIncomeBarWidth = computed(() => `${Math.min(this.budgetExecIncomePctValue(), 100)}%`);
+  readonly budgetExecIncomeIsOver   = computed(() => this.budgetExecIncomePctValue() >= 100);
   readonly isOperativeResultPositive = computed(() =>
     parseFloat(this.data()?.preInvestmentBalance.operativeResult ?? '0') >= 0
   );

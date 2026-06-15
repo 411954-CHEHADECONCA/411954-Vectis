@@ -163,6 +163,23 @@
           <div class="step-body">
             <p class="step-label">Ingresos</p>
             <p class="step-total step-total--income">{{ fmtARS(data()!.income.total) }}</p>
+
+            @if (hasBudgetsIncome()) {
+              <div class="budget-exec">
+                <div class="budget-exec__label">
+                  <span>Ejecución del presupuesto de ingresos</span>
+                  <span style="font-variant-numeric: tabular-nums;">{{ fmtPct(budgetExecIncomePctValue().toString()) }}%</span>
+                </div>
+                <div class="budget-exec__track">
+                  <div
+                    class="budget-exec__fill"
+                    [style.width]="budgetExecIncomeBarWidth()"
+                    [style.background]="'var(--color-primary)'"
+                  ></div>
+                </div>
+              </div>
+            }
+
             <div class="cat-rows">
               @for (cat of data()!.income.byCategory; track cat.categoryId; let i = $index) {
                 <div class="cat-row">
@@ -185,6 +202,16 @@
                       </div>
                       <span class="cat-pct">{{ fmtPct(cat.pctOfTotal) }}%</span>
                     </div>
+                    @if (cat.budgeted !== null && cat.pctOfBudget !== null) {
+                      <div class="cat-budget-row">
+                        <span class="cat-budget-caption">Presup. {{ fmtARS(cat.budgeted!) }}</span>
+                        <span
+                          class="variance-badge"
+                          [class.variance-badge--under]="isOverBudget(cat.pctOfBudget!)"
+                          [class.variance-badge--over]="!isOverBudget(cat.pctOfBudget!)"
+                        >{{ varianceLabel(cat.pctOfBudget!) }}</span>
+                      </div>
+                    }
                   </div>
                 </div>
               }
