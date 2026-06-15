@@ -49,6 +49,13 @@ export const routes: Routes = [
           ),
       },
       {
+        path: 'cashflow',
+        loadComponent: () =>
+          import('./features/cashflow/cashflow.component').then(
+            m => m.CashflowComponent
+          ),
+      },
+      {
         path: 'tarjetas',
         loadComponent: () =>
           import('./features/tarjetas/tarjetas.component').then(

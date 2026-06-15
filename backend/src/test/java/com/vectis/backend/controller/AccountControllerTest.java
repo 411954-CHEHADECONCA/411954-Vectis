@@ -117,7 +117,7 @@ class AccountControllerTest {
     @DisplayName("POST /api/accounts con nombre en blanco retorna 400")
     void createAccount_blankName_returns400() throws Exception {
         AccountRequest request = new AccountRequest("", "Banco", null, "ARS",
-                BigDecimal.ZERO, false, null);
+                BigDecimal.ZERO, false, null, true);
 
         mockMvc.perform(post("/api/accounts")
                         .header(HttpHeaders.AUTHORIZATION, AUTH_HEADER)
@@ -130,7 +130,7 @@ class AccountControllerTest {
     @DisplayName("POST /api/accounts remunerada=true sin TNA retorna 400")
     void createAccount_remuneradaTrueTnaNull_returns400() throws Exception {
         AccountRequest request = new AccountRequest("Mi Cuenta", "Banco", null, "ARS",
-                new BigDecimal("100000"), true, null);
+                new BigDecimal("100000"), true, null, true);
 
         mockMvc.perform(post("/api/accounts")
                         .header(HttpHeaders.AUTHORIZATION, AUTH_HEADER)
@@ -276,17 +276,36 @@ class AccountControllerTest {
                 .andExpect(jsonPath("$.accountId").exists());
     }
 
+    // ─── includeInCashflow ────────────────────────────────────────────────────
+
+    @Test
+    @DisplayName("GET /api/accounts includeInCashflow aparece en la respuesta JSON")
+    void getAccounts_includeInCashflowPresentInResponse() throws Exception {
+        AccountResponse response = new AccountResponse(
+                UUID.randomUUID(), "Cuenta Test", "Banco", null, "ARS",
+                new BigDecimal("100000.0000"), new BigDecimal("100000.0000"),
+                false, null, false,
+                OffsetDateTime.now(), OffsetDateTime.now());
+
+        given(accountService.getAccounts(userId)).willReturn(List.of(response));
+
+        mockMvc.perform(get("/api/accounts")
+                        .header(HttpHeaders.AUTHORIZATION, AUTH_HEADER))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$[0].includeInCashflow").value(false));
+    }
+
     // ─── Helpers ──────────────────────────────────────────────────────────────
 
     private AccountRequest buildRequest(boolean remunerada, BigDecimal tna) {
         return new AccountRequest("Cuenta Test", "Banco", "Caja de Ahorro $", "ARS",
-                new BigDecimal("150000.0000"), remunerada, tna);
+                new BigDecimal("150000.0000"), remunerada, tna, true);
     }
 
     private AccountResponse buildResponse(UUID id) {
         return new AccountResponse(id, "Cuenta Test", "Banco", "Caja de Ahorro $", "ARS",
                 new BigDecimal("150000.0000"), new BigDecimal("150000.0000"),
-                false, null,
+                false, null, true,
                 OffsetDateTime.now(), OffsetDateTime.now());
     }
 }

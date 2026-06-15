@@ -3,6 +3,7 @@ package com.vectis.backend.controller;
 import com.vectis.backend.domain.entity.User;
 import com.vectis.backend.dto.CategoryRequest;
 import com.vectis.backend.dto.CategoryResponse;
+import java.math.BigDecimal;
 import com.vectis.backend.exception.GlobalExceptionHandler.ErrorResponse;
 import com.vectis.backend.service.CategoryService;
 import io.swagger.v3.oas.annotations.Operation;
@@ -77,6 +78,24 @@ public class CategoryController {
             @Valid @RequestBody CategoryRequest request,
             @AuthenticationPrincipal User user) {
         return categoryService.updateCategory(id, request, user);
+    }
+
+    @PatchMapping("/{id}/budget")
+    @Operation(summary = "Asignar o actualizar el presupuesto mensual de una categoría (incluye categorías de sistema)")
+    @ApiResponses({
+        @ApiResponse(responseCode = "200", description = "Presupuesto actualizado"),
+        @ApiResponse(responseCode = "400", description = "Monto inválido",
+            content = @Content(schema = @Schema(implementation = ErrorResponse.class))),
+        @ApiResponse(responseCode = "401", description = "Token JWT ausente o inválido",
+            content = @Content(schema = @Schema(implementation = ErrorResponse.class))),
+        @ApiResponse(responseCode = "404", description = "Categoría no encontrada",
+            content = @Content(schema = @Schema(implementation = ErrorResponse.class)))
+    })
+    public CategoryResponse updateBudget(
+            @PathVariable UUID id,
+            @RequestParam BigDecimal amount,
+            @AuthenticationPrincipal User user) {
+        return categoryService.updateBudget(id, amount, user);
     }
 
     @DeleteMapping("/{id}")

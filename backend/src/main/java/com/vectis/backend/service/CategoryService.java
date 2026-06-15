@@ -109,6 +109,27 @@ public class CategoryService {
         return categoryMapper.toResponse(saved, amount);
     }
 
+    /** Asigna o actualiza el presupuesto del mes en curso para cualquier categoría (incluyendo las de sistema). */
+    public CategoryResponse updateBudget(UUID id, BigDecimal amount, User user) {
+        Category category = categoryRepository.findById(id)
+                .orElseThrow(() -> new CategoryNotFoundException(id));
+
+        // Para categorías de sistema (isDefault) aceptamos cualquier usuario autenticado.
+        // Para categorías personalizadas verificamos que le pertenezcan.
+        if (!category.isDefault() && !category.getUser().getId().equals(user.getId())) {
+            throw new VectisException("No tenés permiso para modificar esta categoría", HttpStatus.FORBIDDEN);
+        }
+
+        upsertBudget(category, user, amount);
+
+        LocalDate month = LocalDate.now().withDayOfMonth(1);
+        BigDecimal saved = categoryBudgetRepository
+                .findByCategory_IdAndUser_IdAndValidFrom(category.getId(), user.getId(), month)
+                .map(CategoryBudget::getAmount).orElse(null);
+
+        return categoryMapper.toResponse(category, saved);
+    }
+
     public void deleteCategory(UUID id, User user) {
         Category category = categoryRepository.findById(id)
                 .orElseThrow(() -> new CategoryNotFoundException(id));

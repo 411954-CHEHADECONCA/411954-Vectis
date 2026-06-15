@@ -5,7 +5,6 @@ import {
   LucideBanknote,
   LucideTrendingUp,
   LucideTrendingDown,
-  LucideMinus,
 } from '@lucide/angular';
 import { AccountResponse } from '../../../core/models/account.models';
 
@@ -13,7 +12,7 @@ import { AccountResponse } from '../../../core/models/account.models';
   selector: 'app-account-balance-card',
   standalone: true,
   changeDetection: ChangeDetectionStrategy.OnPush,
-  imports: [LucideBuilding2, LucideWallet, LucideBanknote, LucideTrendingUp, LucideTrendingDown, LucideMinus],
+  imports: [LucideBuilding2, LucideWallet, LucideBanknote, LucideTrendingUp, LucideTrendingDown],
   template: `
     <div class="balance-card">
       <div class="balance-card__header">

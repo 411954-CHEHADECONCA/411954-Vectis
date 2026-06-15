@@ -6,6 +6,7 @@ e2e/
 .playwright/
 .playwright-cli/
 .playwright-mcp/
+.impeccable/
 # Documentación y recursos locales
 CLAUDE.md
 DESIGN.md

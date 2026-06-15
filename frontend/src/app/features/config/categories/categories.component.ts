@@ -33,6 +33,7 @@ import {
   LucideX,
   LucideAlertCircle,
   LucideRefreshCw,
+  LucideDollarSign,
 } from '@lucide/angular';
 import { CategoryService } from '../../../core/services/category.service';
 import { CategoryBadgeComponent } from '../../../shared/components/category-badge/category-badge.component';
@@ -79,7 +80,7 @@ const TYPE_OPTIONS: { value: CategoryType; label: string }[] = [
     LucideHeart, LucideBook, LucideShirt, LucideHome, LucideBriefcase,
     LucideMonitor, LucideTrendingUp, LucideArrowRightLeft, LucideDumbbell, LucideCircle,
     LucidePlus, LucidePencil, LucideTrash2, LucideLock, LucideX,
-    LucideAlertCircle, LucideRefreshCw,
+    LucideAlertCircle, LucideRefreshCw, LucideDollarSign,
   ],
   changeDetection: ChangeDetectionStrategy.OnPush,
   template: `
@@ -151,9 +152,14 @@ const TYPE_OPTIONS: { value: CategoryType; label: string }[] = [
                 <div class="category-row" [class.is-default]="cat.isDefault">
                   <app-category-badge [category]="cat" />
                   @if (cat.isDefault) {
-                    <span class="system-tag">
-                      <svg lucideLock [size]="10" [strokeWidth]="2" /> Sistema
-                    </span>
+                    <div class="row-actions">
+                      <span class="system-tag">
+                        <svg lucideLock [size]="10" [strokeWidth]="2" /> Sistema
+                      </span>
+                      <button class="action-btn action-btn--budget" title="Asignar presupuesto mensual" (click)="openBudget(cat)">
+                        <svg lucideDollarSign [size]="13" [strokeWidth]="2" />
+                      </button>
+                    </div>
                   } @else {
                     <div class="row-actions">
                       <button class="action-btn" title="Editar" (click)="openEdit(cat)">
@@ -278,6 +284,53 @@ const TYPE_OPTIONS: { value: CategoryType; label: string }[] = [
               (click)="submit()"
             >
               {{ submitting() ? 'Guardando...' : (editingId() ? 'Guardar cambios' : 'Crear categoría') }}
+            </button>
+          </div>
+        </div>
+      </div>
+    }
+
+    <!-- ── Budget modal (system categories) ────────────────────────────── -->
+    @if (budgetTarget()) {
+      <div class="backdrop" (click)="closeBudget()">
+        <div class="modal modal-sm" (click)="$event.stopPropagation()">
+          <div class="modal-header">
+            <h2>Presupuesto mensual</h2>
+            <button class="close-btn" (click)="closeBudget()">
+              <svg lucideX [size]="16" />
+            </button>
+          </div>
+          <div class="modal-body" style="padding-bottom: 0;">
+            <p style="font-size: 13px; color: var(--color-text-muted); margin: 0 0 16px;">
+              Asigná un presupuesto mensual para <strong style="color: var(--color-on-surface);">{{ budgetTarget()!.name }}</strong>.
+            </p>
+            <div class="field">
+              <label class="field-label" for="budget-amount">Monto (ARS)</label>
+              <input
+                id="budget-amount"
+                class="input-line"
+                type="number"
+                min="0"
+                step="1000"
+                placeholder="Ej: 50000"
+                [formControl]="budgetControl"
+              />
+              @if (budgetControl.invalid && budgetControl.touched) {
+                <span class="field-error">Ingresá un monto mayor a 0</span>
+              }
+            </div>
+            @if (budgetError()) {
+              <p class="form-error">{{ budgetError() }}</p>
+            }
+          </div>
+          <div class="modal-footer modal-footer--sm">
+            <button class="btn-cancel" (click)="closeBudget()">Cancelar</button>
+            <button
+              class="btn-confirm"
+              [disabled]="budgetControl.invalid || budgetSubmitting()"
+              (click)="submitBudget()"
+            >
+              {{ budgetSubmitting() ? 'Guardando...' : 'Guardar' }}
             </button>
           </div>
         </div>
@@ -429,6 +482,11 @@ const TYPE_OPTIONS: { value: CategoryType; label: string }[] = [
       background: rgba(255, 180, 171, 0.08);
       color: var(--color-error);
       border-color: rgba(255, 180, 171, 0.25);
+    }
+    .action-btn--budget:hover {
+      background: color-mix(in srgb, var(--color-primary) 10%, transparent);
+      color: var(--color-primary);
+      border-color: color-mix(in srgb, var(--color-primary) 30%, transparent);
     }
 
     /* ── States ─────────────────────────────────────────────────────────────── */
@@ -778,7 +836,11 @@ export class CategoriesComponent implements OnInit {
   editingId    = signal<string | null>(null);
   submitting   = signal(false);
   formError    = signal<string | null>(null);
-  deleteTarget = signal<CategoryResponse | null>(null);
+  deleteTarget     = signal<CategoryResponse | null>(null);
+  budgetTarget     = signal<CategoryResponse | null>(null);
+  budgetSubmitting = signal(false);
+  budgetError      = signal<string | null>(null);
+  budgetControl    = new FormControl<number | null>(null, [Validators.required, Validators.min(1)]);
 
   groups = computed(() => {
     const cats = this.categories();
@@ -872,6 +934,37 @@ export class CategoriesComponent implements OnInit {
       error: (err: HttpErrorResponse) => {
         this.submitting.set(false);
         this.formError.set(err.error?.message ?? 'Ocurrió un error al guardar');
+      },
+    });
+  }
+
+  openBudget(cat: CategoryResponse): void {
+    this.budgetTarget.set(cat);
+    this.budgetControl.setValue(cat.estimatedAmount ?? null);
+    this.budgetControl.markAsUntouched();
+    this.budgetError.set(null);
+  }
+
+  closeBudget(): void {
+    this.budgetTarget.set(null);
+    this.budgetError.set(null);
+  }
+
+  submitBudget(): void {
+    const cat = this.budgetTarget();
+    const amount = this.budgetControl.value;
+    if (!cat || amount === null || this.budgetControl.invalid || this.budgetSubmitting()) return;
+    this.budgetSubmitting.set(true);
+    this.budgetError.set(null);
+    this.categoryService.updateBudget(cat.id, amount).subscribe({
+      next: saved => {
+        this.categories.update(cats => cats.map(c => c.id === cat.id ? saved : c));
+        this.budgetSubmitting.set(false);
+        this.closeBudget();
+      },
+      error: (err: import('@angular/common/http').HttpErrorResponse) => {
+        this.budgetSubmitting.set(false);
+        this.budgetError.set(err.error?.message ?? 'No se pudo guardar el presupuesto');
       },
     });
   }

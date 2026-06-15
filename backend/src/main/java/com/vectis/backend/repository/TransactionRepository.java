@@ -16,6 +16,43 @@ import java.util.UUID;
 
 public interface TransactionRepository extends JpaRepository<Transaction, UUID> {
 
+    /** Proyección para el cálculo de saldo neto por cuenta en batch (cashflow). */
+    interface NetMovementProjection {
+        UUID getAccountId();
+        BigDecimal getNetAmount();
+    }
+
+    /** Proyección para la agrupación de transacciones por categoría en el cashflow. */
+    interface CategorySummaryProjection {
+        UUID getCategoryId();
+        String getCategoryName();
+        String getCategoryIcon();
+        String getCategoryColor();
+        BigDecimal getTotalAmount();
+    }
+
+    /**
+     * Suma de montos agrupada por categoría para un tipo (INCOME/EXPENSE) y período.
+     * Criterio de fecha idéntico al de {@link #search}: cuotas por dueDate, pagos únicos por transactionDate.
+     */
+    @Query("""
+        SELECT t.category.id     AS categoryId,
+               t.category.name   AS categoryName,
+               t.category.icon   AS categoryIcon,
+               t.category.color  AS categoryColor,
+               SUM(t.amount)     AS totalAmount
+        FROM Transaction t
+        WHERE t.user.id = :userId AND t.deletedAt IS NULL AND t.type = :type
+          AND ((t.installment = true  AND t.dueDate         BETWEEN :from AND :to)
+            OR (t.installment = false AND t.transactionDate BETWEEN :from AND :to))
+        GROUP BY t.category.id, t.category.name, t.category.icon, t.category.color
+        ORDER BY SUM(t.amount) DESC
+        """)
+    List<CategorySummaryProjection> groupByCategory(@Param("userId") UUID userId,
+                                                    @Param("type") String type,
+                                                    @Param("from") LocalDate from,
+                                                    @Param("to") LocalDate to);
+
     Optional<Transaction> findByIdAndDeletedAtIsNull(UUID id);
 
     List<Transaction> findAllByInstallmentGroupIdAndDeletedAtIsNull(UUID installmentGroupId);
@@ -103,4 +140,25 @@ public interface TransactionRepository extends JpaRepository<Transaction, UUID> 
     BigDecimal netMovementsForAccount(@Param("userId")    UUID userId,
                                       @Param("accountId") UUID accountId,
                                       @Param("upTo")      LocalDate upTo);
+
+    /**
+     * Suma neta de movimientos para múltiples cuentas hasta una fecha — una sola query (evita N+1 en cashflow).
+     * Aplica el mismo criterio de fecha dual que {@link #groupByCategory}: cuotas por dueDate,
+     * pagos únicos por transactionDate, para mantener coherencia entre saldo y secciones de flujo.
+     * Devuelve sólo las cuentas que tienen al menos un movimiento; las que no aparezcan tienen neto = 0.
+     */
+    @Query("""
+        SELECT t.account.id AS accountId,
+               COALESCE(SUM(CASE WHEN t.type = 'INCOME' THEN t.amount ELSE -t.amount END), 0) AS netAmount
+        FROM Transaction t
+        WHERE t.user.id     = :userId
+          AND t.account.id IN :accountIds
+          AND t.deletedAt  IS NULL
+          AND ((t.installment = true  AND t.dueDate         <= :upTo)
+            OR (t.installment = false AND t.transactionDate <= :upTo))
+        GROUP BY t.account.id
+        """)
+    List<NetMovementProjection> netMovementsForAccounts(@Param("userId")     UUID userId,
+                                                        @Param("accountIds") List<UUID> accountIds,
+                                                        @Param("upTo")       LocalDate upTo);
 }

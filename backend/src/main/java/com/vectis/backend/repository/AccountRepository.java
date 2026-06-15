@@ -9,4 +9,6 @@ import java.util.UUID;
 public interface AccountRepository extends JpaRepository<Account, UUID> {
 
     List<Account> findAllByUser_IdOrderByCreatedAtAsc(UUID userId);
+
+    List<Account> findAllByUser_IdAndIncludeInCashflowTrue(UUID userId);
 }

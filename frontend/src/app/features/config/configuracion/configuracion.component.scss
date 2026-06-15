@@ -326,6 +326,12 @@
   border-color: color-mix(in srgb, var(--color-error) 25%, transparent);
 }
 
+.icon-btn--budget:hover {
+  background: color-mix(in srgb, var(--color-primary) 10%, transparent);
+  color: var(--color-primary);
+  border-color: color-mix(in srgb, var(--color-primary) 25%, transparent);
+}
+
 // ── Buttons ───────────────────────────────────────────────────────────────────
 
 .btn-primary {

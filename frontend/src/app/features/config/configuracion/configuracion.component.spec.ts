@@ -143,6 +143,7 @@ describe('ConfiguracionComponent', () => {
     component.accountForm.setValue({
       name: 'Brubank', kind: 'Banco', detail: '****1234',
       ccy: 'USD', balance: 5000, remunerada: false, tna: null,
+      includeInCashflow: true,
     });
     component.submitAccount();
 

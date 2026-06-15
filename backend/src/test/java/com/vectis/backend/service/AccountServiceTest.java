@@ -218,7 +218,7 @@ class AccountServiceTest {
         Account account = buildAccount(user);
         AccountRequest request = new AccountRequest(
                 "Cuenta Actualizada", "Banco", "Caja Ahorro $", "USD",
-                new BigDecimal("200000.0000"), true, new BigDecimal("95.0000"));
+                new BigDecimal("200000.0000"), true, new BigDecimal("95.0000"), true);
         AccountResponse baseResponse = buildResponse(account, null);
 
         given(accountRepository.findById(id)).willReturn(Optional.of(account));
@@ -269,6 +269,61 @@ class AccountServiceTest {
         verify(accountRepository).delete(account);
     }
 
+    // ─── includeInCashflow ────────────────────────────────────────────────────
+
+    @Test
+    @DisplayName("createAccount con includeInCashflow=false persiste el flag en false")
+    void createAccount_includeInCashflowFalse_persistsFlag() {
+        AccountRequest request = new AccountRequest(
+                "Cuenta Test", "Banco", "Caja de Ahorro $", "ARS",
+                new BigDecimal("150000.0000"), false, null, false);
+
+        Account saved = Account.builder()
+                .id(UUID.randomUUID()).user(user).name("Cuenta Test").kind("Banco")
+                .detail("Caja de Ahorro $").ccy("ARS").balance(new BigDecimal("150000.0000"))
+                .remunerada(false).tna(null).includeInCashflow(false)
+                .createdAt(OffsetDateTime.now()).updatedAt(OffsetDateTime.now())
+                .build();
+        AccountResponse baseResponse = buildResponse(saved, null);
+
+        given(accountRepository.save(any(Account.class))).willReturn(saved);
+        given(accountMapper.toResponse(saved)).willReturn(baseResponse);
+        given(balanceService.currentBalance(saved, userId)).willReturn(new BigDecimal("150000.0000"));
+
+        AccountResponse result = accountService.createAccount(request, user);
+
+        assertThat(result.includeInCashflow()).isFalse();
+        verify(accountRepository).save(any(Account.class));
+    }
+
+    @Test
+    @DisplayName("updateAccount persiste includeInCashflow=false cuando se actualiza")
+    void updateAccount_includeInCashflowFalse_persistsFlag() {
+        UUID id = UUID.randomUUID();
+        Account account = buildAccount(user);
+        AccountRequest request = new AccountRequest(
+                "Cuenta Test", "Banco", "Caja de Ahorro $", "ARS",
+                new BigDecimal("150000.0000"), false, null, false);
+
+        Account updatedAccount = Account.builder()
+                .id(id).user(user).name("Cuenta Test").kind("Banco")
+                .detail("Caja de Ahorro $").ccy("ARS").balance(new BigDecimal("150000.0000"))
+                .remunerada(false).tna(null).includeInCashflow(false)
+                .createdAt(OffsetDateTime.now()).updatedAt(OffsetDateTime.now())
+                .build();
+        AccountResponse baseResponse = buildResponse(updatedAccount, null);
+
+        given(accountRepository.findById(id)).willReturn(Optional.of(account));
+        given(accountRepository.save(account)).willReturn(updatedAccount);
+        given(accountMapper.toResponse(updatedAccount)).willReturn(baseResponse);
+        given(balanceService.currentBalance(updatedAccount, userId)).willReturn(new BigDecimal("150000.0000"));
+
+        AccountResponse result = accountService.updateAccount(id, request, user);
+
+        assertThat(result.includeInCashflow()).isFalse();
+        verify(accountRepository).save(account);
+    }
+
     // ─── Helpers ──────────────────────────────────────────────────────────────
 
     private Account buildAccount(User owner) {
@@ -282,6 +337,7 @@ class AccountServiceTest {
                 .balance(new BigDecimal("150000.0000"))
                 .remunerada(false)
                 .tna(null)
+                .includeInCashflow(true)
                 .createdAt(OffsetDateTime.now())
                 .updatedAt(OffsetDateTime.now())
                 .build();
@@ -290,13 +346,14 @@ class AccountServiceTest {
     private AccountRequest buildRequest(boolean remunerada, BigDecimal tna) {
         return new AccountRequest(
                 "Cuenta Test", "Banco", "Caja de Ahorro $", "ARS",
-                new BigDecimal("150000.0000"), remunerada, tna);
+                new BigDecimal("150000.0000"), remunerada, tna, true);
     }
 
     private AccountResponse buildResponse(Account a, BigDecimal computedBalance) {
         return new AccountResponse(
                 a.getId(), a.getName(), a.getKind(), a.getDetail(), a.getCcy(),
                 a.getBalance(), computedBalance,
-                a.isRemunerada(), a.getTna(), a.getCreatedAt(), a.getUpdatedAt());
+                a.isRemunerada(), a.getTna(), a.isIncludeInCashflow(),
+                a.getCreatedAt(), a.getUpdatedAt());
     }
 }
