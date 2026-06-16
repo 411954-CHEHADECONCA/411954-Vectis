@@ -1,4 +1,4 @@
-<!-- ── Icon renderer (category icon chips, same icon set as categories) ─── -->
+<!-- ── Icon renderer ───────────────────────────────────────────────────────── -->
 <ng-template #iconTpl let-name>
   @switch (name) {
     @case ('utensils')         { <svg lucideUtensils         [size]="16" [strokeWidth]="1.75" /> }
@@ -19,9 +19,24 @@
   }
 </ng-template>
 
+<!-- ── Icono genérico de cuenta (bank/wallet) ─────────────────────────────── -->
+<ng-template #accIconTpl let-ccy>
+  @if (ccy === 'USD') {
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" width="14" height="14" aria-hidden="true">
+      <path d="M21 12a9 9 0 01-9 9m9-9a9 9 0 00-9-9m9 9H3m9 9a9 9 0 01-9-9m9 9c1.657 0 3-4.03 3-9s-1.343-9-3-9m0 18c-1.657 0-3-4.03-3-9s1.343-9 3-9m-9 9a9 9 0 019-9" stroke-linecap="round" stroke-linejoin="round"/>
+    </svg>
+  } @else {
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" width="14" height="14" aria-hidden="true">
+      <path d="M2.25 18.75a60.07 60.07 0 0115.797 2.101c.727.198 1.453-.342 1.453-1.096V18.75M3.75 4.5v.75A.75.75 0 013 6h-.75m0 0v-.375c0-.621.504-1.125 1.125-1.125H20.25M2.25 6v9m18-10.5v.75c0 .414.336.75.75.75h.75m-1.5-1.5h.375c.621 0 1.125.504 1.125 1.125v9.75c0 .621-.504 1.125-1.125 1.125h-.375m1.5-1.5H21a.75.75 0 00-.75.75v.75m0 0H3.75m0 0h-.375a1.125 1.125 0 01-1.125-1.125V15m1.5 1.5v-.75A.75.75 0 003 15h-.75" stroke-linecap="round" stroke-linejoin="round"/>
+    </svg>
+  }
+</ng-template>
+
 <div class="page">
 
-  <!-- ── BLOQUE 1: PageHead ────────────────────────────────────────────────── -->
+  <!-- ══════════════════════════════════════════════════════════════════════════
+       BLOQUE 1: PageHead
+       ══════════════════════════════════════════════════════════════════════════ -->
   <div class="page-head">
     <div class="page-head__text">
       <h1>Cash Flow</h1>
@@ -45,53 +60,66 @@
     </button>
   </div>
 
-  <!-- ── BLOQUE 2: MonthBar ────────────────────────────────────────────────── -->
+  <!-- ══════════════════════════════════════════════════════════════════════════
+       BLOQUE 2: Month bar
+       ══════════════════════════════════════════════════════════════════════════ -->
   <div class="month-bar" role="navigation" aria-label="Navegación de mes">
-    <button
-      class="month-nav-btn"
-      (click)="prevMonth()"
-      [disabled]="!canGoBack()"
-      aria-label="Mes anterior"
-    >
-      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="16" height="16" aria-hidden="true">
-        <path d="M15 18l-6-6 6-6" stroke-linecap="round" stroke-linejoin="round"/>
-      </svg>
-    </button>
-
-    <div class="month-center">
-      @if (data()) {
-        <h2 class="month-name">{{ data()!.periodLabel }}</h2>
-        @switch (data()!.status) {
-          @case ('cerrado')    { <span class="status-badge status-badge--cerrado">Cerrado</span> }
-          @case ('curso')      { <span class="status-badge status-badge--curso">En curso</span> }
-          @case ('proyectado') { <span class="status-badge status-badge--proyectado">Proyectado</span> }
+    <div class="month-nav-group">
+      <button class="month-nav-btn" (click)="prevMonth()" [disabled]="!canGoBack()" aria-label="Mes anterior">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="18" height="18" aria-hidden="true">
+          <path d="M15.75 19.5L8.25 12l7.5-7.5" stroke-linecap="round" stroke-linejoin="round"/>
+        </svg>
+      </button>
+      <div class="month-identity">
+        @if (data()) {
+          <h2 class="month-name">{{ data()!.periodLabel }}</h2>
+          @switch (data()!.status) {
+            @case ('cerrado')    { <span class="status-badge status-badge--cerrado">Cerrado</span> }
+            @case ('proyectado') { <span class="status-badge status-badge--proyectado">Proyectado</span> }
+          }
+        } @else {
+          <h2 class="month-name">{{ month() }}/{{ year() }}</h2>
         }
-      } @else {
-        <h2 class="month-name">{{ month() }}/{{ year() }}</h2>
-      }
+      </div>
+      <button class="month-nav-btn" (click)="nextMonth()" [disabled]="!canGoForward()" aria-label="Mes siguiente">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="18" height="18" aria-hidden="true">
+          <path d="M8.25 4.5l7.5 7.5-7.5 7.5" stroke-linecap="round" stroke-linejoin="round"/>
+        </svg>
+      </button>
     </div>
 
     @if (data()) {
-      <div class="month-right">
-        <span class="month-saving">
-          Tasa de ahorro {{ fmtPct(data()!.preInvestmentBalance.savingRatePct) }}%
-        </span>
-        <span class="month-closing">
-          {{ fmtARS(data()!.closingBalance.total) }}
-        </span>
+      <div class="month-kpis">
+        <div class="month-kpi">
+          <span class="month-kpi__label">Tasa de ahorro</span>
+          <span class="month-kpi__value">{{ fmtPct(data()!.preInvestmentBalance.savingRatePct) }}%</span>
+        </div>
+        <div class="month-kpi-divider" aria-hidden="true"></div>
+        <div class="month-kpi">
+          <span class="month-kpi__label month-kpi__label--primary">Saldo final disponible</span>
+          <div class="month-kpi__amount-row">
+            <span class="month-kpi__currency">$</span>
+            <span class="month-kpi__big">{{ fmtAmt(data()!.closingBalance.total) }}</span>
+          </div>
+          @if (closingDelta() !== null) {
+            <span class="month-kpi__delta"
+              [class.month-kpi__delta--up]="closingDeltaPositive()"
+              [class.month-kpi__delta--down]="!closingDeltaPositive()">
+              @if (closingDeltaPositive()) {
+                <svg width="9" height="9" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" aria-hidden="true">
+                  <path d="M12 19V5M5 12l7-7 7 7" stroke-linecap="round" stroke-linejoin="round"/>
+                </svg>
+              } @else {
+                <svg width="9" height="9" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" aria-hidden="true">
+                  <path d="M12 5v14M5 12l7 7 7-7" stroke-linecap="round" stroke-linejoin="round"/>
+                </svg>
+              }
+              $ {{ fmtDeltaAmt() }} vs. {{ prevMonthShort() }}
+            </span>
+          }
+        </div>
       </div>
     }
-
-    <button
-      class="month-nav-btn"
-      (click)="nextMonth()"
-      [disabled]="!canGoForward()"
-      aria-label="Mes siguiente"
-    >
-      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="16" height="16" aria-hidden="true">
-        <path d="M9 18l6-6-6-6" stroke-linecap="round" stroke-linejoin="round"/>
-      </svg>
-    </button>
   </div>
 
   <!-- ── Banner de proyección ─────────────────────────────────────────────── -->
@@ -125,63 +153,96 @@
     </div>
   }
 
-  <!-- ── BLOQUE 3: Ledger vertical ──────────────────────────────────────────── -->
+  <!-- ══════════════════════════════════════════════════════════════════════════
+       BLOQUE 3: Panel ledger
+       ══════════════════════════════════════════════════════════════════════════ -->
   @if (data() && !loading()) {
     <div class="panel">
-      <div class="ledger" role="list">
-        <div class="ledger-spine" [class.ledger-spine--dashed]="isProjection()" aria-hidden="true"></div>
 
-        <!-- ╔═══════════════════════════════════════════╗ -->
-        <!-- ║  PASO 1 — Saldo inicial disponible        ║ -->
-        <!-- ╚═══════════════════════════════════════════╝ -->
+      <!-- Panel header -->
+      <div class="panel-header">
+        <div class="panel-header__left">
+          <h3 class="panel-header__title">Estado de flujo · {{ data()!.periodLabel }}</h3>
+        </div>
+        @switch (data()!.status) {
+          @case ('cerrado')    { <span class="status-badge status-badge--cerrado">Cerrado</span> }
+          @case ('curso')      { <span class="status-badge status-badge--curso">En curso</span> }
+          @case ('proyectado') { <span class="status-badge status-badge--proyectado">Proyectado</span> }
+        }
+      </div>
+
+      <div class="ledger" role="list" [class.ledger--projected]="isProjection()">
+        <div class="ledger-spine" aria-hidden="true"></div>
+
+        <!-- ╔══════════════════════════════════════════════════════════╗ -->
+        <!-- ║  PASO 1 — Saldo inicial disponible                       ║ -->
+        <!-- ╚══════════════════════════════════════════════════════════╝ -->
         <div class="step" role="listitem">
           <div class="step-dot step-dot--neutral" aria-hidden="true">
-            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="18" height="18">
-              <path d="M2.25 18.75a60.07 60.07 0 0115.797 2.101c.727.198 1.453-.342 1.453-1.096V18.75M3.75 4.5v.75A.75.75 0 013 6h-.75m0 0v-.375c0-.621.504-1.125 1.125-1.125H20.25M2.25 6v9m18-10.5v.75c0 .414.336.75.75.75h.75m-1.5-1.5h.375c.621 0 1.125.504 1.125 1.125v9.75c0 .621-.504 1.125-1.125 1.125h-.375m1.5-1.5H21a.75.75 0 00-.75.75v.75m0 0H3.75m0 0h-.375a1.125 1.125 0 01-1.125-1.125V15m1.5 1.5v-.75A.75.75 0 003 15h-.75" stroke-linecap="round" stroke-linejoin="round"/>
-            </svg>
+            <span class="step-dot__inner-circle"></span>
           </div>
           <div class="step-body">
-            <p class="step-label">Saldo inicial disponible</p>
-            <p class="step-total step-total--neutral">{{ fmtARS(data()!.openingBalance.total) }}</p>
+            <div class="step-hd">
+              <div class="step-hd__info">
+                <span class="step-title">Saldo inicial disponible</span>
+              </div>
+              <div class="step-hd__metric">
+                <span class="step-amount step-amount--neutral">{{ fmtARS(data()!.openingBalance.total) }}</span>
+              </div>
+            </div>
             <div class="acc-grid">
               @for (acc of data()!.openingBalance.accounts; track acc.accountId) {
                 <div class="acc-row">
-                  <span class="acc-name">{{ acc.name }}</span>
+                  <span class="acc-row__icon">
+                    <ng-container [ngTemplateOutlet]="accIconTpl" [ngTemplateOutletContext]="{ $implicit: acc.ccy }" />
+                  </span>
+                  <span class="acc-row__name">{{ acc.name }}</span>
                   <span class="acc-ccy-badge" [class.acc-ccy-badge--usd]="acc.ccy === 'USD'" [class.acc-ccy-badge--ars]="acc.ccy !== 'USD'">{{ acc.ccy }}</span>
-                  <span class="acc-balance">{{ fmtBalance(acc.balance, acc.ccy) }}</span>
+                  <span class="acc-row__amount">{{ fmtBalance(acc.balance, acc.ccy) }}</span>
                 </div>
               }
             </div>
           </div>
         </div>
 
-        <!-- ╔═══════════════════════════════════════════╗ -->
-        <!-- ║  PASO 2 — Ingresos (+)                    ║ -->
-        <!-- ╚═══════════════════════════════════════════╝ -->
+        <!-- ╔══════════════════════════════════════════════════════════╗ -->
+        <!-- ║  PASO 2 — Ingresos (+)                                   ║ -->
+        <!-- ╚══════════════════════════════════════════════════════════╝ -->
         <div class="step" role="listitem">
           <div class="step-dot step-dot--income" aria-hidden="true">+</div>
           <div class="step-body">
-            <p class="step-label">Ingresos</p>
-            <p class="step-total step-total--income">{{ fmtARS(data()!.income.total) }}</p>
+            <div class="step-hd">
+              <div class="step-hd__info">
+                <span class="step-title">Ingresos contabilizados</span>
+              </div>
+              <div class="step-hd__metric">
+                <span class="step-amount step-amount--income">+ {{ fmtARS(data()!.income.total) }}</span>
+              </div>
+            </div>
 
             @if (hasBudgetsIncome()) {
-              <div class="budget-exec">
-                <div class="budget-exec__label">
-                  <span>Ejecución del presupuesto de ingresos</span>
-                  <span style="font-variant-numeric: tabular-nums;">{{ fmtPct(budgetExecIncomePctValue().toString()) }}%</span>
+              <div class="budget-exec-panel">
+                <span class="budget-exec-panel__label">Ejecución del presupuesto de ingresos</span>
+                <div class="budget-exec-panel__track-wrap">
+                  <div class="budget-exec-panel__track">
+                    <div class="budget-exec-panel__fill"
+                      [style.width]="budgetExecIncomeBarWidth()"
+                      [style.background]="'var(--color-primary)'"
+                      [style.opacity]="0.85">
+                    </div>
+                  </div>
                 </div>
-                <div class="budget-exec__track">
-                  <div
-                    class="budget-exec__fill"
-                    [style.width]="budgetExecIncomeBarWidth()"
-                    [style.background]="'var(--color-primary)'"
-                  ></div>
-                </div>
+                <span class="budget-exec-panel__pct" [style.color]="'var(--color-primary)'">
+                  {{ fmtPct(budgetExecIncomePctValue().toString()) }}%
+                </span>
+                <span class="budget-exec-panel__amounts">
+                  {{ fmtARS(data()!.income.total) }} / {{ fmtARS(data()!.income.totalBudgeted) }}
+                </span>
               </div>
             }
 
             <div class="cat-rows">
-              @for (cat of data()!.income.byCategory; track cat.categoryId; let i = $index) {
+              @for (cat of data()!.income.byCategory; track cat.categoryId) {
                 <div class="cat-row">
                   <div
                     class="cat-icon-chip"
@@ -193,25 +254,31 @@
                   </div>
                   <div class="cat-info">
                     <div class="cat-name-row">
-                      <span class="cat-name">{{ cat.name }}</span>
-                      <span class="cat-amount">{{ fmtARS(cat.amount) }}</span>
+                      <span class="cat-name">
+                        {{ cat.name }}
+                        <span class="cat-name-pct">{{ fmtPct(cat.pctOfTotal) }}% del ingreso</span>
+                      </span>
+                      <div class="cat-right">
+                        @if (cat.budgeted !== null && cat.pctOfBudget !== null) {
+                          <span class="variance-badge"
+                            [class.variance-badge--under]="isOverBudget(cat.pctOfBudget!)"
+                            [class.variance-badge--over]="!isOverBudget(cat.pctOfBudget!)">
+                            {{ varianceLabel(cat.pctOfBudget!) }}
+                          </span>
+                        }
+                        <div class="cat-amount-group">
+                          <span class="cat-amount">{{ fmtARS(cat.amount) }}</span>
+                          @if (cat.budgeted !== null) {
+                            <span class="cat-budget-caption">/ {{ fmtARS(cat.budgeted!) }}</span>
+                          }
+                        </div>
+                      </div>
                     </div>
                     <div class="cat-bar-row">
                       <div class="cat-bar-track">
                         <div class="cat-bar-fill" [style.width]="barWidth(cat.pctOfTotal)" [style.background]="cat.color"></div>
                       </div>
-                      <span class="cat-pct">{{ fmtPct(cat.pctOfTotal) }}%</span>
                     </div>
-                    @if (cat.budgeted !== null && cat.pctOfBudget !== null) {
-                      <div class="cat-budget-row">
-                        <span class="cat-budget-caption">Presup. {{ fmtARS(cat.budgeted!) }}</span>
-                        <span
-                          class="variance-badge"
-                          [class.variance-badge--under]="isOverBudget(cat.pctOfBudget!)"
-                          [class.variance-badge--over]="!isOverBudget(cat.pctOfBudget!)"
-                        >{{ varianceLabel(cat.pctOfBudget!) }}</span>
-                      </div>
-                    }
                   </div>
                 </div>
               }
@@ -219,115 +286,170 @@
           </div>
         </div>
 
-        <!-- ╔═══════════════════════════════════════════╗ -->
-        <!-- ║  PASO 3 — Egresos (−)                     ║ -->
-        <!-- ╚═══════════════════════════════════════════╝ -->
-        <div class="step" role="listitem">
-          <div class="step-dot step-dot--expense" aria-hidden="true">−</div>
-          <div class="step-body">
-            <p class="step-label">Egresos</p>
-            <p class="step-total step-total--expense">{{ fmtARS(data()!.expenses.total) }}</p>
-
-            <!-- Barra de ejecución presupuestaria global -->
-            @if (hasBudgetsValue()) {
-              <div class="budget-exec">
-                <div class="budget-exec__label">
-                  <span>Ejecución del presupuesto</span>
-                  <span style="font-variant-numeric: tabular-nums;">{{ fmtPct(budgetExecPctValue().toString()) }}%</span>
-                </div>
-                <div class="budget-exec__track">
-                  <div
-                    class="budget-exec__fill"
-                    [style.width]="budgetExecBarWidth()"
-                    [style.background]="budgetExecIsOver() ? 'var(--color-error)' : 'var(--color-primary)'"
-                  ></div>
-                </div>
-              </div>
-            }
-
-            <div class="cat-rows">
-              @for (cat of data()!.expenses.byCategory; track cat.categoryId; let i = $index) {
-                <div class="cat-row">
-                  <div
-                    class="cat-icon-chip"
-                    [style.background]="'color-mix(in srgb, ' + cat.color + ' 15%, transparent)'"
-                    [style.color]="cat.color"
-                    aria-hidden="true"
-                  >
-                    <ng-container [ngTemplateOutlet]="iconTpl" [ngTemplateOutletContext]="{ $implicit: cat.icon }" />
-                  </div>
-                  <div class="cat-info">
-                    <div class="cat-name-row">
-                      <span class="cat-name">{{ cat.name }}</span>
-                      <span class="cat-amount" style="color: var(--color-error);">{{ fmtARS(cat.amount) }}</span>
-                    </div>
-                    <div class="cat-bar-row">
-                      <div class="cat-bar-track">
-                        <div class="cat-bar-fill" [style.width]="barWidth(cat.pctOfTotal)" [style.background]="cat.color"></div>
-                      </div>
-                      <span class="cat-pct">{{ fmtPct(cat.pctOfTotal) }}%</span>
-                    </div>
-                    @if (cat.budgeted !== null && cat.pctOfBudget !== null) {
-                      <div class="cat-budget-row">
-                        <span class="cat-budget-caption">Presup. {{ fmtARS(cat.budgeted!) }}</span>
-                        <span
-                          class="variance-badge"
-                          [class.variance-badge--over]="isOverBudget(cat.pctOfBudget!)"
-                          [class.variance-badge--under]="!isOverBudget(cat.pctOfBudget!)"
-                        >{{ varianceLabel(cat.pctOfBudget!) }}</span>
-                      </div>
-                    }
-                  </div>
-                </div>
-              }
-            </div>
-          </div>
-        </div>
-
-        <!-- ╔═══════════════════════════════════════════╗ -->
-        <!-- ║  PASO 4 — Balance pre-inversiones (=)     ║ -->
-        <!-- ╚═══════════════════════════════════════════╝ -->
+        <!-- ╔══════════════════════════════════════════════════════════╗ -->
+        <!-- ║  PASO 2b — Saldo disponible antes de egresos (=)         ║ -->
+        <!-- ╚══════════════════════════════════════════════════════════╝ -->
         <div class="step" role="listitem">
           <div class="step-dot step-dot--balance" aria-hidden="true">=</div>
           <div class="step-body">
-            <p class="step-label">Balance pre-inversiones</p>
-            <div class="sub-panel">
-              <p class="sub-panel__metric">{{ fmtARS(data()!.preInvestmentBalance.balance) }}</p>
-              <div class="pre-balance-details">
-                <span class="pre-balance-detail">
-                  Resultado operativo:
-                  <strong [style.color]="isOperativeResultPositive() ? 'var(--color-primary)' : 'var(--color-error)'">
-                    {{ fmtARS(data()!.preInvestmentBalance.operativeResult) }}
-                  </strong>
-                </span>
-                <span class="pre-balance-detail">
-                  Tasa de ahorro:
-                  <strong>{{ fmtPct(data()!.preInvestmentBalance.savingRatePct) }}%</strong>
-                </span>
+            <div class="step-inner-card">
+              <div class="step-hd">
+                <div class="step-hd__info">
+                  <span class="step-title">Saldo disponible antes de egresos</span>
+                </div>
+                <div class="step-hd__metric">
+                  <span class="step-amount step-amount--neutral">{{ fmtARS(balanceAfterIncome()) }}</span>
+                </div>
               </div>
             </div>
           </div>
         </div>
 
-        <!-- ╔═══════════════════════════════════════════╗ -->
-        <!-- ║  PASO 5 — Inversiones (−)                 ║ -->
-        <!-- ╚═══════════════════════════════════════════╝ -->
+        <!-- ╔══════════════════════════════════════════════════════════╗ -->
+        <!-- ║  PASO 3 — Egresos (−)                                    ║ -->
+        <!-- ╚══════════════════════════════════════════════════════════╝ -->
+        <div class="step" role="listitem">
+          <div class="step-dot step-dot--expense" aria-hidden="true">−</div>
+          <div class="step-body">
+            <div class="step-hd">
+              <div class="step-hd__info">
+                <span class="step-title">Egresos</span>
+              </div>
+              <div class="step-hd__metric">
+                <span class="step-amount step-amount--expense">− {{ fmtARS(data()!.expenses.total) }}</span>
+              </div>
+            </div>
+
+            @if (hasBudgetsValue()) {
+              <div class="budget-exec-panel">
+                <span class="budget-exec-panel__label">Ejecución del presupuesto</span>
+                <div class="budget-exec-panel__track-wrap">
+                  <div class="budget-exec-panel__track">
+                    <div class="budget-exec-panel__fill"
+                      [style.width]="budgetExecBarWidth()"
+                      [style.background]="budgetExecIsOver() ? 'var(--color-error)' : 'var(--color-warning)'"
+                      [style.opacity]="budgetExecIsOver() ? 0.9 : 0.85">
+                    </div>
+                  </div>
+                </div>
+                <span class="budget-exec-panel__pct" [style.color]="budgetExecIsOver() ? 'var(--color-error)' : 'var(--color-primary)'">
+                  {{ fmtPct(budgetExecPctValue().toString()) }}%
+                </span>
+                <span class="budget-exec-panel__amounts">
+                  {{ fmtARS(data()!.expenses.total) }} / {{ fmtARS(data()!.expenses.totalBudgeted) }}
+                </span>
+              </div>
+            }
+
+            <div class="cat-rows">
+              @for (cat of data()!.expenses.byCategory; track cat.categoryId) {
+                <div class="cat-row">
+                  <div
+                    class="cat-icon-chip"
+                    [style.background]="'color-mix(in srgb, ' + cat.color + ' 15%, transparent)'"
+                    [style.color]="cat.color"
+                    aria-hidden="true"
+                  >
+                    <ng-container [ngTemplateOutlet]="iconTpl" [ngTemplateOutletContext]="{ $implicit: cat.icon }" />
+                  </div>
+                  <div class="cat-info">
+                    <div class="cat-name-row">
+                      <span class="cat-name">
+                        {{ cat.name }}
+                        <span class="cat-name-pct">{{ fmtPct(cat.pctOfTotal) }}% del gasto</span>
+                      </span>
+                      <div class="cat-right">
+                        @if (cat.budgeted !== null && cat.pctOfBudget !== null) {
+                          <span class="variance-badge"
+                            [class.variance-badge--over]="isOverBudget(cat.pctOfBudget!)"
+                            [class.variance-badge--under]="!isOverBudget(cat.pctOfBudget!)">
+                            @if (isOverBudget(cat.pctOfBudget!)) {
+                              <svg width="9" height="9" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3">
+                                <path d="M12 19V5M5 12l7-7 7 7" stroke-linecap="round" stroke-linejoin="round"/>
+                              </svg>
+                            } @else {
+                              <svg width="9" height="9" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3">
+                                <path d="M12 5v14M5 12l7 7 7-7" stroke-linecap="round" stroke-linejoin="round"/>
+                              </svg>
+                            }
+                            {{ varianceLabel(cat.pctOfBudget!) }}
+                          </span>
+                        }
+                        <div class="cat-amount-group">
+                          <span class="cat-amount" style="color: var(--color-error);">{{ fmtARS(cat.amount) }}</span>
+                          @if (cat.budgeted !== null) {
+                            <span class="cat-budget-caption">/ {{ fmtARS(cat.budgeted!) }}</span>
+                          }
+                        </div>
+                      </div>
+                    </div>
+                    <div class="cat-bar-row">
+                      <div class="cat-bar-track cat-bar-track--expense">
+                        <div class="cat-bar-fill"
+                          [style.width]="barWidth(cat.pctOfTotal)"
+                          [style.background]="catBarFill(cat)"
+                          [style.opacity]="0.85">
+                        </div>
+                        @if (cat.budgeted !== null && cat.pctOfBudget !== null) {
+                          <div class="cat-bar-marker" [style.left]="catBudgetMarkerPctOfTotal(cat)"></div>
+                        }
+                      </div>
+                    </div>
+                  </div>
+                </div>
+              }
+            </div>
+          </div>
+        </div>
+
+        <!-- ╔══════════════════════════════════════════════════════════╗ -->
+        <!-- ║  PASO 4 — Balance pre-inversiones (=)                    ║ -->
+        <!-- ╚══════════════════════════════════════════════════════════╝ -->
+        <div class="step" role="listitem">
+          <div class="step-dot step-dot--balance" aria-hidden="true">=</div>
+          <div class="step-body">
+            <div class="step-inner-card">
+              <div class="step-hd">
+                <div class="step-hd__info">
+                  <span class="step-title">Balance pre-inversiones</span>
+                  <span class="step-sub">
+                    Resultado operativo&nbsp;
+                    <strong [style.color]="isOperativeResultPositive() ? 'var(--color-primary)' : 'var(--color-error)'">
+                      {{ isOperativeResultPositive() ? '+' : '' }} {{ fmtARS(data()!.preInvestmentBalance.operativeResult) }}
+                    </strong>
+                    &nbsp;· tasa de ahorro {{ fmtPct(data()!.preInvestmentBalance.savingRatePct) }}%
+                  </span>
+                </div>
+                <div class="step-hd__metric">
+                  <span class="step-amount step-amount--neutral">{{ fmtARS(data()!.preInvestmentBalance.balance) }}</span>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <!-- ╔══════════════════════════════════════════════════════════╗ -->
+        <!-- ║  PASO 5 — Inversiones (−)                                ║ -->
+        <!-- ╚══════════════════════════════════════════════════════════╝ -->
         <div class="step" role="listitem">
           <div class="step-dot step-dot--investment" aria-hidden="true">
-            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="16" height="16">
-              <path d="M2.25 18L9 11.25l4.306 4.307a11.95 11.95 0 015.814-5.519l2.74-1.22m0 0l-5.94-2.28m5.94 2.28l-2.28 5.941" stroke-linecap="round" stroke-linejoin="round"/>
-            </svg>
+            <svg lucideArrowRightLeft [size]="15" [strokeWidth]="2" />
           </div>
           <div class="step-body">
-            <p class="step-label">Inversiones</p>
-            @if (data()!.investments.instruments.length > 0) {
-              <p class="step-total step-total--neutral">{{ fmtARS(data()!.investments.total) }}</p>
-              @if (data()!.investments.pctOfPreBalance !== null) {
-                <p style="font-size: var(--text-caption); color: var(--color-text-muted); margin-bottom: 10px;">
-                  {{ fmtPct(data()!.investments.pctOfPreBalance!) }}% del balance disponible
-                </p>
+            <div class="step-hd">
+              <div class="step-hd__info">
+                <span class="step-title">Destinado a inversiones</span>
+                @if (data()!.investments.instruments.length === 0) {
+                  <span class="step-sub">Sin inversiones este mes</span>
+                }
+              </div>
+              @if (data()!.investments.instruments.length > 0) {
+                <div class="step-hd__metric">
+                  <span class="step-amount step-amount--invest">− {{ fmtARS(data()!.investments.total) }}</span>
+                </div>
               }
-            }
+            </div>
+
             @if (data()!.investments.instruments.length > 0) {
               <div class="cat-rows">
                 @for (inv of data()!.investments.instruments; track inv.name) {
@@ -342,49 +464,70 @@
                     </div>
                     <div class="cat-info">
                       <div class="cat-name-row">
-                        <span class="cat-name">{{ inv.name }}</span>
+                        <div class="inv-name-row">
+                          <span class="cat-name">{{ inv.name }}</span>
+                          @if (inv.teaPct !== null) {
+                            <span class="tea-badge">TEA {{ fmtPct(inv.teaPct!) }}%</span>
+                          }
+                        </div>
                         <span class="cat-amount">{{ fmtARS(inv.amount) }}</span>
+                      </div>
+                      <div class="cat-bar-row">
+                        <div class="cat-bar-track">
+                          <div class="cat-bar-fill" [style.width]="barWidth(invPct(inv.amount))" [style.background]="inv.color"></div>
+                        </div>
                       </div>
                     </div>
                   </div>
                 }
               </div>
-            } @else {
-              <p style="font-size: var(--text-caption); color: var(--color-text-muted); padding: 8px 0;">
-                Sin inversiones registradas este mes.
-              </p>
             }
           </div>
         </div>
 
-        <!-- ╔═══════════════════════════════════════════╗ -->
-        <!-- ║  PASO 6 — Saldo final disponible (=)      ║ -->
-        <!-- ╚═══════════════════════════════════════════╝ -->
-        <div class="step" role="listitem">
+        <!-- ╔══════════════════════════════════════════════════════════╗ -->
+        <!-- ║  PASO 6 — Saldo final disponible                         ║ -->
+        <!-- ╚══════════════════════════════════════════════════════════╝ -->
+        <div class="step step--last" role="listitem">
           <div class="step-dot step-dot--closing" aria-hidden="true">
             <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" width="16" height="16">
               <path d="M4.5 12.75l6 6 9-13.5" stroke-linecap="round" stroke-linejoin="round"/>
             </svg>
           </div>
           <div class="step-body">
-            <p class="step-label">Saldo final disponible</p>
-            <div
-              class="sub-panel"
-              [class.sub-panel--tinted]="!isProjection()"
-              [class.sub-panel--dim]="isProjection()"
-            >
-              <p
-                class="sub-panel__metric"
-                [class.sub-panel__metric--dim]="isProjection()"
-              >{{ fmtARS(data()!.closingBalance.total) }}</p>
-              <p class="sub-panel__caption">Saldo disponible al cierre del mes</p>
-            </div>
-            <div class="acc-grid" style="margin-top: 12px;">
-              @for (acc of data()!.closingBalance.accounts; track acc.accountId) {
-                <div class="acc-row">
-                  <span class="acc-name">{{ acc.name }}</span>
-                  <span class="acc-ccy-badge" [class.acc-ccy-badge--usd]="acc.ccy === 'USD'" [class.acc-ccy-badge--ars]="acc.ccy !== 'USD'">{{ acc.ccy }}</span>
-                  <span class="acc-balance">{{ fmtBalance(acc.balance, acc.ccy) }}</span>
+            <div class="step-closing-card" [class.step-closing-card--projected]="isProjection()">
+              <div class="step-closing-card__head">
+                <div>
+                  <span class="step-closing-card__eyebrow">Saldo final disponible</span>
+                  <p class="step-closing-card__caption">
+                    @if (!isProjection()) {
+                      Líquido al cierre de {{ data()!.periodLabel }}
+                    } @else {
+                      Estimación de cierre
+                    }
+                  </p>
+                </div>
+                <div class="step-closing-card__metric">
+                  <span class="step-closing-card__symbol">$</span>
+                  <span class="step-closing-amount" [class.step-closing-amount--projected]="isProjection()">
+                    {{ fmtAmt(data()!.closingBalance.total) }}
+                  </span>
+                </div>
+              </div>
+              @if (data()!.closingBalance.accounts.length > 0) {
+                <div class="step-closing-card__accounts-section">
+                  <div class="acc-grid">
+                    @for (acc of data()!.closingBalance.accounts; track acc.accountId) {
+                      <div class="acc-row">
+                        <span class="acc-row__icon">
+                          <ng-container [ngTemplateOutlet]="accIconTpl" [ngTemplateOutletContext]="{ $implicit: acc.ccy }" />
+                        </span>
+                        <span class="acc-row__name">{{ acc.name }}</span>
+                        <span class="acc-ccy-badge" [class.acc-ccy-badge--usd]="acc.ccy === 'USD'" [class.acc-ccy-badge--ars]="acc.ccy !== 'USD'">{{ acc.ccy }}</span>
+                        <span class="acc-row__amount">{{ fmtBalance(acc.balance, acc.ccy) }}</span>
+                      </div>
+                    }
+                  </div>
                 </div>
               }
             </div>
