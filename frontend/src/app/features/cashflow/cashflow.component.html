@@ -263,6 +263,15 @@
                           <span class="variance-badge"
                             [class.variance-badge--under]="isOverBudget(cat.pctOfBudget!)"
                             [class.variance-badge--over]="!isOverBudget(cat.pctOfBudget!)">
+                            @if (isOverBudget(cat.pctOfBudget!)) {
+                              <svg width="9" height="9" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3">
+                                <path d="M12 19V5M5 12l7-7 7 7" stroke-linecap="round" stroke-linejoin="round"/>
+                              </svg>
+                            } @else {
+                              <svg width="9" height="9" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3">
+                                <path d="M12 5v14M5 12l7 7 7-7" stroke-linecap="round" stroke-linejoin="round"/>
+                              </svg>
+                            }
                             {{ varianceLabel(cat.pctOfBudget!) }}
                           </span>
                         }

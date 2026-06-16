@@ -244,8 +244,7 @@ export class CashflowComponent implements OnInit {
     const exec = parseFloat(pctOfBudget);
     const diff = exec - 100;
     const abs = Math.abs(diff).toLocaleString('es-AR', { maximumFractionDigits: 0 });
-    const sign = diff > 0.5 ? '+' : diff < -0.5 ? '−' : '±';
-    return `${sign}${abs}%`;
+    return `${abs}%`;
   }
 
   catBarFill(cat: CashflowCategoryRow): string {
