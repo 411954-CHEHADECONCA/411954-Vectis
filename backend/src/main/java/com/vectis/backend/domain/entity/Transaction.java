@@ -69,6 +69,10 @@ public class Transaction {
     @Column(name = "installment_group_id")
     private UUID installmentGroupId;
 
+    @Builder.Default
+    @Column(name = "is_projected", nullable = false)
+    private boolean isProjected = false;
+
     @Column(name = "deleted_at")
     private OffsetDateTime deletedAt;
 

@@ -1,11 +1,13 @@
 package com.vectis.backend.controller;
 
 import com.vectis.backend.config.SecurityConfig;
+import com.vectis.backend.domain.entity.MonthPeriod;
 import com.vectis.backend.domain.entity.User;
 import com.vectis.backend.dto.*;
 import com.vectis.backend.repository.UserRepository;
 import com.vectis.backend.service.CashflowService;
 import com.vectis.backend.service.JwtService;
+import com.vectis.backend.service.MonthPeriodService;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
@@ -26,7 +28,9 @@ import java.util.UUID;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyInt;
 import static org.mockito.BDDMockito.given;
+import static org.mockito.BDDMockito.willDoNothing;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.*;
 
 @WebMvcTest(CashflowController.class)
@@ -40,6 +44,9 @@ class CashflowControllerTest {
 
     @MockBean
     private CashflowService cashflowService;
+
+    @MockBean
+    private MonthPeriodService monthPeriodService;
 
     @MockBean
     private JwtService jwtService;
@@ -142,6 +149,93 @@ class CashflowControllerTest {
                 .andExpect(jsonPath("$.status").value("cerrado"));
     }
 
+    // ─── endpoints de período ─────────────────────────────────────────────────
+
+    @Test
+    @DisplayName("POST /api/cashflow/{year}/{month}/close autenticado retorna 200")
+    void closePeriod_autenticado_retorna200() throws Exception {
+        LocalDate today = LocalDate.now();
+        int year  = today.getYear();
+        int month = today.getMonthValue();
+        CashflowResponse response = buildResponse(year, month, false, "cerrado");
+
+        willDoNothing().given(monthPeriodService).closePeriod(any(User.class), anyInt(), anyInt());
+        given(cashflowService.getCashflow(any(User.class), anyInt(), anyInt())).willReturn(response);
+
+        mockMvc.perform(post("/api/cashflow/{year}/{month}/close", year, month)
+                        .header(HttpHeaders.AUTHORIZATION, AUTH_HEADER))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.status").value("cerrado"));
+    }
+
+    @Test
+    @DisplayName("POST /api/cashflow/{year}/{month}/open autenticado retorna 200")
+    void openPeriod_autenticado_retorna200() throws Exception {
+        LocalDate today = LocalDate.now();
+        int year  = today.getYear();
+        int month = today.getMonthValue();
+        CashflowResponse response = buildResponse(year, month, false, "curso");
+
+        given(monthPeriodService.openPeriod(any(User.class), anyInt(), anyInt())).willReturn(true);
+        given(cashflowService.getCashflow(any(User.class), anyInt(), anyInt())).willReturn(response);
+
+        mockMvc.perform(post("/api/cashflow/{year}/{month}/open", year, month)
+                        .header(HttpHeaders.AUTHORIZATION, AUTH_HEADER))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.status").value("curso"));
+    }
+
+    @Test
+    @DisplayName("POST /api/cashflow/{year}/{month}/close sin token retorna 401")
+    void closePeriod_sinToken_retorna401() throws Exception {
+        mockMvc.perform(post("/api/cashflow/{year}/{month}/close", 2026, 6))
+                .andExpect(status().isUnauthorized());
+    }
+
+    // ─── confirmProjection endpoint ───────────────────────────────────────────
+
+    @Test
+    @DisplayName("POST /api/cashflow/2027/1/project autenticado retorna 200")
+    void confirmProjection_mesFuturo_retorna200() throws Exception {
+        CashflowResponse response = buildResponse(2027, 1, true, "proyectado");
+
+        given(monthPeriodService.confirmProjection(any(User.class), anyInt(), anyInt()))
+                .willReturn(MonthPeriod.builder()
+                        .id(UUID.randomUUID()).user(mockUser)
+                        .year(2027).month(1).status("PROJECTED")
+                        .openedAt(java.time.OffsetDateTime.now())
+                        .build());
+        given(cashflowService.getCashflow(any(User.class), anyInt(), anyInt()))
+                .willReturn(response);
+
+        mockMvc.perform(post("/api/cashflow/2027/1/project")
+                        .header(HttpHeaders.AUTHORIZATION, AUTH_HEADER))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.isProjection").value(true));
+    }
+
+    @Test
+    @DisplayName("POST /api/cashflow mes actual/pasado como project retorna 400")
+    void confirmProjection_mesActualOPasado_retorna400() throws Exception {
+        LocalDate today = LocalDate.now();
+        int year  = today.getYear();
+        int month = today.getMonthValue();
+
+        given(monthPeriodService.confirmProjection(any(User.class), anyInt(), anyInt()))
+                .willThrow(new IllegalArgumentException("Solo se pueden proyectar meses futuros"));
+
+        mockMvc.perform(post("/api/cashflow/{year}/{month}/project", year, month)
+                        .header(HttpHeaders.AUTHORIZATION, AUTH_HEADER))
+                .andExpect(status().isBadRequest());
+    }
+
+    @Test
+    @DisplayName("POST /api/cashflow/{year}/{month}/project sin token retorna 401")
+    void confirmProjection_sinToken_retorna401() throws Exception {
+        mockMvc.perform(post("/api/cashflow/2027/1/project"))
+                .andExpect(status().isUnauthorized());
+    }
+
     // ─── helpers ──────────────────────────────────────────────────────────────
 
     private CashflowResponse buildResponse(int year, int month, boolean isProjection, String status) {
@@ -154,15 +248,23 @@ class CashflowControllerTest {
         CashflowInvestmentSection emptyInvestments = new CashflowInvestmentSection(
                 BigDecimal.ZERO, null, Collections.emptyList());
 
-        return new CashflowResponse(
-                year, month, "Período " + month + "/" + year, "mes",
-                status, isProjection,
-                emptyBalance,
-                emptyFlow,
-                emptyFlow,
-                subtotal,
-                emptyInvestments,
-                emptyBalance
-        );
+        return CashflowResponse.builder()
+                .year(year)
+                .month(month)
+                .periodLabel("Período " + month + "/" + year)
+                .monthShort("mes")
+                .status(status)
+                .isProjection(isProjection)
+                .recurringMaterialized(false)
+                .openingBalance(emptyBalance)
+                .income(emptyFlow)
+                .expenses(emptyFlow)
+                .preInvestmentBalance(subtotal)
+                .investments(emptyInvestments)
+                .closingBalance(emptyBalance)
+                .hasLiquidityDeficit(false)
+                .liquidityDeficit("0.0000")
+                .needsConfirmation(false)
+                .build();
     }
 }

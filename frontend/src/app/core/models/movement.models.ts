@@ -21,6 +21,7 @@ export interface MovementResponse {
   installmentNumber: number | null;
   totalInstallments: number | null;
   installmentGroupId: string | null;
+  isProjected: boolean;
   createdAt: string;
 }
 

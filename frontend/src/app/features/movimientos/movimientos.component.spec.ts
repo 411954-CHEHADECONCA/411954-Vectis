@@ -1,5 +1,6 @@
 import { TestBed, ComponentFixture } from '@angular/core/testing';
 import { ReactiveFormsModule } from '@angular/forms';
+import { ActivatedRoute, convertToParamMap } from '@angular/router';
 import { provideHttpClient } from '@angular/common/http';
 import { provideHttpClientTesting } from '@angular/common/http/testing';
 import { of } from 'rxjs';
@@ -51,7 +52,7 @@ const MOCK_MOVEMENT: MovementResponse = {
   accountId: 'acc-1', accountName: 'Galicia', cardId: null, cardName: null,
   transactionDate: '2026-06-09', dueDate: '2026-06-09',
   installment: false, installmentNumber: null, totalInstallments: null,
-  installmentGroupId: null, createdAt: '2026-06-09T00:00:00Z',
+  installmentGroupId: null, isProjected: false, createdAt: '2026-06-09T00:00:00Z',
 };
 
 const MOCK_INSTALLMENT: MovementResponse = {
@@ -105,6 +106,7 @@ describe('MovimientosComponent', () => {
         { provide: AccountService,        useValue: accServiceSpy       },
         { provide: CreditCardService,     useValue: cardServiceSpy      },
         { provide: CardProjectionService, useValue: cardProjectionSpy   },
+        { provide: ActivatedRoute, useValue: { snapshot: { queryParamMap: convertToParamMap({}) } } },
       ],
     }).compileComponents();
 
@@ -231,6 +233,36 @@ describe('MovimientosComponent', () => {
 
     component.submit();
 
+    expect(movServiceSpy.create).toHaveBeenCalled();
+  });
+
+  it('warns when amount exceeds account balance but still allows submit', () => {
+    // MOCK_ACCOUNT tiene computedBalance: 0 → advertencia visible pero no bloquea
+    component.openCreate();
+    component.movementForm.setValue({
+      description: 'Mercado', type: 'EXPENSE', categoryId: '2',
+      paymentSource: 'acc:acc-1', ccy: 'ARS', amount: 1000,
+      transactionDate: '2026-06-18', installments: 1,
+    });
+    expect(component.accountBalanceWarning()).toContain('Saldo insuficiente');
+    component.submit();
+    expect(movServiceSpy.create).toHaveBeenCalled();
+  });
+
+  it('allows submit when amount is within account balance', async () => {
+    accServiceSpy.getAccounts.and.returnValue(of([{ ...MOCK_ACCOUNT, computedBalance: 200000 }]));
+    // Recrear componente para que reciba la nueva lista de cuentas
+    fixture = TestBed.createComponent(MovimientosComponent);
+    component = fixture.componentInstance;
+    fixture.detectChanges();
+
+    component.openCreate();
+    component.movementForm.setValue({
+      description: 'Mercado', type: 'EXPENSE', categoryId: '2',
+      paymentSource: 'acc:acc-1', ccy: 'ARS', amount: 50000,
+      transactionDate: '2026-06-18', installments: 1,
+    });
+    component.submit();
     expect(movServiceSpy.create).toHaveBeenCalled();
   });
 });

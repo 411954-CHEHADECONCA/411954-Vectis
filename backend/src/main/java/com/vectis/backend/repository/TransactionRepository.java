@@ -1,6 +1,7 @@
 package com.vectis.backend.repository;
 
 import com.vectis.backend.domain.entity.Transaction;
+import com.vectis.backend.domain.entity.User;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.Pageable;
 import org.springframework.data.jpa.repository.EntityGraph;
@@ -54,6 +55,13 @@ public interface TransactionRepository extends JpaRepository<Transaction, UUID> 
                                                     @Param("to") LocalDate to);
 
     Optional<Transaction> findByIdAndDeletedAtIsNull(UUID id);
+
+    /**
+     * Deletes all projected transactions for a user within a date range.
+     * Used by MonthPeriodService before re-materializing a projected month.
+     */
+    void deleteByUserAndTransactionDateBetweenAndIsProjectedTrue(
+            User user, LocalDate from, LocalDate to);
 
     List<Transaction> findAllByInstallmentGroupIdAndDeletedAtIsNull(UUID installmentGroupId);
 

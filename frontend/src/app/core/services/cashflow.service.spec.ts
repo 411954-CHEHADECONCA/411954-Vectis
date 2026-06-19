@@ -4,12 +4,16 @@ import { CashflowService } from './cashflow.service';
 import { CashflowResponse } from '../models/cashflow.models';
 
 const MOCK_RESPONSE: CashflowResponse = {
-  year:        2026,
-  month:       6,
-  periodLabel: 'Junio 2026',
-  monthShort:  'jun',
-  status:      'curso',
-  isProjection: false,
+  year:                  2026,
+  month:                 6,
+  periodLabel:           'Junio 2026',
+  monthShort:            'jun',
+  status:                'curso',
+  isProjection:          false,
+  recurringMaterialized: false,
+  needsConfirmation:     false,
+  hasLiquidityDeficit:   false,
+  liquidityDeficit:      '0.0000',
   openingBalance: { total: '8900000.0000', accounts: [] },
   income:  { total: '1831420.0000', totalBudgeted: '0', byCategory: [] },
   expenses: { total: '1677400.0000', totalBudgeted: '0', byCategory: [] },
@@ -59,5 +63,35 @@ describe('CashflowService', () => {
       r.params.get('month') === '12'
     );
     req.flush(MOCK_RESPONSE);
+  });
+
+  it('closePeriod should POST to /api/cashflow/{year}/{month}/close', () => {
+    service.closePeriod(2026, 6).subscribe(res => {
+      expect(res.status).toBe('cerrado');
+    });
+
+    const req = httpMock.expectOne('/api/cashflow/2026/6/close');
+    expect(req.request.method).toBe('POST');
+    req.flush({ ...MOCK_RESPONSE, status: 'cerrado' });
+  });
+
+  it('openPeriod should POST to /api/cashflow/{year}/{month}/open', () => {
+    service.openPeriod(2026, 6).subscribe(res => {
+      expect(res.status).toBe('abierto');
+    });
+
+    const req = httpMock.expectOne('/api/cashflow/2026/6/open');
+    expect(req.request.method).toBe('POST');
+    req.flush({ ...MOCK_RESPONSE, status: 'abierto', recurringMaterialized: true });
+  });
+
+  it('confirmProjection should POST to /api/cashflow/{year}/{month}/project', () => {
+    service.confirmProjection(2026, 7).subscribe(res => {
+      expect(res.needsConfirmation).toBeFalse();
+    });
+
+    const req = httpMock.expectOne('/api/cashflow/2026/7/project');
+    expect(req.request.method).toBe('POST');
+    req.flush({ ...MOCK_RESPONSE, needsConfirmation: false });
   });
 });

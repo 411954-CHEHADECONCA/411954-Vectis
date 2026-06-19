@@ -15,4 +15,16 @@ export class CashflowService {
       .set('month', month.toString());
     return this.http.get<CashflowResponse>(this.apiUrl, { params });
   }
+
+  closePeriod(year: number, month: number): Observable<CashflowResponse> {
+    return this.http.post<CashflowResponse>(`${this.apiUrl}/${year}/${month}/close`, {});
+  }
+
+  openPeriod(year: number, month: number): Observable<CashflowResponse> {
+    return this.http.post<CashflowResponse>(`${this.apiUrl}/${year}/${month}/open`, {});
+  }
+
+  confirmProjection(year: number, month: number): Observable<CashflowResponse> {
+    return this.http.post<CashflowResponse>(`${this.apiUrl}/${year}/${month}/project`, {});
+  }
 }

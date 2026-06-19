@@ -547,7 +547,8 @@
 }
 
 .cfg-hint { font-size: var(--text-caption); color: var(--color-text-muted); }
-.cfg-hint--error { color: var(--color-error, #ffb4ab); font-weight: var(--weight-medium); }
+.cfg-hint--error   { color: var(--color-error, #ffb4ab);   font-weight: var(--weight-medium); }
+.cfg-hint--warning { color: var(--color-warning, #f59e0b); font-weight: var(--weight-medium); }
 
 .installment-notice {
   font-size: var(--text-caption);
@@ -669,7 +670,7 @@
 .preview-amount--in  { color: var(--color-primary); }
 .preview-amount--out { color: var(--color-error); }
 
-// ── Form error ────────────────────────────────────────────────────────────────
+// ── Form error / warning ──────────────────────────────────────────────────────
 
 .form-error {
   font-size: var(--text-sm);
@@ -678,6 +679,16 @@
   padding: 10px 12px;
   background: color-mix(in srgb, var(--color-error) 10%, transparent);
   border: 1px solid var(--color-error-container);
+  border-radius: var(--radius);
+}
+
+.form-warning {
+  font-size: var(--text-sm);
+  color: var(--color-warning, #f59e0b);
+  margin: 0;
+  padding: 10px 12px;
+  background: color-mix(in srgb, #f59e0b 10%, transparent);
+  border: 1px solid color-mix(in srgb, #f59e0b 40%, transparent);
   border-radius: var(--radius);
 }
 

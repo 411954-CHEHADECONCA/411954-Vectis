@@ -70,5 +70,8 @@ public record MovementResponse(
         UUID installmentGroupId,
 
         @Schema(description = "Fecha de creación")
-        OffsetDateTime createdAt
+        OffsetDateTime createdAt,
+
+        @Schema(description = "Indica si el movimiento fue materializado como proyección futura (no es un registro manual)", example = "false")
+        boolean isProjected
 ) {}

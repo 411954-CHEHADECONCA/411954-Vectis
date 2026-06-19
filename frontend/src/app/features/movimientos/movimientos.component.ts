@@ -7,13 +7,16 @@ import {
   OnInit,
 } from '@angular/core';
 import {
+  AbstractControl,
   FormControl,
   FormGroup,
   ReactiveFormsModule,
+  ValidationErrors,
   Validators,
 } from '@angular/forms';
 import { HttpErrorResponse } from '@angular/common/http';
 import { NgTemplateOutlet } from '@angular/common';
+import { ActivatedRoute } from '@angular/router';
 import { toSignal } from '@angular/core/rxjs-interop';
 import { map } from 'rxjs';
 import {
@@ -95,7 +98,11 @@ export class MovimientosComponent implements OnInit {
   private readonly accountService        = inject(AccountService);
   private readonly creditCardService     = inject(CreditCardService);
   private readonly cardProjectionService = inject(CardProjectionService);
+  private readonly route                 = inject(ActivatedRoute);
   readonly currencyService               = inject(CurrencyService);
+
+  /** Fecha a pre-llenar en el modal de creación. Se sobreescribe si vienen query params desde cashflow proyectado. */
+  private defaultCreateDate = signal(todayISO());
 
   // ── Data ────────────────────────────────────────────────────────────────
   page       = signal<PageResponse<MovementResponse> | null>(null);
@@ -144,7 +151,7 @@ export class MovimientosComponent implements OnInit {
     description:     new FormControl('',  { nonNullable: true, validators: [Validators.required, Validators.maxLength(200)] }),
     type:           new FormControl<MovementType>('EXPENSE', { nonNullable: true }),
     categoryId:     new FormControl<string | null>(null),
-    paymentSource:  new FormControl('',   { nonNullable: true }),
+    paymentSource:  new FormControl('',   { nonNullable: true, validators: [MovimientosComponent.paymentSourceValid] }),
     ccy:            new FormControl<MovementCcy>('ARS', { nonNullable: true }),
     amount:         new FormControl<number>(0, { nonNullable: true, validators: [Validators.required, Validators.min(0.01)] }),
     transactionDate: new FormControl(todayISO(), { nonNullable: true, validators: [Validators.required] }),
@@ -173,6 +180,30 @@ export class MovimientosComponent implements OnInit {
     return face ? face.creditLimit - face.consumido : null;
   });
 
+  static paymentSourceValid(ctrl: AbstractControl): ValidationErrors | null {
+    const v = ctrl.value as string;
+    return v.startsWith('acc:') || v.startsWith('card:') ? null : { paymentSourceRequired: true };
+  }
+
+  readonly selectedAccount = computed(() => {
+    const src = this.formSource();
+    if (!src.startsWith('acc:')) return null;
+    return this.accounts().find(a => a.id === src.slice(4)) ?? null;
+  });
+
+  readonly accountBalanceWarning = computed(() => {
+    if (this.formType() !== 'EXPENSE') return null;
+    const acc = this.selectedAccount();
+    if (!acc || acc.computedBalance === null) return null;
+    const amount = Number(this.formValues().amount) || 0;
+    if (amount <= 0) return null;
+    const formCcy = (this.formValues().ccy ?? 'ARS') as MovementCcy;
+    if (formCcy !== acc.ccy) return null; // conversión bimoneda pendiente
+    return amount > acc.computedBalance
+      ? `Saldo insuficiente (disponible: ${this.fmtAmount(acc.computedBalance, formCcy)}). El balance quedará negativo.`
+      : null;
+  });
+
   /** Mensaje de error si el monto supera el saldo disponible (null si todo OK). */
   creditLimitError = computed(() => {
     if (this.formType() !== 'EXPENSE') return null;
@@ -187,6 +218,11 @@ export class MovimientosComponent implements OnInit {
       return `El monto supera el saldo disponible (${this.fmtAmount(avail, formCcy)} disponibles)`;
     }
     return null;
+  });
+
+  readonly paymentSourceError = computed(() => {
+    const v = this.formValues().paymentSource ?? '';
+    return v.startsWith('acc:') || v.startsWith('card:') ? null : 'Seleccioná un medio de pago';
   });
 
   /** Categorías válidas para el tipo seleccionado (incluye BOTH). */
@@ -204,6 +240,13 @@ export class MovimientosComponent implements OnInit {
 
   // ── Lifecycle ─────────────────────────────────────────────────────────────
   ngOnInit(): void {
+    const qp = this.route.snapshot.queryParamMap;
+    const y = parseInt(qp.get('year') ?? '', 10);
+    const m = parseInt(qp.get('month') ?? '', 10);
+    if (!isNaN(y) && !isNaN(m) && m >= 1 && m <= 12) {
+      this.defaultCreateDate.set(toISO(new Date(y, m - 1, 1)));
+    }
+
     this.loadCategories();
     this.loadAccounts();
     this.loadCards();
@@ -319,7 +362,7 @@ export class MovimientosComponent implements OnInit {
   openCreate(): void {
     this.movementForm.reset({
       description: '', type: 'EXPENSE', categoryId: null, paymentSource: '',
-      ccy: 'ARS', amount: 0, transactionDate: todayISO(), installments: 1,
+      ccy: 'ARS', amount: 0, transactionDate: this.defaultCreateDate(), installments: 1,
     });
     this.formError.set(null);
     this.modal.set({ mode: 'create' });
@@ -329,11 +372,14 @@ export class MovimientosComponent implements OnInit {
     if (m.installment) {
       // Cuota: solo edita descripción base y categoría del grupo completo.
       const baseDesc = m.description.replace(/ — cuota \d+\/\d+$/, '');
+      const installmentSource = m.accountId ? `acc:${m.accountId}`
+                              : m.cardId    ? `card:${m.cardId}`
+                              : '';
       this.movementForm.reset({
         description: baseDesc,
         type: m.type,
         categoryId: m.categoryId,
-        paymentSource: '',
+        paymentSource: installmentSource,
         ccy: m.ccy,
         amount: m.amount,
         transactionDate: m.transactionDate,

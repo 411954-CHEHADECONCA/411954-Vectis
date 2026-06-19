@@ -48,12 +48,16 @@ export interface CashflowInvestmentSection {
 }
 
 export interface CashflowResponse {
-  year:                 number;
-  month:                number;
-  periodLabel:          string;
-  monthShort:           string;
-  status:               'cerrado' | 'curso' | 'proyectado';
-  isProjection:         boolean;
+  year:                  number;
+  month:                 number;
+  periodLabel:           string;
+  monthShort:            string;
+  status:                'cerrado' | 'curso' | 'abierto' | 'proyectado';
+  isProjection:          boolean;
+  recurringMaterialized: boolean;
+  needsConfirmation:     boolean;
+  hasLiquidityDeficit:   boolean;
+  liquidityDeficit:      string;
   openingBalance:       CashflowBalanceSection;
   income:               CashflowFlowSection;
   expenses:             CashflowFlowSection;

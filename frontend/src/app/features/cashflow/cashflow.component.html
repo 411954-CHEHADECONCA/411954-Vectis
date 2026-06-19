@@ -46,18 +46,14 @@
         <p class="page-head__lead">Tus flujos de ingresos y egresos mes a mes.</p>
       }
     </div>
-    <button
-      class="btn-primary"
-      [disabled]="isProjection()"
-      [attr.aria-disabled]="isProjection()"
-      [title]="isProjection() ? 'No disponible en proyecciones' : 'Registrar movimiento'"
-      (click)="openCreateMovimiento()"
-    >
-      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="16" height="16" aria-hidden="true">
-        <path d="M12 5v14M5 12h14" stroke-linecap="round" stroke-linejoin="round"/>
-      </svg>
-      Registrar movimiento
-    </button>
+    <div class="page-head__actions">
+      <button class="btn-primary" (click)="openCreateMovimiento()">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="16" height="16" aria-hidden="true">
+          <path d="M12 5v14M5 12h14" stroke-linecap="round" stroke-linejoin="round"/>
+        </svg>
+        Registrar movimiento
+      </button>
+    </div>
   </div>
 
   <!-- ══════════════════════════════════════════════════════════════════════════
@@ -73,9 +69,8 @@
       <div class="month-identity">
         @if (data()) {
           <h2 class="month-name">{{ data()!.periodLabel }}</h2>
-          @switch (data()!.status) {
-            @case ('cerrado')    { <span class="status-badge status-badge--cerrado">Cerrado</span> }
-            @case ('proyectado') { <span class="status-badge status-badge--proyectado">Proyectado</span> }
+          @if (data()!.status === 'abierto') {
+            <span class="status-badge status-badge--abierto">Abierto</span>
           }
         } @else {
           <h2 class="month-name">{{ month() }}/{{ year() }}</h2>
@@ -96,10 +91,18 @@
         </div>
         <div class="month-kpi-divider" aria-hidden="true"></div>
         <div class="month-kpi">
-          <span class="month-kpi__label month-kpi__label--primary">Saldo final disponible</span>
+          <span class="month-kpi__label"
+            [class.month-kpi__label--primary]="!isClosingNegative()"
+            [class.month-kpi__label--negative]="isClosingNegative()">
+            {{ closingBalanceLabel() }}
+          </span>
           <div class="month-kpi__amount-row">
-            <span class="month-kpi__currency">$</span>
-            <span class="month-kpi__big">{{ fmtAmt(data()!.closingBalance.total) }}</span>
+            <span class="month-kpi__currency" [class.month-kpi__currency--negative]="isClosingNegative()">
+              {{ isClosingNegative() ? '- $' : '$' }}
+            </span>
+            <span class="month-kpi__big" [class.month-kpi__big--negative]="isClosingNegative()">
+              {{ fmtAmt(data()!.closingBalance.total) }}
+            </span>
           </div>
           @if (closingDelta() !== null) {
             <span class="month-kpi__delta"
@@ -121,16 +124,6 @@
       </div>
     }
   </div>
-
-  <!-- ── Banner de proyección ─────────────────────────────────────────────── -->
-  @if (isProjection()) {
-    <div class="projection-banner" role="status">
-      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" width="18" height="18" aria-hidden="true">
-        <path d="M12 9v3.75m-9.303 3.376c-.866 1.5.217 3.374 1.948 3.374h14.71c1.73 0 2.813-1.874 1.948-3.374L13.949 3.378c-.866-1.5-3.032-1.5-3.898 0L2.697 16.126zM12 15.75h.007v.008H12v-.008z" stroke-linecap="round" stroke-linejoin="round"/>
-      </svg>
-      Este mes es una proyección estimada. Los montos son referenciales y no reflejan movimientos reales.
-    </div>
-  }
 
   <!-- ── Estado de carga ───────────────────────────────────────────────────── -->
   @if (loading()) {
@@ -159,6 +152,15 @@
   @if (data() && !loading()) {
     <div class="panel">
 
+      @if (isProjection()) {
+        <div class="projection-notice" role="note">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" width="15" height="15" aria-hidden="true">
+            <path d="M12 9v3.75m-9.303 3.376c-.866 1.5.217 3.374 1.948 3.374h14.71c1.73 0 2.813-1.874 1.948-3.374L13.949 3.378c-.866-1.5-3.032-1.5-3.898 0L2.697 16.126zM12 15.75h.007v.008H12v-.008z" stroke-linecap="round" stroke-linejoin="round"/>
+          </svg>
+          Proyección estimada basada en tus movimientos recurrentes y presupuestos vigentes. Los montos son referenciales y no reflejan movimientos reales.
+        </div>
+      }
+
       <!-- Panel header -->
       <div class="panel-header">
         <div class="panel-header__left">
@@ -167,9 +169,29 @@
         @switch (data()!.status) {
           @case ('cerrado')    { <span class="status-badge status-badge--cerrado">Cerrado</span> }
           @case ('curso')      { <span class="status-badge status-badge--curso">En curso</span> }
+          @case ('abierto')    { <span class="status-badge status-badge--abierto">Abierto</span> }
           @case ('proyectado') { <span class="status-badge status-badge--proyectado">Proyectado</span> }
         }
       </div>
+
+      @if (isProjection() && needsConfirmation()) {
+        <!-- pantalla de confirmación de proyección -->
+        <div class="projection-confirm-card">
+          <div class="projection-confirm-card__icon" aria-hidden="true">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" width="32" height="32">
+              <path d="M3.75 13.5l10.5-11.25L12 10.5h8.25L9.75 21.75 12 13.5H3.75z" stroke-linecap="round" stroke-linejoin="round"/>
+            </svg>
+          </div>
+          <h2 class="projection-confirm-card__title">Proyectar {{ data()!.periodLabel }}</h2>
+          <p class="projection-confirm-card__desc">
+            Al confirmar, se calcularán tus movimientos recurrentes y presupuestos vigentes
+            como estimaciones para este período.
+          </p>
+          <button class="btn-primary" [disabled]="periodActionLoading()" (click)="confirmProjection()">
+            @if (periodActionLoading()) { Proyectando… } @else { Confirmar proyección }
+          </button>
+        </div>
+      } @else {
 
       <div class="ledger" role="list" [class.ledger--projected]="isProjection()">
         <div class="ledger-spine" aria-hidden="true"></div>
@@ -187,7 +209,9 @@
                 <span class="step-title">Saldo inicial disponible</span>
               </div>
               <div class="step-hd__metric">
-                <span class="step-amount step-amount--neutral">{{ fmtARS(data()!.openingBalance.total) }}</span>
+                <span class="step-amount"
+                  [class.step-amount--neutral]="!isOpeningNegative()"
+                  [class.step-amount--negative]="isOpeningNegative()">{{ isOpeningNegative() ? '− ' : '' }}{{ fmtARS(data()!.openingBalance.total) }}</span>
               </div>
             </div>
             <div class="acc-grid">
@@ -198,7 +222,9 @@
                   </span>
                   <span class="acc-row__name">{{ acc.name }}</span>
                   <span class="acc-ccy-badge" [class.acc-ccy-badge--usd]="acc.ccy === 'USD'" [class.acc-ccy-badge--ars]="acc.ccy !== 'USD'">{{ acc.ccy }}</span>
-                  <span class="acc-row__amount">{{ fmtBalance(acc.balance, acc.ccy) }}</span>
+                  <span class="acc-row__amount" [class.acc-row__amount--negative]="parseFloat(acc.balance) < 0">
+                    {{ fmtBalance(acc.balance, acc.ccy) }}
+                  </span>
                 </div>
               }
             </div>
@@ -307,7 +333,9 @@
                   <span class="step-title">Saldo disponible antes de egresos</span>
                 </div>
                 <div class="step-hd__metric">
-                  <span class="step-amount step-amount--neutral">{{ fmtARS(balanceAfterIncome()) }}</span>
+                  <span class="step-amount step-amount--neutral" [class.step-amount--negative]="isBalanceAfterIncomeNeg()">
+                    {{ isBalanceAfterIncomeNeg() ? '- ' : '' }}{{ fmtARS(balanceAfterIncome()) }}
+                  </span>
                 </div>
               </div>
             </div>
@@ -424,15 +452,22 @@
                   <span class="step-sub">
                     Resultado operativo&nbsp;
                     <strong [style.color]="isOperativeResultPositive() ? 'var(--color-primary)' : 'var(--color-error)'">
-                      {{ isOperativeResultPositive() ? '+' : '' }} {{ fmtARS(data()!.preInvestmentBalance.operativeResult) }}
+                      {{ isOperativeResultPositive() ? '+' : '-' }} {{ fmtARS(data()!.preInvestmentBalance.operativeResult) }}
                     </strong>
                     &nbsp;· tasa de ahorro {{ fmtPct(data()!.preInvestmentBalance.savingRatePct) }}%
                   </span>
                 </div>
                 <div class="step-hd__metric">
-                  <span class="step-amount step-amount--neutral">{{ fmtARS(data()!.preInvestmentBalance.balance) }}</span>
+                  <span class="step-amount step-amount--neutral" [class.step-amount--negative]="isPreInvNegative()">
+                    {{ isPreInvNegative() ? '- ' : '' }}{{ fmtARS(data()!.preInvestmentBalance.balance) }}
+                  </span>
                 </div>
               </div>
+              @if (isPreInvNegative()) {
+                <span class="step-sub step-sub--deficit">
+                  Déficit operativo — los egresos superan los ingresos del período.
+                </span>
+              }
             </div>
           </div>
         </div>
@@ -497,17 +532,19 @@
         <!-- ╔══════════════════════════════════════════════════════════╗ -->
         <!-- ║  PASO 6 — Saldo final disponible                         ║ -->
         <!-- ╚══════════════════════════════════════════════════════════╝ -->
-        <div class="step step--last" role="listitem">
-          <div class="step-dot step-dot--closing" aria-hidden="true">
+        <div class="step" [class.step--last]="isProjection()" role="listitem">
+          <div class="step-dot step-dot--closing" [class.step-dot--closing-negative]="isClosingNegative()" aria-hidden="true">
             <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" width="16" height="16">
               <path d="M4.5 12.75l6 6 9-13.5" stroke-linecap="round" stroke-linejoin="round"/>
             </svg>
           </div>
           <div class="step-body">
-            <div class="step-closing-card" [class.step-closing-card--projected]="isProjection()">
+            <div class="step-closing-card"
+              [class.step-closing-card--projected]="isProjection()"
+              [class.step-closing-card--negative]="isClosingNegative()">
               <div class="step-closing-card__head">
                 <div>
-                  <span class="step-closing-card__eyebrow">Saldo final disponible</span>
+                  <span class="step-closing-card__eyebrow">{{ closingBalanceLabel() }}</span>
                   <p class="step-closing-card__caption">
                     @if (!isProjection()) {
                       Líquido al cierre de {{ data()!.periodLabel }}
@@ -517,8 +554,12 @@
                   </p>
                 </div>
                 <div class="step-closing-card__metric">
-                  <span class="step-closing-card__symbol">$</span>
-                  <span class="step-closing-amount" [class.step-closing-amount--projected]="isProjection()">
+                  <span class="step-closing-card__symbol" [class.step-closing-card__symbol--negative]="isClosingNegative()">
+                    {{ isClosingNegative() ? '- $' : '$' }}
+                  </span>
+                  <span class="step-closing-amount"
+                    [class.step-closing-amount--projected]="isProjection()"
+                    [class.step-closing-amount--negative]="isClosingNegative()">
                     {{ fmtAmt(data()!.closingBalance.total) }}
                   </span>
                 </div>
@@ -533,7 +574,9 @@
                         </span>
                         <span class="acc-row__name">{{ acc.name }}</span>
                         <span class="acc-ccy-badge" [class.acc-ccy-badge--usd]="acc.ccy === 'USD'" [class.acc-ccy-badge--ars]="acc.ccy !== 'USD'">{{ acc.ccy }}</span>
-                        <span class="acc-row__amount">{{ fmtBalance(acc.balance, acc.ccy) }}</span>
+                        <span class="acc-row__amount" [class.acc-row__amount--negative]="parseFloat(acc.balance) < 0">
+                          {{ fmtBalance(acc.balance, acc.ccy) }}
+                        </span>
                       </div>
                     }
                   </div>
@@ -543,7 +586,65 @@
           </div>
         </div>
 
+        <!-- ╔══════════════════════════════════════════════════════════╗ -->
+        <!-- ║  PASO 7 — Ciclo de vida del período                      ║ -->
+        <!-- ╚══════════════════════════════════════════════════════════╝ -->
+        @if (data()!.status === 'curso' || data()!.status === 'abierto' || data()!.status === 'cerrado') {
+          <div class="step step--last" role="listitem">
+            <div class="step-dot step-dot--period" aria-hidden="true">
+              @if (data()!.status === 'cerrado') {
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" width="14" height="14">
+                  <rect x="3" y="11" width="18" height="11" rx="2" ry="2"/>
+                  <path d="M7 11V7a5 5 0 0110 0v4" stroke-linecap="round" stroke-linejoin="round"/>
+                </svg>
+              } @else {
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" width="14" height="14">
+                  <rect x="3" y="11" width="18" height="11" rx="2" ry="2"/>
+                  <path d="M7 11V7a5 5 0 019.9-1" stroke-linecap="round" stroke-linejoin="round"/>
+                </svg>
+              }
+            </div>
+            <div class="step-body">
+              <div class="period-action-card">
+                @if (data()!.status === 'curso' || data()!.status === 'abierto') {
+                  <div class="period-action-card__content">
+                    <div class="period-action-card__text">
+                      <span class="period-action-card__title">Cerrar el período</span>
+                      <span class="period-action-card__desc">Al cerrar {{ data()!.periodLabel }} no se podrán registrar nuevos movimientos hasta reabrirlo.</span>
+                    </div>
+                    <button
+                      class="btn-period-action"
+                      [disabled]="periodActionLoading()"
+                      (click)="closePeriod()"
+                      aria-label="Cerrar mes"
+                    >
+                      {{ periodActionLoading() ? 'Cerrando...' : 'Cerrar mes' }}
+                    </button>
+                  </div>
+                }
+                @if (data()!.status === 'cerrado') {
+                  <div class="period-action-card__content period-action-card__content--closed">
+                    <div class="period-action-card__text">
+                      <span class="period-action-card__title">Período cerrado</span>
+                      <span class="period-action-card__desc">{{ data()!.periodLabel }} está cerrado. Podés reabrirlo para registrar o modificar movimientos.</span>
+                    </div>
+                    <button
+                      class="btn-period-action btn-period-action--reopen"
+                      [disabled]="periodActionLoading()"
+                      (click)="openPeriod()"
+                      aria-label="Reabrir mes"
+                    >
+                      {{ periodActionLoading() ? 'Abriendo...' : 'Reabrir mes' }}
+                    </button>
+                  </div>
+                }
+              </div>
+            </div>
+          </div>
+        }
+
       </div>
+      } <!-- end @else (needsConfirmation) -->
     </div>
   }
 

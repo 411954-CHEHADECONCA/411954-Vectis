@@ -3,10 +3,13 @@ package com.vectis.backend.service;
 import com.vectis.backend.domain.entity.Account;
 import com.vectis.backend.domain.entity.CategoryBudget;
 import com.vectis.backend.domain.entity.CategoryType;
+import com.vectis.backend.domain.entity.RecurringMovement;
 import com.vectis.backend.domain.entity.User;
 import com.vectis.backend.dto.*;
 import com.vectis.backend.repository.AccountRepository;
 import com.vectis.backend.repository.CategoryBudgetRepository;
+import com.vectis.backend.repository.MonthPeriodRepository;
+import com.vectis.backend.repository.RecurringMovementRepository;
 import com.vectis.backend.repository.TransactionRepository;
 import com.vectis.backend.repository.TransactionRepository.CategorySummaryProjection;
 import com.vectis.backend.repository.TransactionRepository.NetMovementProjection;
@@ -36,6 +39,9 @@ public class CashflowService {
     private final AccountRepository accountRepository;
     private final TransactionRepository transactionRepository;
     private final CategoryBudgetRepository categoryBudgetRepository;
+    private final MonthPeriodService monthPeriodService;
+    private final MonthPeriodRepository monthPeriodRepository;
+    private final RecurringMovementRepository recurringMovementRepository;
 
     public CashflowResponse getCashflow(User user, int year, int month) {
         UUID userId = user.getId();
@@ -43,33 +49,48 @@ public class CashflowService {
         LocalDate lastDay  = firstDay.withDayOfMonth(firstDay.lengthOfMonth());
         LocalDate today    = LocalDate.now();
 
-        LocalDate currentMonthStart = today.withDayOfMonth(1);
-        boolean isFuture  = firstDay.isAfter(currentMonthStart);
-        boolean isCurrent = firstDay.equals(currentMonthStart);
-        String status = isFuture ? "proyectado" : isCurrent ? "curso" : "cerrado";
-        boolean isProjection = isFuture;
+        // ── Status via MonthPeriodService ─────────────────────────────────────
+        String status = monthPeriodService.getStatus(user, year, month, today);
+        boolean isProjection = "proyectado".equals(status);
 
         // ── Cuentas incluidas en cashflow ─────────────────────────────────────
         List<Account> cashflowAccounts = accountRepository.findAllByUser_IdAndIncludeInCashflowTrue(userId);
 
         // ── Opening balance (último día del mes anterior) ─────────────────────
         LocalDate openingDate = firstDay.minusDays(1);
-        CashflowBalanceSection openingBalance = buildBalanceSection(cashflowAccounts, userId, openingDate);
+        CashflowBalanceSection openingBalance;
+        if (isProjection) {
+            LocalDate prevFirst = firstDay.minusMonths(1);
+            int prevYear  = prevFirst.getYear();
+            int prevMonth = prevFirst.getMonthValue();
+            String prevStatus = monthPeriodService.getStatus(user, prevYear, prevMonth, today);
+            if ("proyectado".equals(prevStatus)) {
+                CashflowResponse prevCashflow = getCashflow(user, prevYear, prevMonth);
+                openingBalance = new CashflowBalanceSection(
+                        prevCashflow.getClosingBalance().total(), Collections.emptyList());
+            } else {
+                openingBalance = buildBalanceSection(cashflowAccounts, userId, openingDate);
+            }
+        } else {
+            openingBalance = buildBalanceSection(cashflowAccounts, userId, openingDate);
+        }
 
-        // ── Closing balance (último día del mes o hoy si es mes actual) ───────
+        // ── Closing balance (computed after preBalance for projected months) ───
+        boolean isCurrent = "curso".equals(status);
         LocalDate closingDate = isCurrent ? today : lastDay;
-        CashflowBalanceSection closingBalance = buildBalanceSection(cashflowAccounts, userId, closingDate);
+        CashflowBalanceSection closingBalance = isProjection
+                ? null   // placeholder — overridden below after preBalance is known
+                : buildBalanceSection(cashflowAccounts, userId, closingDate);
 
         // ── Income y Expenses ─────────────────────────────────────────────────
         CashflowFlowSection income;
         CashflowFlowSection expenses;
 
         if (isProjection) {
-            income   = buildProjectedSection(userId, "INCOME",  today);
-            expenses = buildProjectedSection(userId, "EXPENSE", today);
+            income   = buildProjectedSection(userId, "INCOME",  year, month);
+            expenses = buildProjectedSection(userId, "EXPENSE", year, month);
         } else {
-            // Presupuestos del mes, separados por tipo para calcular el total presupuestado correcto
-            List<CategoryBudget> allBudgets = categoryBudgetRepository.findAllByUser_IdAndValidFromEager(userId, firstDay);
+            List<CategoryBudget> allBudgets = categoryBudgetRepository.findLatestPerCategoryOnOrBefore(userId, firstDay);
             Map<UUID, BigDecimal> incomeBudgets = allBudgets.stream()
                     .filter(cb -> cb.getCategory().getType() == CategoryType.INCOME)
                     .collect(Collectors.toMap(cb -> cb.getCategory().getId(), CategoryBudget::getAmount, (a, b) -> a));
@@ -99,23 +120,55 @@ public class CashflowService {
                 operativeResult.setScale(4, RM),
                 savingRate);
 
-        // ── Inversiones (categorías cuyo nombre sea "Inversiones") ───────────
+        // ── Projected closing: derive from preBalance (account query excluded projected txns) ──
+        if (isProjection) {
+            closingBalance = new CashflowBalanceSection(preBalance.setScale(4, RM), Collections.emptyList());
+        }
+
+        // ── Inversiones ───────────────────────────────────────────────────────
         CashflowInvestmentSection investmentSection = buildInvestmentSection(expenses, preBalance);
+
+        // ── recurringMaterialized flag ────────────────────────────────────────
+        boolean recurringMaterialized = monthPeriodRepository
+                .findByUser_IdAndYearAndMonth(userId, year, month)
+                .map(mp -> mp.getRecurringMaterializedAt() != null)
+                .orElse(false);
 
         // ── Period labels ─────────────────────────────────────────────────────
         String periodLabel = buildPeriodLabel(firstDay);
         String monthShort  = buildMonthShort(firstDay);
 
-        return new CashflowResponse(
-                year, month, periodLabel, monthShort,
-                status, isProjection,
-                openingBalance,
-                income,
-                expenses,
-                preInvestmentBalance,
-                investmentSection,
-                closingBalance
-        );
+        CashflowResponse response = CashflowResponse.builder()
+                .year(year)
+                .month(month)
+                .periodLabel(periodLabel)
+                .monthShort(monthShort)
+                .status(status)
+                .isProjection(isProjection)
+                .recurringMaterialized(recurringMaterialized)
+                .openingBalance(openingBalance)
+                .income(income)
+                .expenses(expenses)
+                .preInvestmentBalance(preInvestmentBalance)
+                .investments(investmentSection)
+                .closingBalance(closingBalance)
+                .build();
+
+        // ── Liquidity deficit ─────────────────────────────────────────────────
+        BigDecimal preInv = preInvestmentBalance.balance();
+        response.setHasLiquidityDeficit(preInv.compareTo(BigDecimal.ZERO) < 0);
+        response.setLiquidityDeficit(preInv.abs().setScale(4, RM).toPlainString());
+
+        // ── needsConfirmation ─────────────────────────────────────────────────
+        boolean isFuture = year > today.getYear()
+                || (year == today.getYear() && month > today.getMonthValue());
+        boolean hasProjectedRecord = monthPeriodRepository
+                .findByUser_IdAndYearAndMonth(userId, year, month)
+                .map(mp -> "PROJECTED".equals(mp.getStatus()))
+                .orElse(false);
+        response.setNeedsConfirmation(isFuture && !hasProjectedRecord);
+
+        return response;
     }
 
     // ── Helpers privados ──────────────────────────────────────────────────────
@@ -184,72 +237,147 @@ public class CashflowService {
     }
 
     /**
-     * Para meses futuros: promedia los últimos 3 meses cerrados disponibles.
-     * Si no hay historial, devuelve sección vacía con total = 0.
+     * Para meses proyectados: combina transacciones ya registradas, recurrentes activos
+     * (para categorías sin registro aún) y presupuesto residual ("Otros").
+     * Prioridad: registrado > recurrente template > presupuesto.
      */
-    private CashflowFlowSection buildProjectedSection(UUID userId, String type, LocalDate today) {
-        // Recopilar hasta 3 meses cerrados anteriores al mes actual
-        LocalDate currentMonthStart = today.withDayOfMonth(1);
-        List<CashflowFlowSection> historicalSections = new ArrayList<>();
+    private CashflowFlowSection buildProjectedSection(UUID userId, String type, int year, int month) {
+        LocalDate firstDay = LocalDate.of(year, month, 1);
+        LocalDate lastDay  = firstDay.withDayOfMonth(firstDay.lengthOfMonth());
+        CategoryType catType = "INCOME".equals(type) ? CategoryType.INCOME : CategoryType.EXPENSE;
 
-        for (int i = 1; i <= 3; i++) {
-            LocalDate hFirst = currentMonthStart.minusMonths(i);
-            LocalDate hLast  = hFirst.withDayOfMonth(hFirst.lengthOfMonth());
-            List<CategorySummaryProjection> rows = transactionRepository.groupByCategory(userId, type, hFirst, hLast);
-            if (!rows.isEmpty()) {
-                BigDecimal total = sumProjections(rows);
-                historicalSections.add(buildFlowSection(rows, total, Collections.emptyMap()));
+        // ── 1. Transacciones ya registradas para este mes futuro ──────────────
+        List<CategorySummaryProjection> registeredRows =
+                transactionRepository.groupByCategory(userId, type, firstDay, lastDay);
+        Set<UUID> registeredCatIds = registeredRows.stream()
+                .map(CategorySummaryProjection::getCategoryId)
+                .collect(Collectors.toSet());
+        BigDecimal registeredTotal = sumProjections(registeredRows);
+
+        // ── 2. Recurrentes para categorías no cubiertas por registradas ────────
+        Map<UUID, BigDecimal> recurringByCategory = new LinkedHashMap<>();
+        Map<UUID, RecurringMovement> catMeta = new LinkedHashMap<>();
+        for (RecurringMovement rm : recurringMovementRepository
+                .findAllByUser_IdAndActiveTrueAndDeletedAtIsNull(userId)) {
+            if (!type.equals(rm.getType())) continue;
+            UUID catId = rm.getCategory() != null ? rm.getCategory().getId() : null;
+            if (!registeredCatIds.contains(catId)) {
+                recurringByCategory.merge(catId, rm.getAmount().abs(), BigDecimal::add);
+                catMeta.putIfAbsent(catId, rm);
             }
         }
+        BigDecimal recurringOnlyTotal = recurringByCategory.values().stream()
+                .reduce(BigDecimal.ZERO, BigDecimal::add);
 
-        if (historicalSections.isEmpty()) {
-            return new CashflowFlowSection(BigDecimal.ZERO.setScale(4, RM), BigDecimal.ZERO.setScale(4, RM), Collections.emptyList());
+        // ── 3. Presupuesto ────────────────────────────────────────────────────
+        List<CategoryBudget> budgets = categoryBudgetRepository
+                .findLatestPerCategoryOnOrBefore(userId, firstDay)
+                .stream()
+                .filter(cb -> cb.getCategory().getType() == catType)
+                .toList();
+        Map<UUID, BigDecimal> catBudgetMap = budgets.stream()
+                .collect(Collectors.toMap(cb -> cb.getCategory().getId(),
+                                          CategoryBudget::getAmount, (a, b) -> a));
+        BigDecimal budgetTotal = budgets.stream()
+                .map(CategoryBudget::getAmount)
+                .reduce(BigDecimal.ZERO, BigDecimal::add);
+        boolean hasBudget = budgetTotal.compareTo(BigDecimal.ZERO) > 0;
+
+        // ── 2b. Categorías solo presupuestadas (sin recurrente ni registrada) ──
+        // En lugar de agrupar en una fila genérica "Otros", las exponemos individualmente.
+        Set<UUID> coveredCatIds = new HashSet<>(registeredCatIds);
+        coveredCatIds.addAll(recurringByCategory.keySet());
+        Map<UUID, CategoryBudget> budgetOnlyMap = new LinkedHashMap<>();
+        for (CategoryBudget cb : budgets) {
+            UUID catId = cb.getCategory().getId();
+            if (!coveredCatIds.contains(catId)) {
+                budgetOnlyMap.put(catId, cb);
+            }
+        }
+        BigDecimal budgetOnlyTotal = budgetOnlyMap.values().stream()
+                .map(CategoryBudget::getAmount)
+                .reduce(BigDecimal.ZERO, BigDecimal::add);
+
+        // sectionTotal = suma de lo que se va a mostrar en filas (recurrente real + presupuestado individual).
+        // No se usa max(budget, effective) porque los presupuestados ya están en effectiveTotal como filas propias.
+        BigDecimal effectiveTotal = registeredTotal.add(recurringOnlyTotal).add(budgetOnlyTotal);
+        BigDecimal sectionTotal = effectiveTotal;
+
+        if (sectionTotal.compareTo(BigDecimal.ZERO) <= 0) {
+            return new CashflowFlowSection(BigDecimal.ZERO.setScale(4, RM),
+                                           budgetTotal.setScale(4, RM), Collections.emptyList());
         }
 
-        // Promediar totales
-        BigDecimal avgTotal = historicalSections.stream()
-                .map(CashflowFlowSection::total)
-                .reduce(BigDecimal.ZERO, BigDecimal::add)
-                .divide(BigDecimal.valueOf(historicalSections.size()), MC)
-                .setScale(4, RM);
+        List<CashflowCategoryRow> rows = new ArrayList<>();
 
-        // Tomar las categorías del mes histórico más reciente como referencia
-        List<CashflowCategoryRow> refRows = historicalSections.get(0).byCategory();
+        // ── 4a. Filas de transacciones registradas ────────────────────────────
+        for (CategorySummaryProjection proj : registeredRows) {
+            BigDecimal amt = proj.getTotalAmount().setScale(4, RM);
+            BigDecimal pctOfTotal = amt.divide(sectionTotal, MC)
+                    .multiply(BigDecimal.valueOf(100), MC).setScale(2, RM);
+            UUID catId = proj.getCategoryId();
+            BigDecimal catBudget = catId != null ? catBudgetMap.get(catId) : null;
+            BigDecimal pctOfBudget = (catBudget != null && catBudget.compareTo(BigDecimal.ZERO) != 0)
+                    ? amt.divide(catBudget, MC).multiply(BigDecimal.valueOf(100), MC).setScale(2, RM)
+                    : null;
+            rows.add(new CashflowCategoryRow(
+                    catId != null ? catId.toString() : null,
+                    proj.getCategoryName(), proj.getCategoryIcon(), proj.getCategoryColor(),
+                    amt, pctOfTotal,
+                    catBudget != null ? catBudget.setScale(4, RM) : null,
+                    pctOfBudget
+            ));
+        }
 
-        // Escalar los montos de cada categoría proporcionalmente al promedio
-        BigDecimal refTotal = historicalSections.get(0).total();
-        BigDecimal scaleFactor = refTotal.compareTo(BigDecimal.ZERO) != 0
-                ? avgTotal.divide(refTotal, MC)
-                : BigDecimal.ONE;
+        // ── 4b. Filas de recurrentes sin registrar (con comparación de presupuesto) ──
+        for (Map.Entry<UUID, BigDecimal> entry : recurringByCategory.entrySet()) {
+            UUID catId = entry.getKey();
+            BigDecimal amt = entry.getValue().setScale(4, RM);
+            RecurringMovement meta = catMeta.get(catId);
+            BigDecimal pctOfTotal = amt.divide(sectionTotal, MC)
+                    .multiply(BigDecimal.valueOf(100), MC).setScale(2, RM);
+            BigDecimal catBudget = catId != null ? catBudgetMap.get(catId) : null;
+            BigDecimal pctOfBudget = (catBudget != null && catBudget.compareTo(BigDecimal.ZERO) != 0)
+                    ? amt.divide(catBudget, MC).multiply(BigDecimal.valueOf(100), MC).setScale(2, RM)
+                    : null;
+            rows.add(new CashflowCategoryRow(
+                    catId != null ? catId.toString() : null,
+                    meta != null && meta.getCategory() != null ? meta.getCategory().getName() : "Sin categoría",
+                    meta != null && meta.getCategory() != null ? meta.getCategory().getIcon() : "circle",
+                    meta != null && meta.getCategory() != null ? meta.getCategory().getColor() : "#85948f",
+                    amt, pctOfTotal,
+                    catBudget != null ? catBudget.setScale(4, RM) : null,
+                    pctOfBudget
+            ));
+        }
 
-        List<CashflowCategoryRow> projectedRows = refRows.stream()
-                .map(row -> new CashflowCategoryRow(
-                        row.categoryId(),
-                        row.name(),
-                        row.icon(),
-                        row.color(),
-                        row.amount().multiply(scaleFactor, MC).setScale(4, RM),
-                        row.pctOfTotal(),
-                        null,
-                        null
-                ))
-                .toList();
+        // ── 4c. Filas solo presupuestadas (presupuesto como monto proyectado) ──
+        for (Map.Entry<UUID, CategoryBudget> entry : budgetOnlyMap.entrySet()) {
+            UUID catId = entry.getKey();
+            CategoryBudget cb = entry.getValue();
+            BigDecimal amt = cb.getAmount().setScale(4, RM);
+            BigDecimal pctOfTotal = amt.divide(sectionTotal, MC)
+                    .multiply(BigDecimal.valueOf(100), MC).setScale(2, RM);
+            rows.add(new CashflowCategoryRow(
+                    catId.toString(),
+                    cb.getCategory().getName(),
+                    cb.getCategory().getIcon(),
+                    cb.getCategory().getColor(),
+                    amt, pctOfTotal,
+                    amt,  // budgeted = mismo valor (proyección = presupuesto completo)
+                    new BigDecimal("100.00").setScale(2, RM)
+            ));
+        }
 
-        return new CashflowFlowSection(avgTotal, BigDecimal.ZERO.setScale(4, RM), projectedRows);
+        BigDecimal totalBudgeted = hasBudget ? budgetTotal.setScale(4, RM) : BigDecimal.ZERO.setScale(4, RM);
+        return new CashflowFlowSection(sectionTotal.setScale(4, RM), totalBudgeted, rows);
     }
 
     private CashflowInvestmentSection buildInvestmentSection(CashflowFlowSection expenses,
                                                               BigDecimal preBalance) {
-        // Filtrar filas de egresos cuya categoría se llame "Inversiones" (case-insensitive)
         List<CashflowInvestmentRow> instruments = expenses.byCategory().stream()
                 .filter(row -> "inversiones".equalsIgnoreCase(row.name()))
-                .map(row -> new CashflowInvestmentRow(
-                        row.name(),
-                        row.icon(),
-                        row.color(),
-                        row.amount(),
-                        null  // TEA: null en MVP
-                ))
+                .map(row -> new CashflowInvestmentRow(row.name(), row.icon(), row.color(), row.amount(), null))
                 .toList();
 
         BigDecimal total = instruments.stream()

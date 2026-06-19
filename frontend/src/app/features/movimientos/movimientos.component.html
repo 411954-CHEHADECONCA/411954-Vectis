@@ -219,9 +219,9 @@
                   </select>
                 </div>
                 <div class="cfg-field">
-                  <label class="cfg-label" for="mv-payment">Medio de pago <span class="cfg-hint">(opcional)</span></label>
+                  <label class="cfg-label" for="mv-payment">Medio de pago</label>
                   <select id="mv-payment" class="text-input" formControlName="paymentSource" (change)="onTypeOrSourceChange()">
-                    <option value="">Sin medio de pago</option>
+                    <option value="" disabled>Seleccioná un medio de pago</option>
                     @if (accounts().length > 0) {
                       <optgroup label="Cuentas bancarias">
                         @for (a of accounts(); track a.id) {
@@ -241,6 +241,14 @@
                     <span class="cfg-hint" [class.cfg-hint--error]="creditLimitError() !== null">
                       Disponible: {{ fmtAmount(availableCredit()!, selectedCardFace()!.ccy) }}
                     </span>
+                  }
+                  @if (selectedAccount() !== null) {
+                    <span class="cfg-hint" [class.cfg-hint--warning]="accountBalanceWarning() !== null">
+                      Disponible: {{ fmtAmount(selectedAccount()!.computedBalance ?? 0, selectedAccount()!.ccy) }}
+                    </span>
+                  }
+                  @if (paymentSourceError() && movementForm.controls.paymentSource.touched) {
+                    <span class="cfg-hint cfg-hint--error">{{ paymentSourceError() }}</span>
                   }
                 </div>
               </div>
@@ -311,6 +319,9 @@
 
             }
 
+            @if (accountBalanceWarning()) {
+              <p class="form-warning">{{ accountBalanceWarning() }}</p>
+            }
             @if (creditLimitError() || formError()) {
               <p class="form-error">{{ creditLimitError() ?? formError() }}</p>
             }

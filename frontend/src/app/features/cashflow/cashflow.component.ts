@@ -11,6 +11,7 @@ import { NgTemplateOutlet } from '@angular/common';
 import { Router } from '@angular/router';
 import { takeUntilDestroyed } from '@angular/core/rxjs-interop';
 import { EMPTY, Subject, catchError, forkJoin, of, switchMap } from 'rxjs';
+import { finalize } from 'rxjs/operators';
 import {
   LucideUtensils,
   LucideCar,
@@ -55,7 +56,13 @@ function fmtUSD(value: string | number): string {
 }
 
 function fmtBalance(balance: string, ccy: string): string {
-  return ccy === 'USD' ? fmtUSD(balance) : fmtARS(balance);
+  const n = parseFloat(balance);
+  const abs = Math.abs(n);
+  const sign = n < 0 ? '- ' : '';
+  if (ccy === 'USD') {
+    return `${sign}US$ ${abs.toLocaleString('es-AR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
+  }
+  return `${sign}$ ${abs.toLocaleString('es-AR', { minimumFractionDigits: 0, maximumFractionDigits: 2 })}`;
 }
 
 function fmtPct(value: string | number): string {
@@ -91,8 +98,9 @@ export class CashflowComponent implements OnInit {
   readonly month   = signal(new Date().getMonth() + 1);
   readonly data     = signal<CashflowResponse | null>(null);
   readonly prevData = signal<CashflowResponse | null>(null);
-  readonly loading  = signal(false);
-  readonly error    = signal<string | null>(null);
+  readonly loading            = signal(false);
+  readonly error              = signal<string | null>(null);
+  readonly periodActionLoading = signal(false);
 
   // ── Computed ──────────────────────────────────────────────────────────────
 
@@ -104,7 +112,8 @@ export class CashflowComponent implements OnInit {
   readonly canGoBack    = computed(() => this.monthsDiffFromNow() > -12);
   readonly canGoForward = computed(() => this.monthsDiffFromNow() < 3);
 
-  readonly isProjection = computed(() => this.data()?.isProjection ?? false);
+  readonly isProjection      = computed(() => this.data()?.isProjection ?? false);
+  readonly needsConfirmation = computed(() => this.data()?.needsConfirmation ?? false);
 
   readonly leadText = computed(() => {
     const d = this.data();
@@ -112,7 +121,8 @@ export class CashflowComponent implements OnInit {
     switch (d.status) {
       case 'cerrado':    return `Mes cerrado. Así se movió tu disponible en ${d.periodLabel}.`;
       case 'curso':      return 'Mes en curso. Ingresos contabilizados y gastos al día de hoy.';
-      case 'proyectado': return 'Proyección estimada con el promedio de tus meses cerrados. Solo lectura.';
+      case 'abierto':    return `Mes abierto. Podés registrar movimientos en ${d.periodLabel}.`;
+      case 'proyectado': return `Proyección estimada para ${d.periodLabel}. Podés registrar movimientos anticipados.`;
     }
   });
 
@@ -143,6 +153,14 @@ export class CashflowComponent implements OnInit {
   readonly budgetExecIncomeIsOver   = computed(() => this.budgetExecIncomePctValue() >= 100);
   readonly isOperativeResultPositive = computed(() =>
     parseFloat(this.data()?.preInvestmentBalance.operativeResult ?? '0') >= 0
+  );
+
+  readonly isOpeningNegative       = computed(() => parseFloat(this.data()?.openingBalance.total          ?? '0') < 0);
+  readonly isClosingNegative       = computed(() => parseFloat(this.data()?.closingBalance.total          ?? '0') < 0);
+  readonly isPreInvNegative        = computed(() => parseFloat(this.data()?.preInvestmentBalance.balance  ?? '0') < 0);
+  readonly isBalanceAfterIncomeNeg = computed(() => parseFloat(this.balanceAfterIncome()) < 0);
+  readonly closingBalanceLabel     = computed(() =>
+    this.isClosingNegative() ? 'Necesidad de liquidez' : 'Saldo final disponible'
   );
 
   readonly closingDelta = computed(() => {
@@ -216,13 +234,20 @@ export class CashflowComponent implements OnInit {
   }
 
   openCreateMovimiento(): void {
-    this.router.navigate(['/movimientos']);
+    if (this.isProjection()) {
+      this.router.navigate(['/movimientos'], {
+        queryParams: { year: this.year(), month: this.month() },
+      });
+    } else {
+      this.router.navigate(['/movimientos']);
+    }
   }
 
   // ── Formatting helpers (exposed to template) ──────────────────────────────
   fmtBalance(balance: string, ccy: string): string { return fmtBalance(balance, ccy); }
   fmtARS(value: string): string                    { return fmtARS(value); }
   fmtPct(value: string): string                    { return fmtPct(value); }
+  parseFloat(value: string): number                { return parseFloat(value); }
 
   /** Solo el número formateado, sin símbolo "$" (para stat-cards donde el $ va en span aparte). */
   fmtAmt(value: string): string {
@@ -300,5 +325,50 @@ export class CashflowComponent implements OnInit {
     // budgeted/total*100 = pctOfTotal * 100 / pctOfBudget
     const markerPct = Math.min((parseFloat(cat.pctOfTotal) * 100) / pb, 100);
     return `${markerPct}%`;
+  }
+
+  // ── Period lifecycle actions ───────────────────────────────────────────────
+
+  confirmProjection(): void {
+    this.periodActionLoading.set(true);
+    this.cashflowService.confirmProjection(this.year(), this.month())
+      .pipe(finalize(() => this.periodActionLoading.set(false)))
+      .subscribe({
+        next: (updated) => this.data.set(updated),
+        error: () => {},
+      });
+  }
+
+  closePeriod(): void {
+    const d = this.data();
+    if (!d) return;
+    const confirmed = confirm(
+      `¿Cerrar el mes de ${d.periodLabel}? No podrás registrar nuevos movimientos en él hasta reabrirlo.`
+    );
+    if (!confirmed) return;
+    this.periodActionLoading.set(true);
+    this.cashflowService.closePeriod(d.year, d.month)
+      .pipe(finalize(() => this.periodActionLoading.set(false)))
+      .subscribe({
+        next: (updated) => this.data.set(updated),
+        error: () => { /* loading se limpia en finalize */ },
+      });
+  }
+
+  openPeriod(): void {
+    const d = this.data();
+    if (!d) return;
+    const msg = d.recurringMaterialized
+      ? 'Este mes ya fue abierto anteriormente. Los movimientos recurrentes no se volverán a cargar. ¿Reabrir de todas formas?'
+      : `Al abrir ${d.periodLabel} se cargarán tus movimientos recurrentes automáticamente. ¿Continuar?`;
+    const confirmed = confirm(msg);
+    if (!confirmed) return;
+    this.periodActionLoading.set(true);
+    this.cashflowService.openPeriod(d.year, d.month)
+      .pipe(finalize(() => this.periodActionLoading.set(false)))
+      .subscribe({
+        next: (updated) => this.data.set(updated),
+        error: () => { },
+      });
   }
 }

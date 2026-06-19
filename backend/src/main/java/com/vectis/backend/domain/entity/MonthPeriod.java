@@ -3,42 +3,45 @@ package com.vectis.backend.domain.entity;
 import jakarta.persistence.*;
 import lombok.*;
 
-import java.math.BigDecimal;
-import java.time.LocalDate;
 import java.time.OffsetDateTime;
 import java.time.ZoneOffset;
 import java.util.UUID;
 
 @Entity
-@Table(name = "category_budgets")
+@Table(name = "month_periods")
 @Getter
 @Setter
 @NoArgsConstructor
 @AllArgsConstructor
 @Builder
-public class CategoryBudget {
+public class MonthPeriod {
 
     @Id
     @GeneratedValue(strategy = GenerationType.UUID)
     private UUID id;
 
     @ManyToOne(fetch = FetchType.LAZY)
-    @JoinColumn(name = "category_id", nullable = false)
-    private Category category;
-
-    @ManyToOne(fetch = FetchType.LAZY)
     @JoinColumn(name = "user_id", nullable = false)
     private User user;
 
-    @Column(nullable = false, precision = 19, scale = 4)
-    private BigDecimal amount;
+    @Column(nullable = false)
+    private int year;
 
-    @ManyToOne(fetch = FetchType.LAZY)
-    @JoinColumn(name = "account_id")
-    private Account account; // nullable
+    @Column(nullable = false)
+    private int month;
 
-    @Column(name = "valid_from", nullable = false)
-    private LocalDate validFrom;
+    /** "OPEN" or "CLOSED" */
+    @Column(nullable = false, length = 10)
+    private String status;
+
+    @Column(name = "opened_at", nullable = false)
+    private OffsetDateTime openedAt;
+
+    @Column(name = "closed_at")
+    private OffsetDateTime closedAt;
+
+    @Column(name = "recurring_materialized_at")
+    private OffsetDateTime recurringMaterializedAt;
 
     @Column(name = "created_at", nullable = false, updatable = false)
     private OffsetDateTime createdAt;
@@ -46,5 +49,11 @@ public class CategoryBudget {
     @PrePersist
     protected void onCreate() {
         createdAt = OffsetDateTime.now(ZoneOffset.UTC);
+        if (openedAt == null) {
+            openedAt = createdAt;
+        }
+        if (status == null) {
+            status = "OPEN";
+        }
     }
 }

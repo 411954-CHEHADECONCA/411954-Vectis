@@ -31,8 +31,10 @@ import java.math.BigDecimal;
 import java.time.LocalDate;
 import java.time.OffsetDateTime;
 import java.time.ZoneOffset;
+import java.time.format.TextStyle;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Locale;
 import java.util.UUID;
 
 @Service
@@ -46,6 +48,7 @@ public class TransactionService {
     private final CreditCardRepository creditCardRepository;
     private final TransactionMapper transactionMapper;
     private final InstallmentCalculator installmentCalculator;
+    private final MonthPeriodService monthPeriodService;
 
     @Transactional(readOnly = true)
     public PageResponse<MovementResponse> search(UUID userId, LocalDate from, LocalDate to,
@@ -82,6 +85,14 @@ public class TransactionService {
 
     public List<MovementResponse> create(MovementRequest request, User user) {
         validateSinglePaymentMethod(request.accountId(), request.cardId());
+
+        LocalDate refDate = request.transactionDate();
+        if (!monthPeriodService.isOpen(user.getId(), refDate.getYear(), refDate.getMonthValue())) {
+            String monthName = refDate.getMonth().getDisplayName(TextStyle.FULL, Locale.of("es"));
+            throw new VectisException(
+                    "El mes " + monthName + " " + refDate.getYear() + " está cerrado. Reabrilo para registrar movimientos.",
+                    HttpStatus.CONFLICT);
+        }
 
         Category category = resolveCategory(request.categoryId());
         Account account   = resolveAccount(request.accountId(), user);

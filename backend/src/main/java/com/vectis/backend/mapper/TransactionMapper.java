@@ -29,6 +29,7 @@ public class TransactionMapper {
                 .totalInstallments(t.getTotalInstallments())
                 .installmentGroupId(t.getInstallmentGroupId())
                 .createdAt(t.getCreatedAt())
+                .isProjected(t.isProjected())
                 .build();
     }
 }

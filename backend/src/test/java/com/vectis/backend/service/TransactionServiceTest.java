@@ -24,6 +24,8 @@ import org.mockito.ArgumentMatchers;
 import org.mockito.InjectMocks;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
+import org.mockito.junit.jupiter.MockitoSettings;
+import org.mockito.quality.Strictness;
 import org.springframework.data.domain.PageImpl;
 import org.springframework.data.domain.Pageable;
 import org.springframework.http.HttpStatus;
@@ -46,6 +48,7 @@ import static org.mockito.BDDMockito.given;
 import static org.mockito.Mockito.verify;
 
 @ExtendWith(MockitoExtension.class)
+@MockitoSettings(strictness = Strictness.LENIENT)
 @DisplayName("TransactionService")
 class TransactionServiceTest {
 
@@ -57,6 +60,7 @@ class TransactionServiceTest {
     @Mock private CreditCardRepository creditCardRepository;
     @Mock private TransactionMapper transactionMapper;
     @Mock private InstallmentCalculator installmentCalculator;
+    @Mock private MonthPeriodService monthPeriodService;
 
     private User user;
     private User otherUser;
@@ -71,6 +75,8 @@ class TransactionServiceTest {
         otherUser = User.builder()
                 .id(UUID.randomUUID()).email("other@vectis.com").fullName("Other").passwordHash("hash")
                 .build();
+        // By default, period is open (allow posting) for all create() tests
+        given(monthPeriodService.isOpen(any(UUID.class), anyInt(), anyInt())).willReturn(true);
     }
 
     // ─── create simple ────────────────────────────────────────────────────────
