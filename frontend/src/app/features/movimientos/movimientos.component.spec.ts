@@ -52,7 +52,7 @@ const MOCK_MOVEMENT: MovementResponse = {
   accountId: 'acc-1', accountName: 'Galicia', cardId: null, cardName: null,
   transactionDate: '2026-06-09', dueDate: '2026-06-09',
   installment: false, installmentNumber: null, totalInstallments: null,
-  installmentGroupId: null, isProjected: false, createdAt: '2026-06-09T00:00:00Z',
+  installmentGroupId: null, isProjected: false, paid: false, createdAt: '2026-06-09T00:00:00Z',
 };
 
 const MOCK_INSTALLMENT: MovementResponse = {

@@ -73,5 +73,8 @@ public record MovementResponse(
         OffsetDateTime createdAt,
 
         @Schema(description = "Indica si el movimiento fue materializado como proyección futura (no es un registro manual)", example = "false")
-        boolean isProjected
+        boolean isProjected,
+
+        @Schema(description = "Indica si la cuota de tarjeta fue incluida en un pago de liquidación registrado", example = "false")
+        boolean paid
 ) {}

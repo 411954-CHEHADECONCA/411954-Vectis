@@ -2,6 +2,7 @@ package com.vectis.backend.service;
 
 import com.vectis.backend.domain.entity.CreditCard;
 import com.vectis.backend.domain.entity.Transaction;
+import com.vectis.backend.domain.entity.TransactionType;
 import com.vectis.backend.domain.entity.User;
 import com.vectis.backend.dto.CardMatrixResponse;
 import com.vectis.backend.dto.CardOverviewResponse;
@@ -96,7 +97,7 @@ class CardProjectionServiceTest {
                 single("5000", YearMonth.now().atDay(20), "Snack"),
                 single("99999", YearMonth.now().plusMonths(8).atDay(10), "Fuera de ventana"));
 
-        given(transactionRepository.findCardDebt(eq(userId), any())).willReturn(debt);
+        given(transactionRepository.findCardTransactionsFromDate(eq(userId), any())).willReturn(debt);
 
         CardMatrixResponse mx = service.matrix(userId, 6);
 
@@ -128,7 +129,7 @@ class CardProjectionServiceTest {
 
     private Transaction installment(UUID group, int number, int total, String amount, LocalDate due, String base) {
         return Transaction.builder()
-                .id(UUID.randomUUID()).user(user).type("EXPENSE")
+                .id(UUID.randomUUID()).user(user).type(TransactionType.EXPENSE)
                 .description(base + " — cuota " + number + "/" + total)
                 .amount(new BigDecimal(amount)).ccy("ARS").card(card)
                 .transactionDate(due).dueDate(due)
@@ -138,7 +139,7 @@ class CardProjectionServiceTest {
 
     private Transaction single(String amount, LocalDate due, String desc) {
         return Transaction.builder()
-                .id(UUID.randomUUID()).user(user).type("EXPENSE")
+                .id(UUID.randomUUID()).user(user).type(TransactionType.EXPENSE)
                 .description(desc).amount(new BigDecimal(amount)).ccy("ARS").card(card)
                 .transactionDate(due).dueDate(due).installment(false)
                 .createdAt(OffsetDateTime.now()).build();

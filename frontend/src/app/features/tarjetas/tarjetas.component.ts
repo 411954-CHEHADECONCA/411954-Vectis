@@ -7,6 +7,7 @@ import {
   OnInit,
 } from '@angular/core';
 import { NgTemplateOutlet } from '@angular/common';
+import { ReactiveFormsModule, FormGroup, FormArray, FormControl, Validators } from '@angular/forms';
 import { Router } from '@angular/router';
 import {
   LucidePlus,
@@ -31,12 +32,25 @@ import {
   LucideArrowRightLeft,
   LucideDumbbell,
   LucideCircle,
+  LucideX,
+  LucideTrash2,
 } from '@lucide/angular';
 import { CardProjectionService } from '../../core/services/card-projection.service';
+import { CreditCardService } from '../../core/services/credit-card.service';
+import { AccountService } from '../../core/services/account.service';
 import { CurrencyService } from '../../core/services/currency.service';
-import { CardMatrix, CardOverview } from '../../core/models/card-projection.models';
+import { CardDue, CardMatrix, CardOverview } from '../../core/models/card-projection.models';
+import { AccountResponse } from '../../core/models/account.models';
+import { CardPaymentHistory, CardPaymentRequest, ExtraChargeItem } from '../../core/models/card-payment.models';
 
-type CardTab = 'cuotas' | 'venc' | 'matriz';
+type CardTab = 'cuotas' | 'venc' | 'matriz' | 'pagos';
+
+interface PayModalState {
+  cardId: string;
+  cardName: string;
+  periodYear: number;
+  periodMonth: number;
+}
 
 @Component({
   selector: 'app-tarjetas',
@@ -46,28 +60,58 @@ type CardTab = 'cuotas' | 'venc' | 'matriz';
   changeDetection: ChangeDetectionStrategy.OnPush,
   imports: [
     NgTemplateOutlet,
+    ReactiveFormsModule,
     LucidePlus, LucideClock, LucideCreditCard, LucideCalendar,
     LucideChevronDown, LucideChevronRight, LucideRefreshCw,
     LucideUtensils, LucideCar, LucideZap, LucideRepeat, LucideMusic,
     LucideHeart, LucideBook, LucideShirt, LucideHome, LucideBriefcase,
     LucideMonitor, LucideTrendingUp, LucideArrowRightLeft, LucideDumbbell, LucideCircle,
+    LucideX, LucideTrash2,
   ],
 })
 export class TarjetasComponent implements OnInit {
-  private readonly cardService = inject(CardProjectionService);
-  private readonly router      = inject(Router);
-  readonly currencyService     = inject(CurrencyService);
+  private readonly cardService        = inject(CardProjectionService);
+  private readonly creditCardService  = inject(CreditCardService);
+  private readonly accountService     = inject(AccountService);
+  private readonly router             = inject(Router);
+  readonly currencyService            = inject(CurrencyService);
 
   overview = signal<CardOverview | null>(null);
   matrix   = signal<CardMatrix | null>(null);
   loading  = signal(false);
   error    = signal<string | null>(null);
 
-  activeTab = signal<CardTab>('cuotas');
-  months    = signal(6);
-  expanded  = signal<Set<string>>(new Set());
+  activeTab        = signal<CardTab>('cuotas');
+  months           = signal(6);
+  expanded         = signal<Set<string>>(new Set());
+  payments         = signal<CardPaymentHistory[]>([]);
+  expandedPayments = signal<Set<string>>(new Set());
+  paymentsLoading  = signal(false);
+
+  // ── Payment modal ────────────────────────────────────────────────────────
+  payModal      = signal<PayModalState | null>(null);
+  paySubmitting = signal(false);
+  payError      = signal<string | null>(null);
+  accounts      = signal<AccountResponse[]>([]);
+
+  payForm = new FormGroup({
+    accountId:         new FormControl('', { nonNullable: true, validators: [Validators.required] }),
+    paidDate:          new FormControl(this.todayISO(), { nonNullable: true, validators: [Validators.required] }),
+    paidAmount:        new FormControl<number>(0, { nonNullable: true, validators: [Validators.required, Validators.min(0.01)] }),
+    paymentCategoryId: new FormControl<string | null>(null),
+    extraCharges:      new FormArray<FormGroup>([]),
+  });
+
+  get extraChargesArray(): FormArray<FormGroup> {
+    return this.payForm.get('extraCharges') as FormArray<FormGroup>;
+  }
 
   readonly monthOptions = [6, 12, 18];
+
+  /** Índice del primer vencimiento no vencido (daysUntil >= 0); -1 si todos son pasados. */
+  firstUpcomingIdx = computed(() =>
+    (this.overview()?.vencimientos ?? []).findIndex(v => this.daysUntil(v.dueDate) >= 0)
+  );
 
   /** Suma de todos los vencimientos que caen en el mismo mes que el próximo vencimiento. */
   nextMonthTotal = computed(() => {
@@ -110,9 +154,35 @@ export class TarjetasComponent implements OnInit {
   reload(): void {
     this.loadOverview();
     this.loadMatrix();
+    this.payments.set([]); // fuerza recarga lazy cuando se vuelva a la pestaña
   }
 
-  setTab(tab: CardTab): void { this.activeTab.set(tab); }
+  setTab(tab: CardTab): void {
+    this.activeTab.set(tab);
+    if (tab === 'pagos' && this.payments().length === 0) {
+      this.loadPayments();
+    }
+  }
+
+  private loadPayments(): void {
+    this.paymentsLoading.set(true);
+    this.creditCardService.getCardPayments().subscribe({
+      next: p => { this.payments.set(p); this.paymentsLoading.set(false); },
+      error: () => { this.paymentsLoading.set(false); },
+    });
+  }
+
+  togglePayment(id: string): void {
+    this.expandedPayments.update(set => {
+      const next = new Set(set);
+      next.has(id) ? next.delete(id) : next.add(id);
+      return next;
+    });
+  }
+
+  isPaymentExpanded(id: string): boolean {
+    return this.expandedPayments().has(id);
+  }
 
   goToAddCard(): void {
     this.router.navigate(['/config'], { queryParams: { tab: 'tarjetas', modal: 'create-card' } });
@@ -176,6 +246,13 @@ export class TarjetasComponent implements OnInit {
     return `radial-gradient(circle at 100% 0%, color-mix(in srgb, ${accent} 22%, transparent) 0%, var(--color-surface-container-high) 55%)`;
   }
 
+  fmtDaysUntil(iso: string): string {
+    const d = this.daysUntil(iso);
+    if (d < 0)  return `hace ${-d} día${-d === 1 ? '' : 's'}`;
+    if (d === 0) return 'hoy';
+    return `en ${d} día${d === 1 ? '' : 's'}`;
+  }
+
   /** Días hasta una fecha ISO (para "en N días"). */
   daysUntil(iso: string): number {
     const [y, m, d] = iso.split('-').map(Number);
@@ -183,5 +260,82 @@ export class TarjetasComponent implements OnInit {
     const today = new Date();
     today.setHours(0, 0, 0, 0);
     return Math.round((target.getTime() - today.getTime()) / 86400000);
+  }
+
+  // ── Payment modal ────────────────────────────────────────────────────────
+
+  openPayModal(due: CardDue): void {
+    const [y, m] = due.dueDate.split('-').map(Number);
+    this.payModal.set({ cardId: due.cardId, cardName: due.cardName, periodYear: y, periodMonth: m });
+    while (this.extraChargesArray.length) { this.extraChargesArray.removeAt(0); }
+    this.payForm.patchValue({ paidDate: this.todayISO(), paidAmount: due.amount, accountId: '', paymentCategoryId: null });
+    this.payError.set(null);
+    if (!this.accounts().length) {
+      this.accountService.getAccounts().subscribe({ next: accs => this.accounts.set(accs) });
+    }
+  }
+
+  closePayModal(): void {
+    this.payModal.set(null);
+    this.payError.set(null);
+    while (this.extraChargesArray.length) { this.extraChargesArray.removeAt(0); }
+    this.payForm.reset();
+  }
+
+  addExtraCharge(): void {
+    this.extraChargesArray.push(new FormGroup({
+      description: new FormControl('', { nonNullable: true, validators: [Validators.required] }),
+      amount:      new FormControl<number>(0, { nonNullable: true, validators: [Validators.required, Validators.min(0.01)] }),
+      categoryId:  new FormControl<string | null>(null),
+    }));
+  }
+
+  removeExtraCharge(i: number): void {
+    this.extraChargesArray.removeAt(i);
+  }
+
+  submitPayment(): void {
+    const modal = this.payModal();
+    if (!modal || this.payForm.invalid) return;
+
+    const extras: ExtraChargeItem[] = this.extraChargesArray.controls.map(ctrl => ({
+      description: ctrl.get('description')!.value as string,
+      amount:      ctrl.get('amount')!.value as number,
+      categoryId:  (ctrl.get('categoryId')!.value as string | null) ?? null,
+    }));
+
+    const req: CardPaymentRequest = {
+      accountId:         this.payForm.controls.accountId.value,
+      paidDate:          this.payForm.controls.paidDate.value,
+      paidAmount:        this.payForm.controls.paidAmount.value,
+      periodYear:        modal.periodYear,
+      periodMonth:       modal.periodMonth,
+      paymentCategoryId: this.payForm.controls.paymentCategoryId.value,
+      extraCharges:      extras,
+    };
+
+    this.paySubmitting.set(true);
+    this.payError.set(null);
+
+    this.creditCardService.payCard(modal.cardId, req).subscribe({
+      next: () => {
+        this.paySubmitting.set(false);
+        this.closePayModal();
+        this.reload();
+      },
+      error: (err) => {
+        this.paySubmitting.set(false);
+        this.payError.set(err?.error?.message ?? 'No se pudo registrar el pago. Intentá de nuevo.');
+      },
+    });
+  }
+
+  fmtPeriod(year: number, month: number): string {
+    const mon = new Date(year, month - 1, 1).toLocaleDateString('es-AR', { month: 'long' });
+    return `${mon.charAt(0).toUpperCase()}${mon.slice(1)} ${year}`;
+  }
+
+  private todayISO(): string {
+    return new Date().toISOString().split('T')[0];
   }
 }

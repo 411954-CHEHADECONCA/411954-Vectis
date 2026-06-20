@@ -2,6 +2,7 @@ package com.vectis.backend.service;
 
 import com.vectis.backend.domain.entity.CreditCard;
 import com.vectis.backend.domain.entity.Transaction;
+import com.vectis.backend.domain.entity.TransactionType;
 import com.vectis.backend.domain.entity.User;
 import com.vectis.backend.dto.GroupMovementUpdateRequest;
 import com.vectis.backend.dto.MovementRequest;
@@ -320,9 +321,9 @@ class TransactionServiceTest {
     @Test
     @DisplayName("summary calcula ingresos, egresos y neto del período")
     void summary_computesNet() {
-        given(transactionRepository.sumByType(eq(userId), eq("INCOME"), any(), any(), any(), any()))
+        given(transactionRepository.sumByType(eq(userId), eq(TransactionType.INCOME), any(), any(), any(), any()))
                 .willReturn(new BigDecimal("1000"));
-        given(transactionRepository.sumByType(eq(userId), eq("EXPENSE"), any(), any(), any(), any()))
+        given(transactionRepository.sumByType(eq(userId), eq(TransactionType.EXPENSE), any(), any(), any(), any()))
                 .willReturn(new BigDecimal("400"));
         given(transactionRepository.countFiltered(eq(userId), any(), any(), isNull(), any(), any()))
                 .willReturn(5L);
@@ -364,13 +365,13 @@ class TransactionServiceTest {
     void updateGroup_updatesAllRows() {
         UUID groupId = UUID.randomUUID();
         Transaction t1 = Transaction.builder()
-                .id(UUID.randomUUID()).user(user).type("EXPENSE")
+                .id(UUID.randomUUID()).user(user).type(TransactionType.EXPENSE)
                 .description("Notebook — cuota 1/3").amount(new BigDecimal("20000")).ccy("ARS")
                 .installment(true).installmentNumber(1).totalInstallments(3).installmentGroupId(groupId)
                 .transactionDate(LocalDate.of(2026, 6, 1)).dueDate(LocalDate.of(2026, 7, 15))
                 .createdAt(OffsetDateTime.now()).build();
         Transaction t2 = Transaction.builder()
-                .id(UUID.randomUUID()).user(user).type("EXPENSE")
+                .id(UUID.randomUUID()).user(user).type(TransactionType.EXPENSE)
                 .description("Notebook — cuota 2/3").amount(new BigDecimal("20000")).ccy("ARS")
                 .installment(true).installmentNumber(2).totalInstallments(3).installmentGroupId(groupId)
                 .transactionDate(LocalDate.of(2026, 6, 1)).dueDate(LocalDate.of(2026, 8, 15))
@@ -409,7 +410,7 @@ class TransactionServiceTest {
     void updateGroup_wrongOwner_throws403() {
         UUID groupId = UUID.randomUUID();
         Transaction t1 = Transaction.builder()
-                .id(UUID.randomUUID()).user(otherUser).type("EXPENSE")
+                .id(UUID.randomUUID()).user(otherUser).type(TransactionType.EXPENSE)
                 .description("X — cuota 1/2").amount(new BigDecimal("1000")).ccy("ARS")
                 .installment(true).installmentNumber(1).totalInstallments(2).installmentGroupId(groupId)
                 .transactionDate(LocalDate.now()).dueDate(LocalDate.now())
@@ -431,7 +432,7 @@ class TransactionServiceTest {
 
     private Transaction simpleTx(User owner) {
         return Transaction.builder()
-                .id(UUID.randomUUID()).user(owner).type("EXPENSE").description("Coto")
+                .id(UUID.randomUUID()).user(owner).type(TransactionType.EXPENSE).description("Coto")
                 .amount(new BigDecimal("1000")).ccy("ARS")
                 .transactionDate(LocalDate.of(2026, 6, 10)).dueDate(LocalDate.of(2026, 6, 10))
                 .installment(false).createdAt(OffsetDateTime.now())

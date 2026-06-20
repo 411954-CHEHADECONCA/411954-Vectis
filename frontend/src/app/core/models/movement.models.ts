@@ -22,6 +22,7 @@ export interface MovementResponse {
   totalInstallments: number | null;
   installmentGroupId: string | null;
   isProjected: boolean;
+  paid: boolean;
   createdAt: string;
 }
 

@@ -3,11 +3,16 @@ package com.vectis.backend.controller;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.vectis.backend.config.SecurityConfig;
 import com.vectis.backend.domain.entity.User;
+import com.vectis.backend.dto.CardPaymentHistoryResponse;
+import com.vectis.backend.dto.CardPaymentRequest;
+import com.vectis.backend.dto.CardPaymentResponse;
 import com.vectis.backend.dto.CardRequest;
 import com.vectis.backend.dto.CardResponse;
+import com.vectis.backend.exception.AccountNotFoundException;
 import com.vectis.backend.exception.CreditCardNotFoundException;
 import com.vectis.backend.exception.VectisException;
 import com.vectis.backend.repository.UserRepository;
+import com.vectis.backend.service.CardPaymentService;
 import com.vectis.backend.service.CreditCardService;
 import com.vectis.backend.service.JwtService;
 import org.junit.jupiter.api.BeforeEach;
@@ -24,6 +29,7 @@ import org.springframework.test.context.ActiveProfiles;
 import org.springframework.test.web.servlet.MockMvc;
 
 import java.math.BigDecimal;
+import java.time.LocalDate;
 import java.time.OffsetDateTime;
 import java.util.List;
 import java.util.Optional;
@@ -47,6 +53,7 @@ class CreditCardControllerTest {
     @Autowired private ObjectMapper objectMapper;
 
     @MockBean private CreditCardService creditCardService;
+    @MockBean private CardPaymentService cardPaymentService;
     @MockBean private JwtService jwtService;
     @MockBean private UserRepository userRepository;
 
@@ -226,7 +233,162 @@ class CreditCardControllerTest {
                 .andExpect(status().isNotFound());
     }
 
+    // ─── POST /api/cards/{cardId}/payments ────────────────────────────────────
+
+    @Test
+    @DisplayName("POST /api/cards/{id}/payments sin token retorna 401")
+    void payCard_withoutToken_returns401() throws Exception {
+        mockMvc.perform(post("/api/cards/" + UUID.randomUUID() + "/payments")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(objectMapper.writeValueAsString(buildPaymentRequest(UUID.randomUUID()))))
+                .andExpect(status().isUnauthorized());
+    }
+
+    @Test
+    @DisplayName("POST /api/cards/{id}/payments con body válido retorna 201 y CardPaymentResponse")
+    void payCard_validRequest_returns201() throws Exception {
+        UUID cardId   = UUID.randomUUID();
+        UUID accountId = UUID.randomUUID();
+        CardPaymentResponse response = new CardPaymentResponse(3, UUID.randomUUID(), 0);
+
+        given(cardPaymentService.pay(eq(cardId), any(CardPaymentRequest.class), any(User.class)))
+                .willReturn(response);
+
+        mockMvc.perform(post("/api/cards/" + cardId + "/payments")
+                        .header(HttpHeaders.AUTHORIZATION, AUTH_HEADER)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(objectMapper.writeValueAsString(buildPaymentRequest(accountId))))
+                .andExpect(status().isCreated())
+                .andExpect(jsonPath("$.cuotasMarcadas").value(3))
+                .andExpect(jsonPath("$.extraChargesCreated").value(0));
+    }
+
+    @Test
+    @DisplayName("POST /api/cards/{id}/payments sin accountId retorna 400")
+    void payCard_missingAccountId_returns400() throws Exception {
+        String body = """
+            {"paidDate":"2026-07-25","paidAmount":80000,"periodYear":2026,"periodMonth":7}
+            """;
+
+        mockMvc.perform(post("/api/cards/" + UUID.randomUUID() + "/payments")
+                        .header(HttpHeaders.AUTHORIZATION, AUTH_HEADER)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(body))
+                .andExpect(status().isBadRequest());
+    }
+
+    @Test
+    @DisplayName("POST /api/cards/{id}/payments con periodMonth=0 retorna 400")
+    void payCard_periodMonthZero_returns400() throws Exception {
+        UUID accountId = UUID.randomUUID();
+        String body = String.format("""
+            {"accountId":"%s","paidDate":"2026-07-25","paidAmount":80000,"periodYear":2026,"periodMonth":0}
+            """, accountId);
+
+        mockMvc.perform(post("/api/cards/" + UUID.randomUUID() + "/payments")
+                        .header(HttpHeaders.AUTHORIZATION, AUTH_HEADER)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(body))
+                .andExpect(status().isBadRequest());
+    }
+
+    @Test
+    @DisplayName("POST /api/cards/{id}/payments sin cuotas pendientes retorna 409")
+    void payCard_noUnpaidCuotas_returns409() throws Exception {
+        UUID cardId    = UUID.randomUUID();
+        UUID accountId = UUID.randomUUID();
+
+        given(cardPaymentService.pay(eq(cardId), any(CardPaymentRequest.class), any(User.class)))
+                .willThrow(new VectisException("No hay cuotas pendientes", HttpStatus.CONFLICT));
+
+        mockMvc.perform(post("/api/cards/" + cardId + "/payments")
+                        .header(HttpHeaders.AUTHORIZATION, AUTH_HEADER)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(objectMapper.writeValueAsString(buildPaymentRequest(accountId))))
+                .andExpect(status().isConflict())
+                .andExpect(jsonPath("$.message").exists());
+    }
+
+    @Test
+    @DisplayName("POST /api/cards/{id}/payments tarjeta de otro usuario retorna 403")
+    void payCard_otherUserCard_returns403() throws Exception {
+        UUID cardId    = UUID.randomUUID();
+        UUID accountId = UUID.randomUUID();
+
+        given(cardPaymentService.pay(eq(cardId), any(CardPaymentRequest.class), any(User.class)))
+                .willThrow(new VectisException("No permitido", HttpStatus.FORBIDDEN));
+
+        mockMvc.perform(post("/api/cards/" + cardId + "/payments")
+                        .header(HttpHeaders.AUTHORIZATION, AUTH_HEADER)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(objectMapper.writeValueAsString(buildPaymentRequest(accountId))))
+                .andExpect(status().isForbidden())
+                .andExpect(jsonPath("$.message").exists());
+    }
+
+    @Test
+    @DisplayName("POST /api/cards/{id}/payments tarjeta inexistente retorna 404")
+    void payCard_cardNotFound_returns404() throws Exception {
+        UUID cardId    = UUID.randomUUID();
+        UUID accountId = UUID.randomUUID();
+
+        given(cardPaymentService.pay(eq(cardId), any(CardPaymentRequest.class), any(User.class)))
+                .willThrow(new CreditCardNotFoundException(cardId));
+
+        mockMvc.perform(post("/api/cards/" + cardId + "/payments")
+                        .header(HttpHeaders.AUTHORIZATION, AUTH_HEADER)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(objectMapper.writeValueAsString(buildPaymentRequest(accountId))))
+                .andExpect(status().isNotFound());
+    }
+
+    @Test
+    @DisplayName("POST /api/cards/{id}/payments cuenta inexistente retorna 404")
+    void payCard_accountNotFound_returns404() throws Exception {
+        UUID cardId    = UUID.randomUUID();
+        UUID accountId = UUID.randomUUID();
+
+        given(cardPaymentService.pay(eq(cardId), any(CardPaymentRequest.class), any(User.class)))
+                .willThrow(new AccountNotFoundException(accountId));
+
+        mockMvc.perform(post("/api/cards/" + cardId + "/payments")
+                        .header(HttpHeaders.AUTHORIZATION, AUTH_HEADER)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(objectMapper.writeValueAsString(buildPaymentRequest(accountId))))
+                .andExpect(status().isNotFound());
+    }
+
+    // ─── GET /api/cards/payments ──────────────────────────────────────────────
+
+    @Test
+    @DisplayName("GET /api/cards/payments sin token retorna 401")
+    void getPaymentHistory_withoutToken_returns401() throws Exception {
+        mockMvc.perform(get("/api/cards/payments"))
+                .andExpect(status().isUnauthorized());
+    }
+
+    @Test
+    @DisplayName("GET /api/cards/payments con token retorna 200 y la lista")
+    void getPaymentHistory_withToken_returns200WithList() throws Exception {
+        CardPaymentHistoryResponse response = buildPaymentHistoryResponse();
+        given(cardPaymentService.getPaymentHistory(userId)).willReturn(List.of(response));
+
+        mockMvc.perform(get("/api/cards/payments")
+                        .header(HttpHeaders.AUTHORIZATION, AUTH_HEADER))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$[0].cardName").value("Galicia ····1234"))
+                .andExpect(jsonPath("$[0].periodYear").value(2026))
+                .andExpect(jsonPath("$[0].cuotas").isArray());
+    }
+
     // ─── Helpers ──────────────────────────────────────────────────────────────
+
+    private CardPaymentRequest buildPaymentRequest(UUID accountId) {
+        return new CardPaymentRequest(
+                accountId, LocalDate.of(2026, 7, 25),
+                new BigDecimal("82700.00"), 2026, 7, null, List.of()
+        );
+    }
 
     private CardRequest buildRequest() {
         return new CardRequest("Galicia", "Visa", "1234", "ARS",
@@ -237,5 +399,20 @@ class CreditCardControllerTest {
         return new CardResponse(id, "Galicia", "Visa", "1234", "ARS",
                 new BigDecimal("500000.0000"), 15, 5, "#52eacd",
                 OffsetDateTime.now(), OffsetDateTime.now());
+    }
+
+    private CardPaymentHistoryResponse buildPaymentHistoryResponse() {
+        return CardPaymentHistoryResponse.builder()
+                .paymentTransactionId(UUID.randomUUID())
+                .cardId(UUID.randomUUID())
+                .cardName("Galicia ····1234")
+                .periodYear(2026)
+                .periodMonth(7)
+                .paidDate(LocalDate.of(2026, 7, 25))
+                .paidAmount(new BigDecimal("82700.00"))
+                .ccy("ARS")
+                .cuotas(List.of())
+                .extraCharges(List.of())
+                .build();
     }
 }

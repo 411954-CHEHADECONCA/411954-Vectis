@@ -1,9 +1,13 @@
 package com.vectis.backend.controller;
 
 import com.vectis.backend.domain.entity.User;
+import com.vectis.backend.dto.CardPaymentHistoryResponse;
+import com.vectis.backend.dto.CardPaymentRequest;
+import com.vectis.backend.dto.CardPaymentResponse;
 import com.vectis.backend.dto.CardRequest;
 import com.vectis.backend.dto.CardResponse;
 import com.vectis.backend.exception.GlobalExceptionHandler.ErrorResponse;
+import com.vectis.backend.service.CardPaymentService;
 import com.vectis.backend.service.CreditCardService;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.media.Content;
@@ -29,6 +33,7 @@ import java.util.UUID;
 public class CreditCardController {
 
     private final CreditCardService creditCardService;
+    private final CardPaymentService cardPaymentService;
 
     @GetMapping
     @Operation(summary = "Listar tarjetas del usuario autenticado")
@@ -75,6 +80,40 @@ public class CreditCardController {
             @Valid @RequestBody CardRequest request,
             @AuthenticationPrincipal User user) {
         return creditCardService.updateCard(id, request, user);
+    }
+
+    @PostMapping("/{cardId}/payments")
+    @ResponseStatus(HttpStatus.CREATED)
+    @Operation(summary = "Registrar el pago de una liquidación de tarjeta de crédito")
+    @ApiResponses({
+        @ApiResponse(responseCode = "201", description = "Pago registrado correctamente"),
+        @ApiResponse(responseCode = "400", description = "Datos de entrada inválidos",
+            content = @Content(schema = @Schema(implementation = ErrorResponse.class))),
+        @ApiResponse(responseCode = "401", description = "Token JWT ausente o inválido",
+            content = @Content(schema = @Schema(implementation = ErrorResponse.class))),
+        @ApiResponse(responseCode = "403", description = "Tarjeta o cuenta de otro usuario",
+            content = @Content(schema = @Schema(implementation = ErrorResponse.class))),
+        @ApiResponse(responseCode = "404", description = "Tarjeta o cuenta no encontrada",
+            content = @Content(schema = @Schema(implementation = ErrorResponse.class))),
+        @ApiResponse(responseCode = "409", description = "No hay cuotas pendientes para el período indicado",
+            content = @Content(schema = @Schema(implementation = ErrorResponse.class)))
+    })
+    public CardPaymentResponse payCard(
+            @PathVariable UUID cardId,
+            @Valid @RequestBody CardPaymentRequest request,
+            @AuthenticationPrincipal User user) {
+        return cardPaymentService.pay(cardId, request, user);
+    }
+
+    @GetMapping("/payments")
+    @Operation(summary = "Obtener el historial de pagos de liquidaciones de tarjetas")
+    @ApiResponses({
+        @ApiResponse(responseCode = "200", description = "Historial de pagos del usuario"),
+        @ApiResponse(responseCode = "401", description = "Token JWT ausente o inválido",
+            content = @Content(schema = @Schema(implementation = ErrorResponse.class)))
+    })
+    public List<CardPaymentHistoryResponse> getPaymentHistory(@AuthenticationPrincipal User user) {
+        return cardPaymentService.getPaymentHistory(user.getId());
     }
 
     @DeleteMapping("/{id}")

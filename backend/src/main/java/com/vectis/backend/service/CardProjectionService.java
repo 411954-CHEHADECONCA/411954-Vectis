@@ -136,7 +136,7 @@ public class CardProjectionService {
             headers.add(ym.toString()); // "YYYY-MM"; el frontend lo formatea
         }
 
-        List<Transaction> debt = transactionRepository.findCardDebt(userId, firstMonth.atDay(1));
+        List<Transaction> debt = transactionRepository.findCardTransactionsFromDate(userId, firstMonth.atDay(1));
         Map<UUID, List<Transaction>> byCard = groupBy(debt, t -> t.getCard().getId());
 
         List<CardMatrixCard> cards = new ArrayList<>();
@@ -157,6 +157,7 @@ public class CardProjectionService {
 
             for (List<Transaction> rows : byConsumo.values()) {
                 BigDecimal[] cells = new BigDecimal[months];
+                Boolean[] paidByMonth = new Boolean[months];
                 boolean hasCell = false;
                 for (Transaction t : rows) {
                     int idx = window.indexOf(YearMonth.from(t.getDueDate()));
@@ -164,6 +165,7 @@ public class CardProjectionService {
                         cells[idx] = cells[idx] == null ? t.getAmount() : cells[idx].add(t.getAmount());
                         subtotals[idx] = subtotals[idx].add(t.getAmount());
                         totals[idx]    = totals[idx].add(t.getAmount());
+                        paidByMonth[idx] = paidByMonth[idx] == null ? t.isPaid() : paidByMonth[idx] && t.isPaid();
                         hasCell = true;
                     }
                 }
@@ -182,6 +184,7 @@ public class CardProjectionService {
                         .categoryIcon(ref.getCategory() != null ? ref.getCategory().getIcon() : null)
                         .categoryColor(ref.getCategory() != null ? ref.getCategory().getColor() : null)
                         .cellsByMonth(toList(cells))
+                        .paidByMonth(toListBoolean(paidByMonth))
                         .build());
             }
 
@@ -229,6 +232,12 @@ public class CardProjectionService {
     private List<BigDecimal> toList(BigDecimal[] arr) {
         List<BigDecimal> list = new ArrayList<>(arr.length);
         for (BigDecimal v : arr) list.add(v);
+        return list;
+    }
+
+    private List<Boolean> toListBoolean(Boolean[] arr) {
+        List<Boolean> list = new ArrayList<>(arr.length);
+        for (Boolean v : arr) list.add(v);
         return list;
     }
 

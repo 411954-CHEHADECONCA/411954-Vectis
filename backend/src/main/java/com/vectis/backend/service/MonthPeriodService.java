@@ -5,6 +5,7 @@ import com.vectis.backend.domain.entity.CategoryType;
 import com.vectis.backend.domain.entity.MonthPeriod;
 import com.vectis.backend.domain.entity.RecurringMovement;
 import com.vectis.backend.domain.entity.Transaction;
+import com.vectis.backend.domain.entity.TransactionType;
 import com.vectis.backend.domain.entity.User;
 import com.vectis.backend.repository.CategoryBudgetRepository;
 import com.vectis.backend.repository.MonthPeriodRepository;
@@ -300,7 +301,7 @@ public class MonthPeriodService {
 
             Transaction tx = Transaction.builder()
                     .user(user)
-                    .type(rm.getType())
+                    .type(TransactionType.valueOf(rm.getType()))
                     .description(rm.getDescription())
                     .amount(rm.getAmount())
                     .ccy(rm.getCcy())
@@ -348,7 +349,7 @@ public class MonthPeriodService {
 
             Transaction tx = Transaction.builder()
                     .user(user)
-                    .type(rm.getType())
+                    .type(TransactionType.valueOf(rm.getType()))
                     .description(rm.getDescription())
                     .amount(rm.getAmount().abs())
                     .ccy(rm.getCcy())
@@ -373,7 +374,8 @@ public class MonthPeriodService {
             UUID catId = cb.getCategory().getId();
             if (coveredCategoryIds.contains(catId)) continue;
 
-            String type = cb.getCategory().getType() == CategoryType.INCOME ? "INCOME" : "EXPENSE";
+            TransactionType type = cb.getCategory().getType() == CategoryType.INCOME
+                    ? TransactionType.INCOME : TransactionType.EXPENSE;
 
             Transaction tx = Transaction.builder()
                     .user(user)

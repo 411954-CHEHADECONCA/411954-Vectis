@@ -1,11 +1,14 @@
 package com.vectis.backend.repository;
 
 import com.vectis.backend.domain.entity.Transaction;
+import com.vectis.backend.domain.entity.TransactionType;
 import com.vectis.backend.domain.entity.User;
+import jakarta.persistence.LockModeType;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.Pageable;
 import org.springframework.data.jpa.repository.EntityGraph;
 import org.springframework.data.jpa.repository.JpaRepository;
+import org.springframework.data.jpa.repository.Lock;
 import org.springframework.data.jpa.repository.Query;
 import org.springframework.data.repository.query.Param;
 
@@ -34,7 +37,7 @@ public interface TransactionRepository extends JpaRepository<Transaction, UUID> 
 
     /**
      * Suma de montos agrupada por categoría para un tipo (INCOME/EXPENSE) y período.
-     * Criterio de fecha idéntico al de {@link #search}: cuotas por dueDate, pagos únicos por transactionDate.
+     * Criterio de fecha idéntico al de {@link #search}: tarjeta por dueDate, cuenta por transactionDate.
      */
     @Query("""
         SELECT t.category.id     AS categoryId,
@@ -44,13 +47,13 @@ public interface TransactionRepository extends JpaRepository<Transaction, UUID> 
                SUM(t.amount)     AS totalAmount
         FROM Transaction t
         WHERE t.user.id = :userId AND t.deletedAt IS NULL AND t.type = :type
-          AND ((t.installment = true  AND t.dueDate         BETWEEN :from AND :to)
-            OR (t.installment = false AND t.transactionDate BETWEEN :from AND :to))
+          AND ((t.card IS NOT NULL AND t.paid = FALSE AND t.dueDate         BETWEEN :from AND :to)
+            OR (t.card IS NULL                        AND t.transactionDate BETWEEN :from AND :to))
         GROUP BY t.category.id, t.category.name, t.category.icon, t.category.color
         ORDER BY SUM(t.amount) DESC
         """)
     List<CategorySummaryProjection> groupByCategory(@Param("userId") UUID userId,
-                                                    @Param("type") String type,
+                                                    @Param("type") TransactionType type,
                                                     @Param("from") LocalDate from,
                                                     @Param("to") LocalDate to);
 
@@ -71,6 +74,7 @@ public interface TransactionRepository extends JpaRepository<Transaction, UUID> 
         SELECT t FROM Transaction t
         WHERE t.user.id = :userId AND t.deletedAt IS NULL
           AND t.card IS NOT NULL
+          AND t.paid = FALSE
           AND t.dueDate >= :fromDate
         ORDER BY t.card.id, t.installmentGroupId, t.installmentNumber, t.dueDate
         """)
@@ -78,25 +82,33 @@ public interface TransactionRepository extends JpaRepository<Transaction, UUID> 
 
     /**
      * Listado paginado con filtros opcionales. EntityGraph evita N+1 al traer las relaciones.
-     * Criterio de fecha: cuotas (installment=true) por dueDate; pagos únicos por transactionDate.
-     * Esto permite que una compra con tarjeta de pago único aparezca en el mes de compra,
-     * mientras que cada cuota aparece en su mes de vencimiento (proyección financiera).
+     * Criterio de fecha: transacciones con tarjeta por dueDate (impactan en el mes de la liquidación);
+     * transacciones con cuenta por transactionDate.
      */
     @EntityGraph(attributePaths = {"category", "account", "card"})
-    @Query("""
+    @Query(value = """
         SELECT t FROM Transaction t
         WHERE t.user.id = :userId AND t.deletedAt IS NULL
-          AND ((t.installment = true  AND t.dueDate         BETWEEN :from AND :to)
-            OR (t.installment = false AND t.transactionDate BETWEEN :from AND :to))
+          AND ((t.card IS NOT NULL AND t.paid = FALSE AND t.dueDate         BETWEEN :from AND :to)
+            OR (t.card IS NULL                        AND t.transactionDate BETWEEN :from AND :to))
           AND (:type IS NULL OR t.type = :type)
           AND (:categoryId IS NULL OR t.category.id = :categoryId)
           AND (:q IS NULL OR LOWER(t.description) LIKE LOWER(CONCAT('%', CAST(:q AS string), '%')))
         ORDER BY t.dueDate DESC, t.createdAt DESC
+        """,
+        countQuery = """
+        SELECT COUNT(t) FROM Transaction t
+        WHERE t.user.id = :userId AND t.deletedAt IS NULL
+          AND ((t.card IS NOT NULL AND t.paid = FALSE AND t.dueDate         BETWEEN :from AND :to)
+            OR (t.card IS NULL                        AND t.transactionDate BETWEEN :from AND :to))
+          AND (:type IS NULL OR t.type = :type)
+          AND (:categoryId IS NULL OR t.category.id = :categoryId)
+          AND (:q IS NULL OR LOWER(t.description) LIKE LOWER(CONCAT('%', CAST(:q AS string), '%')))
         """)
     Page<Transaction> search(@Param("userId") UUID userId,
                              @Param("from") LocalDate from,
                              @Param("to") LocalDate to,
-                             @Param("type") String type,
+                             @Param("type") TransactionType type,
                              @Param("categoryId") UUID categoryId,
                              @Param("q") String q,
                              Pageable pageable);
@@ -106,13 +118,13 @@ public interface TransactionRepository extends JpaRepository<Transaction, UUID> 
         SELECT COALESCE(SUM(t.amount), 0) FROM Transaction t
         WHERE t.user.id = :userId AND t.deletedAt IS NULL
           AND t.type = :type
-          AND ((t.installment = true  AND t.dueDate         BETWEEN :from AND :to)
-            OR (t.installment = false AND t.transactionDate BETWEEN :from AND :to))
+          AND ((t.card IS NOT NULL AND t.paid = FALSE AND t.dueDate         BETWEEN :from AND :to)
+            OR (t.card IS NULL                        AND t.transactionDate BETWEEN :from AND :to))
           AND (:categoryId IS NULL OR t.category.id = :categoryId)
           AND (:q IS NULL OR LOWER(t.description) LIKE LOWER(CONCAT('%', CAST(:q AS string), '%')))
         """)
     BigDecimal sumByType(@Param("userId") UUID userId,
-                         @Param("type") String type,
+                         @Param("type") TransactionType type,
                          @Param("from") LocalDate from,
                          @Param("to") LocalDate to,
                          @Param("categoryId") UUID categoryId,
@@ -122,8 +134,8 @@ public interface TransactionRepository extends JpaRepository<Transaction, UUID> 
     @Query("""
         SELECT COUNT(t) FROM Transaction t
         WHERE t.user.id = :userId AND t.deletedAt IS NULL
-          AND ((t.installment = true  AND t.dueDate         BETWEEN :from AND :to)
-            OR (t.installment = false AND t.transactionDate BETWEEN :from AND :to))
+          AND ((t.card IS NOT NULL AND t.paid = FALSE AND t.dueDate         BETWEEN :from AND :to)
+            OR (t.card IS NULL                        AND t.transactionDate BETWEEN :from AND :to))
           AND (:type IS NULL OR t.type = :type)
           AND (:categoryId IS NULL OR t.category.id = :categoryId)
           AND (:q IS NULL OR LOWER(t.description) LIKE LOWER(CONCAT('%', CAST(:q AS string), '%')))
@@ -131,7 +143,7 @@ public interface TransactionRepository extends JpaRepository<Transaction, UUID> 
     long countFiltered(@Param("userId") UUID userId,
                        @Param("from") LocalDate from,
                        @Param("to") LocalDate to,
-                       @Param("type") String type,
+                       @Param("type") TransactionType type,
                        @Param("categoryId") UUID categoryId,
                        @Param("q") String q);
 
@@ -151,8 +163,8 @@ public interface TransactionRepository extends JpaRepository<Transaction, UUID> 
 
     /**
      * Suma neta de movimientos para múltiples cuentas hasta una fecha — una sola query (evita N+1 en cashflow).
-     * Aplica el mismo criterio de fecha dual que {@link #groupByCategory}: cuotas por dueDate,
-     * pagos únicos por transactionDate, para mantener coherencia entre saldo y secciones de flujo.
+     * Las transacciones de tarjeta (card != null) tienen account=null y quedan excluidas naturalmente;
+     * todas las de cuenta usan transactionDate como ancla de período.
      * Devuelve sólo las cuentas que tienen al menos un movimiento; las que no aparezcan tienen neto = 0.
      */
     @Query("""
@@ -162,11 +174,73 @@ public interface TransactionRepository extends JpaRepository<Transaction, UUID> 
         WHERE t.user.id     = :userId
           AND t.account.id IN :accountIds
           AND t.deletedAt  IS NULL
-          AND ((t.installment = true  AND t.dueDate         <= :upTo)
-            OR (t.installment = false AND t.transactionDate <= :upTo))
+          AND t.transactionDate <= :upTo
         GROUP BY t.account.id
         """)
     List<NetMovementProjection> netMovementsForAccounts(@Param("userId")     UUID userId,
                                                         @Param("accountIds") List<UUID> accountIds,
                                                         @Param("upTo")       LocalDate upTo);
+
+    /**
+     * Cuotas de tarjeta pendientes de pago para un período dado.
+     * Usada por {@link com.vectis.backend.service.CardPaymentService} para marcarlas como pagadas.
+     */
+    @Lock(LockModeType.PESSIMISTIC_WRITE)
+    @Query("""
+        SELECT t FROM Transaction t
+        WHERE t.user.id   = :userId
+          AND t.card.id   = :cardId
+          AND t.deletedAt IS NULL
+          AND t.paid      = FALSE
+          AND t.dueDate   BETWEEN :from AND :to
+        ORDER BY t.dueDate ASC
+        """)
+    List<Transaction> findUnpaidCardTransactionsForPeriod(
+            @Param("userId") UUID userId,
+            @Param("cardId") UUID cardId,
+            @Param("from")   LocalDate from,
+            @Param("to")     LocalDate to);
+
+    /**
+     * Todas las cuotas de tarjeta del usuario desde una fecha (incluyendo pagadas).
+     * Usada por {@link com.vectis.backend.service.CardProjectionService} para la matriz,
+     * que debe mostrar cuotas pagadas con estilo diferenciado.
+     */
+    @EntityGraph(attributePaths = {"category", "card"})
+    @Query("""
+        SELECT t FROM Transaction t
+        WHERE t.user.id = :userId AND t.deletedAt IS NULL
+          AND t.card IS NOT NULL
+          AND t.dueDate >= :fromDate
+        ORDER BY t.card.id, t.installmentGroupId, t.installmentNumber, t.dueDate
+        """)
+    List<Transaction> findCardTransactionsFromDate(
+            @Param("userId")   UUID userId,
+            @Param("fromDate") LocalDate fromDate);
+
+    /**
+     * Transacciones que son el pago principal de una liquidación (otras transacciones
+     * apuntan a ellas mediante card_payment_id).
+     */
+    @EntityGraph(attributePaths = {"account", "category"})
+    @Query("""
+        SELECT t FROM Transaction t
+        WHERE t.user.id = :userId AND t.deletedAt IS NULL
+          AND t.id IN (SELECT t2.cardPaymentId FROM Transaction t2
+                       WHERE t2.cardPaymentId IS NOT NULL AND t2.user.id = :userId)
+        ORDER BY t.transactionDate DESC, t.createdAt DESC
+        """)
+    List<Transaction> findCardPaymentTransactions(@Param("userId") UUID userId);
+
+    /**
+     * Cuotas y cargos adicionales vinculados a un pago de tarjeta dado.
+     * El servicio separa cuotas (card != null) de extras (card == null) mediante filter().
+     */
+    @EntityGraph(attributePaths = {"category", "card"})
+    @Query("""
+        SELECT t FROM Transaction t
+        WHERE t.cardPaymentId = :paymentId
+        ORDER BY t.amount DESC
+        """)
+    List<Transaction> findByCardPaymentId(@Param("paymentId") UUID paymentId);
 }

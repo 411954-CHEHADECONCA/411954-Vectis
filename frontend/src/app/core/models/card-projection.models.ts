@@ -46,6 +46,7 @@ export interface CardMatrixConsumo {
   categoryIcon: string | null;
   categoryColor: string | null;
   cellsByMonth: (number | null)[];
+  paidByMonth: (boolean | null)[]; // null = celda vacía; true = completamente pagada
 }
 
 export interface CardMatrixCard {

@@ -10,7 +10,7 @@ public class TransactionMapper {
     public MovementResponse toResponse(Transaction t) {
         return MovementResponse.builder()
                 .id(t.getId())
-                .type(t.getType())
+                .type(t.getType().name())
                 .description(t.getDescription())
                 .amount(t.getAmount())
                 .ccy(t.getCcy())
@@ -30,6 +30,7 @@ public class TransactionMapper {
                 .installmentGroupId(t.getInstallmentGroupId())
                 .createdAt(t.getCreatedAt())
                 .isProjected(t.isProjected())
+                .paid(t.isPaid())
                 .build();
     }
 }

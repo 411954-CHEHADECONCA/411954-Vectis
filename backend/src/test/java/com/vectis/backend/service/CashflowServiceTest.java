@@ -6,6 +6,7 @@ import com.vectis.backend.domain.entity.CategoryBudget;
 import com.vectis.backend.domain.entity.CategoryType;
 import com.vectis.backend.domain.entity.MonthPeriod;
 import com.vectis.backend.domain.entity.RecurringMovement;
+import com.vectis.backend.domain.entity.TransactionType;
 import com.vectis.backend.domain.entity.User;
 import com.vectis.backend.dto.CashflowResponse;
 import com.vectis.backend.repository.AccountRepository;
@@ -98,8 +99,8 @@ class CashflowServiceTest {
         CategorySummaryProjection incomeRow  = proj(UUID.randomUUID(), "Sueldo",       "briefcase", "#22c55e", new BigDecimal("50000.00"));
         CategorySummaryProjection expenseRow = proj(UUID.randomUUID(), "Alimentación", "cart",      "#ef4444", new BigDecimal("20000.00"));
 
-        given(transactionRepository.groupByCategory(userId, "INCOME",  firstDay, lastDay)).willReturn(List.of(incomeRow));
-        given(transactionRepository.groupByCategory(userId, "EXPENSE", firstDay, lastDay)).willReturn(List.of(expenseRow));
+        given(transactionRepository.groupByCategory(userId, TransactionType.INCOME,  firstDay, lastDay)).willReturn(List.of(incomeRow));
+        given(transactionRepository.groupByCategory(userId, TransactionType.EXPENSE, firstDay, lastDay)).willReturn(List.of(expenseRow));
         given(categoryBudgetRepository.findLatestPerCategoryOnOrBefore(userId, firstDay)).willReturn(Collections.emptyList());
 
         CashflowResponse result = cashflowService.getCashflow(user, year, month);
@@ -164,8 +165,8 @@ class CashflowServiceTest {
 
         given(accountRepository.findAllByUser_IdAndIncludeInCashflowTrue(userId))
                 .willReturn(Collections.emptyList());
-        given(transactionRepository.groupByCategory(userId, "INCOME",  firstDay, lastDay)).willReturn(Collections.emptyList());
-        given(transactionRepository.groupByCategory(userId, "EXPENSE", firstDay, lastDay)).willReturn(Collections.emptyList());
+        given(transactionRepository.groupByCategory(userId, TransactionType.INCOME,  firstDay, lastDay)).willReturn(Collections.emptyList());
+        given(transactionRepository.groupByCategory(userId, TransactionType.EXPENSE, firstDay, lastDay)).willReturn(Collections.emptyList());
         given(categoryBudgetRepository.findLatestPerCategoryOnOrBefore(userId, firstDay)).willReturn(Collections.emptyList());
 
         CashflowResponse result = cashflowService.getCashflow(user, today.getYear(), today.getMonthValue());
@@ -195,8 +196,8 @@ class CashflowServiceTest {
                 .willReturn(List.of(account));
         given(transactionRepository.netMovementsForAccounts(eq(userId), anyList(), any(LocalDate.class)))
                 .willReturn(Collections.emptyList());
-        given(transactionRepository.groupByCategory(userId, "INCOME",  firstDay, lastDay)).willReturn(Collections.emptyList());
-        given(transactionRepository.groupByCategory(userId, "EXPENSE", firstDay, lastDay)).willReturn(Collections.emptyList());
+        given(transactionRepository.groupByCategory(userId, TransactionType.INCOME,  firstDay, lastDay)).willReturn(Collections.emptyList());
+        given(transactionRepository.groupByCategory(userId, TransactionType.EXPENSE, firstDay, lastDay)).willReturn(Collections.emptyList());
         given(categoryBudgetRepository.findLatestPerCategoryOnOrBefore(userId, firstDay)).willReturn(Collections.emptyList());
 
         CashflowResponse result = cashflowService.getCashflow(user, year, month);
@@ -226,9 +227,9 @@ class CashflowServiceTest {
                 .willReturn(Optional.empty());
 
         given(accountRepository.findAllByUser_IdAndIncludeInCashflowTrue(userId)).willReturn(Collections.emptyList());
-        given(transactionRepository.groupByCategory(userId, "INCOME",  firstDay, lastDay))
+        given(transactionRepository.groupByCategory(userId, TransactionType.INCOME,  firstDay, lastDay))
                 .willReturn(List.of(proj(incomeCatId, "Sueldo", "briefcase", "#22c55e", amount)));
-        given(transactionRepository.groupByCategory(userId, "EXPENSE", firstDay, lastDay))
+        given(transactionRepository.groupByCategory(userId, TransactionType.EXPENSE, firstDay, lastDay))
                 .willReturn(Collections.emptyList());
 
         Category mockCat = mock(Category.class);
@@ -270,9 +271,9 @@ class CashflowServiceTest {
                 .willReturn(List.of(account));
         given(transactionRepository.netMovementsForAccounts(eq(userId), anyList(), any(LocalDate.class)))
                 .willReturn(Collections.emptyList());
-        given(transactionRepository.groupByCategory(userId, "INCOME",  firstDay, lastDay))
+        given(transactionRepository.groupByCategory(userId, TransactionType.INCOME,  firstDay, lastDay))
                 .willReturn(List.of(proj(UUID.randomUUID(), "Sueldo", "briefcase", "#22c55e", new BigDecimal("100000.00"))));
-        given(transactionRepository.groupByCategory(userId, "EXPENSE", firstDay, lastDay))
+        given(transactionRepository.groupByCategory(userId, TransactionType.EXPENSE, firstDay, lastDay))
                 .willReturn(List.of(proj(UUID.randomUUID(), "Gastos", "cart",      "#ef4444", new BigDecimal("25000.00"))));
         given(categoryBudgetRepository.findLatestPerCategoryOnOrBefore(userId, firstDay))
                 .willReturn(Collections.emptyList());
@@ -337,7 +338,7 @@ class CashflowServiceTest {
 
         given(categoryBudgetRepository.findLatestPerCategoryOnOrBefore(eq(userId), any(LocalDate.class)))
                 .willReturn(List.of(budgetA, budgetB));
-        given(transactionRepository.groupByCategory(eq(userId), any(String.class),
+        given(transactionRepository.groupByCategory(eq(userId), any(TransactionType.class),
                 any(LocalDate.class), any(LocalDate.class)))
                 .willReturn(Collections.emptyList());
 
@@ -402,7 +403,7 @@ class CashflowServiceTest {
 
         given(categoryBudgetRepository.findLatestPerCategoryOnOrBefore(eq(userId), any(LocalDate.class)))
                 .willReturn(Collections.emptyList());
-        given(transactionRepository.groupByCategory(eq(userId), any(String.class),
+        given(transactionRepository.groupByCategory(eq(userId), any(TransactionType.class),
                 any(LocalDate.class), any(LocalDate.class)))
                 .willReturn(Collections.emptyList());
 
@@ -448,9 +449,9 @@ class CashflowServiceTest {
                 .willReturn(Collections.emptyList());
 
         // income=10k, expense=50k → preBalance = 0 + (10k - 50k) = -40k
-        given(transactionRepository.groupByCategory(userId, "INCOME",  firstDay, lastDay))
+        given(transactionRepository.groupByCategory(userId, TransactionType.INCOME,  firstDay, lastDay))
                 .willReturn(List.of(proj(UUID.randomUUID(), "Sueldo", "briefcase", "#22c55e", new BigDecimal("10000.00"))));
-        given(transactionRepository.groupByCategory(userId, "EXPENSE", firstDay, lastDay))
+        given(transactionRepository.groupByCategory(userId, TransactionType.EXPENSE, firstDay, lastDay))
                 .willReturn(List.of(proj(UUID.randomUUID(), "Gastos", "cart",      "#ef4444", new BigDecimal("50000.00"))));
         given(categoryBudgetRepository.findLatestPerCategoryOnOrBefore(userId, firstDay))
                 .willReturn(Collections.emptyList());
@@ -547,7 +548,7 @@ class CashflowServiceTest {
         // account.balance = 100000, sin movimientos netos → opening N+1 = 100000
         given(transactionRepository.netMovementsForAccounts(eq(userId), anyList(), any(LocalDate.class)))
                 .willReturn(Collections.emptyList());
-        given(transactionRepository.groupByCategory(eq(userId), any(String.class), any(LocalDate.class), any(LocalDate.class)))
+        given(transactionRepository.groupByCategory(eq(userId), any(TransactionType.class), any(LocalDate.class), any(LocalDate.class)))
                 .willReturn(Collections.emptyList());
 
         // Recurrentes: income 50000, expense 30000 → closing N+1 = 100000 + 50000 - 30000 = 120000

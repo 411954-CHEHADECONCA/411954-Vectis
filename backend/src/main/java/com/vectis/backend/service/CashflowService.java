@@ -4,6 +4,7 @@ import com.vectis.backend.domain.entity.Account;
 import com.vectis.backend.domain.entity.CategoryBudget;
 import com.vectis.backend.domain.entity.CategoryType;
 import com.vectis.backend.domain.entity.RecurringMovement;
+import com.vectis.backend.domain.entity.TransactionType;
 import com.vectis.backend.domain.entity.User;
 import com.vectis.backend.dto.*;
 import com.vectis.backend.repository.AccountRepository;
@@ -87,8 +88,8 @@ public class CashflowService {
         CashflowFlowSection expenses;
 
         if (isProjection) {
-            income   = buildProjectedSection(userId, "INCOME",  year, month);
-            expenses = buildProjectedSection(userId, "EXPENSE", year, month);
+            income   = buildProjectedSection(userId, TransactionType.INCOME,  year, month);
+            expenses = buildProjectedSection(userId, TransactionType.EXPENSE, year, month);
         } else {
             List<CategoryBudget> allBudgets = categoryBudgetRepository.findLatestPerCategoryOnOrBefore(userId, firstDay);
             Map<UUID, BigDecimal> incomeBudgets = allBudgets.stream()
@@ -98,8 +99,8 @@ public class CashflowService {
                     .filter(cb -> cb.getCategory().getType() == CategoryType.EXPENSE)
                     .collect(Collectors.toMap(cb -> cb.getCategory().getId(), CategoryBudget::getAmount, (a, b) -> a));
 
-            List<CategorySummaryProjection> incomeRows  = transactionRepository.groupByCategory(userId, "INCOME",  firstDay, lastDay);
-            List<CategorySummaryProjection> expenseRows = transactionRepository.groupByCategory(userId, "EXPENSE", firstDay, lastDay);
+            List<CategorySummaryProjection> incomeRows  = transactionRepository.groupByCategory(userId, TransactionType.INCOME,  firstDay, lastDay);
+            List<CategorySummaryProjection> expenseRows = transactionRepository.groupByCategory(userId, TransactionType.EXPENSE, firstDay, lastDay);
 
             BigDecimal totalIncome  = sumProjections(incomeRows);
             BigDecimal totalExpense = sumProjections(expenseRows);
@@ -241,10 +242,10 @@ public class CashflowService {
      * (para categorías sin registro aún) y presupuesto residual ("Otros").
      * Prioridad: registrado > recurrente template > presupuesto.
      */
-    private CashflowFlowSection buildProjectedSection(UUID userId, String type, int year, int month) {
+    private CashflowFlowSection buildProjectedSection(UUID userId, TransactionType type, int year, int month) {
         LocalDate firstDay = LocalDate.of(year, month, 1);
         LocalDate lastDay  = firstDay.withDayOfMonth(firstDay.lengthOfMonth());
-        CategoryType catType = "INCOME".equals(type) ? CategoryType.INCOME : CategoryType.EXPENSE;
+        CategoryType catType = type == TransactionType.INCOME ? CategoryType.INCOME : CategoryType.EXPENSE;
 
         // ── 1. Transacciones ya registradas para este mes futuro ──────────────
         List<CategorySummaryProjection> registeredRows =
@@ -259,7 +260,7 @@ public class CashflowService {
         Map<UUID, RecurringMovement> catMeta = new LinkedHashMap<>();
         for (RecurringMovement rm : recurringMovementRepository
                 .findAllByUser_IdAndActiveTrueAndDeletedAtIsNull(userId)) {
-            if (!type.equals(rm.getType())) continue;
+            if (!type.name().equals(rm.getType())) continue;
             UUID catId = rm.getCategory() != null ? rm.getCategory().getId() : null;
             if (!registeredCatIds.contains(catId)) {
                 recurringByCategory.merge(catId, rm.getAmount().abs(), BigDecimal::add);
