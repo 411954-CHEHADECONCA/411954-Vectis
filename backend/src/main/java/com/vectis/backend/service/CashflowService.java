@@ -44,6 +44,7 @@ public class CashflowService {
     private final MonthPeriodRepository monthPeriodRepository;
     private final RecurringMovementRepository recurringMovementRepository;
 
+    @Transactional // override class-level readOnly=true so getStatus() writes (MonthPeriod + recurring) commit
     public CashflowResponse getCashflow(User user, int year, int month) {
         UUID userId = user.getId();
         LocalDate firstDay = LocalDate.of(year, month, 1);

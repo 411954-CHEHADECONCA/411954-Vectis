@@ -579,8 +579,14 @@ export class MovimientosComponent implements OnInit {
     return `$ ${Math.round(amount).toLocaleString('es-AR')}`;
   }
 
+  typeBadgeLabel(m: MovementResponse): string {
+    if (m.type === 'INCOME') return 'Ingreso';
+    if (m.type === 'CARD_PAYMENT') return 'Pago Tarjeta';
+    return 'Egreso';
+  }
+
   signedAmount(m: MovementResponse): string {
-    const prefix = m.type === 'EXPENSE' ? '- ' : '+ ';
+    const prefix = (m.type === 'EXPENSE' || m.type === 'CARD_PAYMENT') ? '- ' : '+ ';
     return prefix + this.fmtAmount(m.amount, m.ccy);
   }
 }

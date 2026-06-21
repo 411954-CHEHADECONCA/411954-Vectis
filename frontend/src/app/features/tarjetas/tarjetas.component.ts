@@ -38,9 +38,12 @@ import {
 import { CardProjectionService } from '../../core/services/card-projection.service';
 import { CreditCardService } from '../../core/services/credit-card.service';
 import { AccountService } from '../../core/services/account.service';
+import { CategoryService } from '../../core/services/category.service';
 import { CurrencyService } from '../../core/services/currency.service';
+import { MovementService } from '../../core/services/movement.service';
 import { CardDue, CardMatrix, CardOverview } from '../../core/models/card-projection.models';
 import { AccountResponse } from '../../core/models/account.models';
+import { CategoryResponse } from '../../core/models/category.models';
 import { CardPaymentHistory, CardPaymentRequest, ExtraChargeItem } from '../../core/models/card-payment.models';
 
 type CardTab = 'cuotas' | 'venc' | 'matriz' | 'pagos';
@@ -50,6 +53,7 @@ interface PayModalState {
   cardName: string;
   periodYear: number;
   periodMonth: number;
+  minDate: string;
 }
 
 @Component({
@@ -73,6 +77,8 @@ export class TarjetasComponent implements OnInit {
   private readonly cardService        = inject(CardProjectionService);
   private readonly creditCardService  = inject(CreditCardService);
   private readonly accountService     = inject(AccountService);
+  private readonly categoryService    = inject(CategoryService);
+  private readonly movementService    = inject(MovementService);
   private readonly router             = inject(Router);
   readonly currencyService            = inject(CurrencyService);
 
@@ -93,6 +99,11 @@ export class TarjetasComponent implements OnInit {
   paySubmitting = signal(false);
   payError      = signal<string | null>(null);
   accounts      = signal<AccountResponse[]>([]);
+  categories    = signal<CategoryResponse[]>([]);
+
+  // ── Delete payment modal ─────────────────────────────────────────────────
+  paymentToDelete          = signal<CardPaymentHistory | null>(null);
+  deletePaymentSubmitting  = signal(false);
 
   payForm = new FormGroup({
     accountId:         new FormControl('', { nonNullable: true, validators: [Validators.required] }),
@@ -266,12 +277,22 @@ export class TarjetasComponent implements OnInit {
 
   openPayModal(due: CardDue): void {
     const [y, m] = due.dueDate.split('-').map(Number);
-    this.payModal.set({ cardId: due.cardId, cardName: due.cardName, periodYear: y, periodMonth: m });
+    const minDate = due.dueDate;
+    const today   = this.todayISO();
+    this.payModal.set({ cardId: due.cardId, cardName: due.cardName, periodYear: y, periodMonth: m, minDate });
     while (this.extraChargesArray.length) { this.extraChargesArray.removeAt(0); }
-    this.payForm.patchValue({ paidDate: this.todayISO(), paidAmount: due.amount, accountId: '', paymentCategoryId: null });
+    this.payForm.patchValue({
+      paidDate: today >= minDate ? today : minDate,
+      paidAmount: due.amount,
+      accountId: '',
+      paymentCategoryId: null,
+    });
     this.payError.set(null);
     if (!this.accounts().length) {
       this.accountService.getAccounts().subscribe({ next: accs => this.accounts.set(accs) });
+    }
+    if (!this.categories().length) {
+      this.categoryService.getCategories().subscribe({ next: cats => this.categories.set(cats) });
     }
   }
 
@@ -286,7 +307,7 @@ export class TarjetasComponent implements OnInit {
     this.extraChargesArray.push(new FormGroup({
       description: new FormControl('', { nonNullable: true, validators: [Validators.required] }),
       amount:      new FormControl<number>(0, { nonNullable: true, validators: [Validators.required, Validators.min(0.01)] }),
-      categoryId:  new FormControl<string | null>(null),
+      categoryId:  new FormControl<string | null>(null, [Validators.required]),
     }));
   }
 
@@ -333,6 +354,39 @@ export class TarjetasComponent implements OnInit {
   fmtPeriod(year: number, month: number): string {
     const mon = new Date(year, month - 1, 1).toLocaleDateString('es-AR', { month: 'long' });
     return `${mon.charAt(0).toUpperCase()}${mon.slice(1)} ${year}`;
+  }
+
+  totalPayment(p: CardPaymentHistory): number {
+    const cuotasSum = p.cuotas.reduce((s, c) => s + c.amount, 0);
+    const extrasSum = p.extraCharges.reduce((s, e) => s + e.amount, 0);
+    return cuotasSum + extrasSum;
+  }
+
+  // ── Delete payment handlers ───────────────────────────────────────────────
+
+  openDeletePayment(p: CardPaymentHistory): void {
+    this.paymentToDelete.set(p);
+  }
+
+  closeDeletePayment(): void {
+    this.paymentToDelete.set(null);
+  }
+
+  confirmDeletePayment(): void {
+    const p = this.paymentToDelete();
+    if (!p) return;
+    this.deletePaymentSubmitting.set(true);
+    this.movementService.delete(p.paymentTransactionId).subscribe({
+      next: () => {
+        this.deletePaymentSubmitting.set(false);
+        this.closeDeletePayment();
+        this.reload();
+        this.loadPayments();
+      },
+      error: () => {
+        this.deletePaymentSubmitting.set(false);
+      },
+    });
   }
 
   private todayISO(): string {

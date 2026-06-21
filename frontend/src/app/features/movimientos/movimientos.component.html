@@ -113,10 +113,18 @@
                 <div class="row-name">{{ m.description }}</div>
                 <div class="row-sub">{{ rowSub(m) }}</div>
               </div>
-              <span class="row-badge" [class.row-badge--in]="m.type === 'INCOME'" [class.row-badge--out]="m.type === 'EXPENSE'">
-                {{ m.type === 'INCOME' ? 'Ingreso' : 'Egreso' }}
+              <span class="row-badge"
+                [class.row-badge--in]="m.type === 'INCOME'"
+                [class.row-badge--out]="m.type === 'EXPENSE'"
+                [class.row-badge--neutral]="m.type === 'CARD_PAYMENT'">
+                {{ typeBadgeLabel(m) }}
               </span>
-              <span class="row-amount" [class.row-amount--out]="m.type === 'EXPENSE'" [class.row-amount--in]="m.type === 'INCOME'">
+              @if (m.paid && m.cardId) {
+                <span class="row-badge row-badge--paid">Pagado</span>
+              }
+              <span class="row-amount"
+                [class.row-amount--out]="m.type === 'EXPENSE' || m.type === 'CARD_PAYMENT'"
+                [class.row-amount--in]="m.type === 'INCOME'">
                 {{ signedAmount(m) }}
               </span>
               <div class="row-actions">

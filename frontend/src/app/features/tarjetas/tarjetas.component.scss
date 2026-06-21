@@ -427,7 +427,13 @@
   box-shadow: var(--shadow-cta);
   transition: filter var(--dur-base) var(--ease-standard);
 
-  &:hover { filter: brightness(1.1); }
+  &:hover:not(:disabled) { filter: brightness(1.1); }
+  &:disabled {
+    opacity: 0.4;
+    cursor: not-allowed;
+    box-shadow: none;
+    filter: none;
+  }
 }
 
 // ── Vencimientos: botón pagar ─────────────────────────────────────────────────
@@ -570,8 +576,9 @@
   align-items: center;
 }
 
-.extra-desc  { flex: 2; }
-.extra-amount { flex: 1; }
+.extra-desc   { flex: 2; }
+.extra-amount  { flex: 1; }
+.extra-cat     { flex: 1.5; }
 
 .btn-remove-extra {
   background: none;
@@ -584,6 +591,25 @@
   align-items: center;
   flex-shrink: 0;
   &:hover { background: color-mix(in srgb, var(--color-error) 12%, transparent); }
+}
+
+.icon-btn {
+  background: none;
+  border: none;
+  cursor: pointer;
+  padding: 6px;
+  border-radius: var(--radius-sm);
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+  color: var(--color-on-surface-variant);
+  transition: background-color var(--dur-fast), color var(--dur-fast);
+  &:hover { background: var(--color-surface-container-high); }
+  &.icon-btn--danger {
+    color: var(--color-error);
+    &:hover { background: color-mix(in srgb, var(--color-error) 12%, transparent); }
+  }
 }
 
 .modal-error {

@@ -54,6 +54,7 @@ export interface CardMatrixCard {
   cardName: string;
   accent: string;
   consumos: CardMatrixConsumo[];
+  extraCharges: CardMatrixConsumo[];
   subtotalsByMonth: number[];
 }
 

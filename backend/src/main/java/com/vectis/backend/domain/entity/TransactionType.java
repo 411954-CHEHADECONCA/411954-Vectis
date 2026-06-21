@@ -1,5 +1,5 @@
 package com.vectis.backend.domain.entity;
 
 public enum TransactionType {
-    INCOME, EXPENSE;
+    INCOME, EXPENSE, CARD_PAYMENT, TRANSFER;
 }

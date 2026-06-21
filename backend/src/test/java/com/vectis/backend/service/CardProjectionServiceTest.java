@@ -125,6 +125,42 @@ class CardProjectionServiceTest {
         assertThat(mx.totalsByMonth().get(5)).isEqualByComparingTo("0");
     }
 
+    @Test
+    @DisplayName("matrix incluye extraCharges en la columna del mes correcto y los suma al subtotal")
+    void matrix_includesExtraChargesInCorrectMonth() {
+        UUID group     = UUID.randomUUID();
+        UUID paymentId = UUID.randomUUID();
+        LocalDate today = YearMonth.now().atDay(15);
+
+        List<Transaction> debt = List.of(
+                installment(group, 1, 2, "20000", today, "Notebook"));
+
+        Transaction extraCharge = Transaction.builder()
+                .id(UUID.randomUUID()).user(user).type(TransactionType.EXPENSE)
+                .description("Intereses financieros").amount(new BigDecimal("2000")).ccy("ARS")
+                .transactionDate(today).dueDate(today).installment(false)
+                .cardPaymentId(paymentId).createdAt(OffsetDateTime.now()).build();
+
+        given(transactionRepository.findCardTransactionsFromDate(eq(userId), any())).willReturn(debt);
+        given(transactionRepository.findExtraChargesForCard(eq(card.getId()), any())).willReturn(List.of(extraCharge));
+
+        CardMatrixResponse mx = service.matrix(userId, 6);
+
+        assertThat(mx.cards()).hasSize(1);
+        var cardRow = mx.cards().get(0);
+        assertThat(cardRow.extraCharges()).hasSize(1);
+
+        var extra = cardRow.extraCharges().get(0);
+        assertThat(extra.description()).isEqualTo("Intereses financieros");
+        assertThat(extra.installmentLabel()).isNull();
+        assertThat(extra.cellsByMonth().get(0)).isEqualByComparingTo("2000");
+        assertThat(extra.paidByMonth().get(0)).isTrue();
+
+        // El cargo extra suma al subtotal y al total consolidado
+        assertThat(cardRow.subtotalsByMonth().get(0)).isEqualByComparingTo("22000");
+        assertThat(mx.totalsByMonth().get(0)).isEqualByComparingTo("22000");
+    }
+
     // ── Helpers ────────────────────────────────────────────────────────────────
 
     private Transaction installment(UUID group, int number, int total, String amount, LocalDate due, String base) {

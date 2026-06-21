@@ -276,6 +276,17 @@
   color: var(--color-error);
 }
 
+.row-badge--neutral {
+  background: color-mix(in srgb, var(--color-text-muted) 14%, transparent);
+  color: var(--color-text-muted);
+}
+
+.row-badge--paid {
+  background: color-mix(in srgb, var(--color-primary) 10%, transparent);
+  color: var(--color-primary);
+  opacity: 0.7;
+}
+
 .row-amount {
   min-width: 130px;
   text-align: right;

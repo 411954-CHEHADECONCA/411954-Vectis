@@ -278,6 +278,76 @@ class TransactionServiceTest {
     }
 
     @Test
+    @DisplayName("delete CARD_PAYMENT revierte cuotas a estado impago y limpia cardPaymentId")
+    void deleteCardPayment_revertsLinkedCuotas() {
+        UUID paymentId = UUID.randomUUID();
+        CreditCard creditCard = card(UUID.randomUUID(), user);
+
+        Transaction paymentTx = Transaction.builder()
+                .id(paymentId).user(user).type(TransactionType.CARD_PAYMENT)
+                .description("Pago Galicia 04/2026").amount(new BigDecimal("50000")).ccy("ARS")
+                .transactionDate(LocalDate.of(2026, 5, 10)).dueDate(LocalDate.of(2026, 5, 10))
+                .installment(false).createdAt(OffsetDateTime.now()).build();
+
+        Transaction cuota1 = Transaction.builder()
+                .id(UUID.randomUUID()).user(user).type(TransactionType.EXPENSE)
+                .description("Notebook — cuota 1/2").amount(new BigDecimal("25000")).ccy("ARS")
+                .card(creditCard).paid(true).cardPaymentId(paymentId)
+                .transactionDate(LocalDate.of(2026, 4, 7)).dueDate(LocalDate.of(2026, 5, 15))
+                .installment(true).installmentNumber(1).totalInstallments(2)
+                .createdAt(OffsetDateTime.now()).build();
+        Transaction cuota2 = Transaction.builder()
+                .id(UUID.randomUUID()).user(user).type(TransactionType.EXPENSE)
+                .description("Notebook — cuota 2/2").amount(new BigDecimal("25000")).ccy("ARS")
+                .card(creditCard).paid(true).cardPaymentId(paymentId)
+                .transactionDate(LocalDate.of(2026, 4, 7)).dueDate(LocalDate.of(2026, 5, 15))
+                .installment(true).installmentNumber(2).totalInstallments(2)
+                .createdAt(OffsetDateTime.now()).build();
+
+        given(transactionRepository.findByIdAndDeletedAtIsNull(paymentId)).willReturn(Optional.of(paymentTx));
+        given(transactionRepository.findByCardPaymentId(paymentId)).willReturn(List.of(cuota1, cuota2));
+
+        transactionService.delete(paymentId, user);
+
+        assertThat(cuota1.isPaid()).isFalse();
+        assertThat(cuota1.getCardPaymentId()).isNull();
+        assertThat(cuota2.isPaid()).isFalse();
+        assertThat(cuota2.getCardPaymentId()).isNull();
+        assertThat(paymentTx.getDeletedAt()).isNotNull();
+        verify(transactionRepository).saveAll(List.of(cuota1, cuota2));
+        verify(transactionRepository).save(paymentTx);
+    }
+
+    @Test
+    @DisplayName("delete CARD_PAYMENT soft-deletea los cargos extra vinculados (sin tarjeta)")
+    void deleteCardPayment_softDeletesExtraCharges() {
+        UUID paymentId = UUID.randomUUID();
+
+        Transaction paymentTx = Transaction.builder()
+                .id(paymentId).user(user).type(TransactionType.CARD_PAYMENT)
+                .description("Pago Galicia 04/2026").amount(new BigDecimal("52000")).ccy("ARS")
+                .transactionDate(LocalDate.of(2026, 5, 10)).dueDate(LocalDate.of(2026, 5, 10))
+                .installment(false).createdAt(OffsetDateTime.now()).build();
+
+        Transaction extraCharge = Transaction.builder()
+                .id(UUID.randomUUID()).user(user).type(TransactionType.EXPENSE)
+                .description("Interés financiero").amount(new BigDecimal("2000")).ccy("ARS")
+                .cardPaymentId(paymentId)
+                .transactionDate(LocalDate.of(2026, 5, 10)).dueDate(LocalDate.of(2026, 5, 10))
+                .installment(false).createdAt(OffsetDateTime.now()).build();
+
+        given(transactionRepository.findByIdAndDeletedAtIsNull(paymentId)).willReturn(Optional.of(paymentTx));
+        given(transactionRepository.findByCardPaymentId(paymentId)).willReturn(List.of(extraCharge));
+
+        transactionService.delete(paymentId, user);
+
+        assertThat(extraCharge.getDeletedAt()).isNotNull();
+        assertThat(paymentTx.getDeletedAt()).isNotNull();
+        verify(transactionRepository).saveAll(List.of(extraCharge));
+        verify(transactionRepository).save(paymentTx);
+    }
+
+    @Test
     @DisplayName("delete de una cuota soft-deletea todo el grupo")
     void delete_installment_softDeletesWholeGroup() {
         UUID id = UUID.randomUUID();

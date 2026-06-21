@@ -22,6 +22,7 @@ public record ExtraChargeRequest(
         @DecimalMin(value = "0.01", message = "El monto del cargo debe ser mayor a cero")
         BigDecimal amount,
 
-        @Schema(description = "ID de la categoría del cargo (opcional)")
+        @Schema(description = "ID de la categoría del cargo (obligatorio)", example = "3fa85f64-5717-4562-b3fc-2c963f66afa6")
+        @NotNull(message = "La categoría del cargo es obligatoria")
         UUID categoryId
 ) {}

@@ -206,6 +206,18 @@
                           }
                         </tr>
                       }
+                      @for (extra of card.extraCharges; track extra.description) {
+                        <tr class="mx-consumo mx-child">
+                          <td class="mx-rowhead mx-child">
+                            <ng-container *ngTemplateOutlet="iconChip; context: { icon: extra.categoryIcon ?? 'circle', color: extra.categoryColor ?? '#9ed1c5', sm: true }"></ng-container>
+                            <span class="mx-desc">{{ extra.description }}</span>
+                            <span class="mx-cuota">CARGO</span>
+                          </td>
+                          @for (cell of extra.cellsByMonth; track $index) {
+                            <td class="mx-num" [class.mx-cell--paid]="extra.paidByMonth[$index] === true">{{ fmtCell(cell) }}</td>
+                          }
+                        </tr>
+                      }
                     }
                   }
                 </tbody>
@@ -248,7 +260,11 @@
                   <div class="row-sub">{{ fmtPeriod(p.periodYear, p.periodMonth) }} · Pagado el {{ fmtDay(p.paidDate) }}</div>
                 </div>
                 <span class="row-badge row-badge--paid">{{ p.cuotas.length }} cuota{{ p.cuotas.length === 1 ? '' : 's' }}</span>
-                <span class="row-amount">{{ fmtAmount(p.paidAmount, p.ccy) }}</span>
+                <span class="row-amount">{{ fmtAmount(totalPayment(p), p.ccy) }}</span>
+                <button class="icon-btn icon-btn--danger" title="Eliminar pago"
+                        (click)="$event.stopPropagation(); openDeletePayment(p)">
+                  <svg lucideTrash2 [size]="16"></svg>
+                </button>
               </div>
               @if (isPaymentExpanded(p.paymentTransactionId)) {
                 <div class="payment-detail">
@@ -287,6 +303,32 @@
   }
 </div>
 
+<!-- ── Modal: Eliminar pago de tarjeta ───────────────────────────────────── -->
+@if (paymentToDelete(); as deleting) {
+  <div class="modal-overlay" (click)="closeDeletePayment()">
+    <div class="modal-panel" (click)="$event.stopPropagation()">
+      <div class="modal-header">
+        <h3 class="modal-title">Eliminar pago</h3>
+        <button class="modal-close" type="button" (click)="closeDeletePayment()">
+          <svg lucideX [size]="18"></svg>
+        </button>
+      </div>
+      <div class="modal-form">
+        <p>¿Seguro que querés eliminar el pago de <strong>{{ deleting.cardName }}</strong>
+          del período {{ fmtPeriod(deleting.periodYear, deleting.periodMonth) }}?
+          Las cuotas volverán a quedar pendientes de pago.</p>
+        <div class="modal-actions">
+          <button type="button" class="btn-ghost" (click)="closeDeletePayment()">Cancelar</button>
+          <button type="button" class="btn-primary" [disabled]="deletePaymentSubmitting()"
+                  (click)="confirmDeletePayment()">
+            {{ deletePaymentSubmitting() ? 'Eliminando…' : 'Eliminar pago' }}
+          </button>
+        </div>
+      </div>
+    </div>
+  </div>
+}
+
 <!-- ── Modal: Registrar pago de tarjeta ──────────────────────────────────── -->
 @if (payModal(); as modal) {
   <div class="modal-overlay" (click)="closePayModal()">
@@ -310,7 +352,7 @@
         </select>
 
         <label class="field-label">Fecha de pago <span class="field-required">*</span></label>
-        <input class="field-input" type="date" formControlName="paidDate">
+        <input class="field-input" type="date" formControlName="paidDate" [min]="payModal()!.minDate">
 
         <label class="field-label">Monto a pagar <span class="field-required">*</span></label>
         <input class="field-input" type="number" min="0.01" step="0.01" formControlName="paidAmount">
@@ -330,6 +372,12 @@
                 <div class="extra-row" [formGroupName]="$index">
                   <input class="field-input extra-desc" type="text" placeholder="Descripción" formControlName="description">
                   <input class="field-input extra-amount" type="number" min="0.01" step="0.01" placeholder="Monto" formControlName="amount">
+                  <select class="field-select extra-cat" formControlName="categoryId">
+                    <option [ngValue]="null" disabled>Categoría *</option>
+                    @for (cat of categories(); track cat.id) {
+                      <option [value]="cat.id">{{ cat.name }}</option>
+                    }
+                  </select>
                   <button type="button" class="btn-remove-extra" (click)="removeExtraCharge($index)">
                     <svg lucideTrash2 [size]="14"></svg>
                   </button>

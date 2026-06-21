@@ -236,8 +236,8 @@ export class ConfiguracionComponent implements OnInit {
     amount:        new FormControl<number>(0, { nonNullable: true, validators: [Validators.required, Validators.min(0.01)] }),
     ccy:           new FormControl<'ARS' | 'USD'>('ARS', { nonNullable: true }),
     type:          new FormControl<'INCOME' | 'EXPENSE'>('EXPENSE', { nonNullable: true }),
-    categoryId:    new FormControl<string | null>(null),
-    paymentSource: new FormControl('', { nonNullable: true }),
+    categoryId:    new FormControl<string | null>(null, [Validators.required]),
+    paymentSource: new FormControl('', { nonNullable: true, validators: [Validators.required] }),
     dayOfMonth:    new FormControl<number>(1, { nonNullable: true, validators: [Validators.required, Validators.min(1), Validators.max(31)] }),
   });
 

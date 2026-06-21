@@ -188,7 +188,31 @@ public class CardProjectionService {
                         .build());
             }
 
-            if (consumos.isEmpty()) continue;
+            // ── Extra charges vinculados a pagos de esta tarjeta ────────────────
+            List<Transaction> extras = transactionRepository
+                    .findExtraChargesForCard(cardEntry.getKey(), firstMonth.atDay(1));
+            List<CardMatrixConsumo> extraConsumos = new ArrayList<>();
+            for (Transaction ex : extras) {
+                BigDecimal[] exCells = new BigDecimal[months];
+                Boolean[]   exPaid  = new Boolean[months];
+                int idx = window.indexOf(YearMonth.from(ex.getTransactionDate()));
+                if (idx >= 0) {
+                    exCells[idx] = ex.getAmount();
+                    exPaid[idx]  = true;
+                    subtotals[idx] = subtotals[idx].add(ex.getAmount());
+                    totals[idx]    = totals[idx].add(ex.getAmount());
+                    extraConsumos.add(CardMatrixConsumo.builder()
+                            .description(ex.getDescription())
+                            .installmentLabel(null)
+                            .categoryIcon(ex.getCategory() != null ? ex.getCategory().getIcon() : null)
+                            .categoryColor(ex.getCategory() != null ? ex.getCategory().getColor() : null)
+                            .cellsByMonth(toList(exCells))
+                            .paidByMonth(toListBoolean(exPaid))
+                            .build());
+                }
+            }
+
+            if (consumos.isEmpty() && extraConsumos.isEmpty()) continue;
             consumos.sort(Comparator.comparing(CardMatrixConsumo::description));
 
             cards.add(CardMatrixCard.builder()
@@ -196,6 +220,7 @@ public class CardProjectionService {
                     .cardName(cardName(card))
                     .accent(card.getAccent())
                     .consumos(consumos)
+                    .extraCharges(extraConsumos)
                     .subtotalsByMonth(toList(subtotals))
                     .build());
         }

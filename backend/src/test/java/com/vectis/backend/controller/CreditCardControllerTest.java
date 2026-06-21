@@ -264,6 +264,21 @@ class CreditCardControllerTest {
     }
 
     @Test
+    @DisplayName("POST /api/cards/{id}/payments con cargo extra sin categoryId retorna 400")
+    void payCard_extraChargeWithoutCategory_returns400() throws Exception {
+        String body = String.format("""
+            {"accountId":"%s","paidDate":"2026-07-25","paidAmount":80000,"periodYear":2026,"periodMonth":7,
+             "extraCharges":[{"description":"Intereses","amount":1200}]}
+            """, UUID.randomUUID());
+
+        mockMvc.perform(post("/api/cards/" + UUID.randomUUID() + "/payments")
+                        .header(HttpHeaders.AUTHORIZATION, AUTH_HEADER)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(body))
+                .andExpect(status().isBadRequest());
+    }
+
+    @Test
     @DisplayName("POST /api/cards/{id}/payments sin accountId retorna 400")
     void payCard_missingAccountId_returns400() throws Exception {
         String body = """

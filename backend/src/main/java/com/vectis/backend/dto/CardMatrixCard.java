@@ -14,5 +14,6 @@ public record CardMatrixCard(
         @Schema(description = "Nombre de la tarjeta", example = "Galicia ····4821") String cardName,
         @Schema(description = "Color de acento") String accent,
         @Schema(description = "Consumos (filas hijas)") List<CardMatrixConsumo> consumos,
+        @Schema(description = "Cargos adicionales vinculados a pagos (no consumen límite de crédito)") List<CardMatrixConsumo> extraCharges,
         @Schema(description = "Subtotales por mes alineados a las columnas") List<BigDecimal> subtotalsByMonth
 ) {}

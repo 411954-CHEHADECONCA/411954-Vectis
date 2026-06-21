@@ -107,10 +107,10 @@ class CardPaymentServiceTest {
         verify(transactionRepository).saveAll(List.of(t1, t2));
     }
 
-    // ─── pay — crea transacción de cuenta EXPENSE ─────────────────────────────
+    // ─── pay — crea transacción de cuenta CARD_PAYMENT ───────────────────────
 
     @Test
-    @DisplayName("pay crea una transacción EXPENSE de cuenta para el pago principal")
+    @DisplayName("pay crea una transacción CARD_PAYMENT de cuenta para el pago principal")
     void pay_createsAccountExpenseTransaction() {
         given(creditCardRepository.findById(cardId)).willReturn(Optional.of(card));
         given(accountRepository.findById(accountId)).willReturn(Optional.of(account));
@@ -125,7 +125,7 @@ class CardPaymentServiceTest {
         verify(transactionRepository).save(captor.capture());
         Transaction saved = captor.getValue();
 
-        assertThat(saved.getType()).isEqualTo(TransactionType.EXPENSE);
+        assertThat(saved.getType()).isEqualTo(TransactionType.CARD_PAYMENT);
         assertThat(saved.getAccount()).isEqualTo(account);
         assertThat(saved.getCard()).isNull();
         assertThat(saved.getAmount()).isEqualByComparingTo(new BigDecimal("82700.00"));
@@ -136,12 +136,17 @@ class CardPaymentServiceTest {
     @Test
     @DisplayName("pay crea transacciones adicionales por cada cargo extra")
     void pay_withExtraCharges_createsExtraTransactions() {
+        UUID catId = UUID.randomUUID();
+        com.vectis.backend.domain.entity.Category extraCat =
+                com.vectis.backend.domain.entity.Category.builder()
+                        .id(catId).user(user).name("Intereses").build();
+
         CardPaymentRequest request = new CardPaymentRequest(
                 accountId, LocalDate.of(2026, 7, 25),
                 new BigDecimal("85000.00"), 2026, 7, null,
                 List.of(
-                        new ExtraChargeRequest("Interés", new BigDecimal("2500.00"), null),
-                        new ExtraChargeRequest("Mantenimiento", new BigDecimal("200.00"), null)
+                        new ExtraChargeRequest("Interés", new BigDecimal("2500.00"), catId),
+                        new ExtraChargeRequest("Mantenimiento", new BigDecimal("200.00"), catId)
                 )
         );
 
@@ -151,6 +156,7 @@ class CardPaymentServiceTest {
                 .willReturn(List.of(buildCardTx()));
         given(transactionRepository.saveAll(anyList())).willReturn(List.of());
         given(transactionRepository.save(any(Transaction.class))).willReturn(buildAccountTx());
+        given(categoryRepository.findById(catId)).willReturn(Optional.of(extraCat));
 
         CardPaymentResponse response = cardPaymentService.pay(cardId, request, user);
 
@@ -289,7 +295,7 @@ class CardPaymentServiceTest {
         UUID paymentId = UUID.randomUUID();
         Transaction paymentTx = Transaction.builder()
                 .id(paymentId).user(user).account(account)
-                .type(TransactionType.EXPENSE)
+                .type(TransactionType.CARD_PAYMENT)
                 .description("Pago Galicia ····1234 2026/07")
                 .amount(new BigDecimal("82700.00")).ccy("ARS")
                 .transactionDate(LocalDate.of(2026, 7, 25))
@@ -362,7 +368,7 @@ class CardPaymentServiceTest {
     private Transaction buildAccountTx() {
         return Transaction.builder()
                 .id(UUID.randomUUID()).user(user).account(account)
-                .type(TransactionType.EXPENSE).description("Pago Galicia ····1234 2026/07")
+                .type(TransactionType.CARD_PAYMENT).description("Pago Galicia ····1234 2026/07")
                 .amount(new BigDecimal("82700.00")).ccy("ARS")
                 .transactionDate(LocalDate.of(2026, 7, 25))
                 .dueDate(LocalDate.of(2026, 7, 25))

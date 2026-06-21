@@ -1,4 +1,4 @@
-export type MovementType = 'INCOME' | 'EXPENSE';
+export type MovementType = 'INCOME' | 'EXPENSE' | 'CARD_PAYMENT' | 'TRANSFER';
 export type MovementCcy = 'ARS' | 'USD';
 
 export interface MovementResponse {

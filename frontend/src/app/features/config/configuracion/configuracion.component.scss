@@ -670,6 +670,8 @@
   color: var(--color-error);
 }
 
+.field-required { color: var(--color-error); }
+
 .form-grid-2 {
   display: grid;
   grid-template-columns: 1fr 1.4fr;

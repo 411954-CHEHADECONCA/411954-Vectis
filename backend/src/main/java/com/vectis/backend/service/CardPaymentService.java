@@ -84,7 +84,7 @@ public class CardPaymentService {
         // Crear la transacción de pago PRIMERO para obtener su ID y vincularlo a las cuotas
         Transaction paymentTx = Transaction.builder()
                 .user(user)
-                .type(TransactionType.EXPENSE)
+                .type(TransactionType.CARD_PAYMENT)
                 .description(description)
                 .amount(request.paidAmount())
                 .ccy(account.getCcy())
@@ -108,14 +108,11 @@ public class CardPaymentService {
 
         List<Transaction> extraTxs = new ArrayList<>(extras.size());
         for (ExtraChargeRequest extra : extras) {
-            Category extraCat = null;
-            UUID extraCatId = extra.categoryId();
-            if (extraCatId != null) {
-                extraCat = categoryRepository.findById(extraCatId).orElse(null);
-                if (extraCat != null && extraCat.getUser() != null
-                        && !extraCat.getUser().getId().equals(user.getId())) {
-                    throw new VectisException("La categoría no pertenece al usuario autenticado", HttpStatus.FORBIDDEN);
-                }
+            UUID extraCatId = java.util.Objects.requireNonNull(extra.categoryId());
+            Category extraCat = categoryRepository.findById(extraCatId)
+                    .orElseThrow(() -> new VectisException("Categoría no encontrada: " + extraCatId, HttpStatus.NOT_FOUND));
+            if (extraCat.getUser() != null && !extraCat.getUser().getId().equals(user.getId())) {
+                throw new VectisException("La categoría no pertenece al usuario autenticado", HttpStatus.FORBIDDEN);
             }
             extraTxs.add(Transaction.builder()
                     .user(user)

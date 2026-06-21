@@ -774,9 +774,9 @@
 
         <!-- Medio de pago unificado -->
         <div class="cfg-field">
-          <label class="cfg-label" for="rec-payment">Medio de pago <span class="cfg-hint">(opcional)</span></label>
+          <label class="cfg-label" for="rec-payment">Medio de pago <span class="field-required">*</span></label>
           <select id="rec-payment" class="text-input" formControlName="paymentSource">
-            <option value="">Sin medio de pago</option>
+            <option value="" disabled>Seleccioná un medio de pago</option>
             @if (accounts().length > 0) {
               <optgroup label="Cuentas bancarias">
                 @for (a of accounts(); track a.id) {
@@ -792,19 +792,25 @@
               </optgroup>
             }
           </select>
+          @if (recurringForm.controls.paymentSource.invalid && recurringForm.controls.paymentSource.touched) {
+            <span class="field-error">El medio de pago es requerido</span>
+          }
         </div>
 
         <!-- Categoría -->
         <div class="cfg-field">
-          <label class="cfg-label" for="rec-category">Categoría <span class="cfg-hint">(opcional)</span></label>
+          <label class="cfg-label" for="rec-category">Categoría <span class="field-required">*</span></label>
           <select id="rec-category" class="text-input" formControlName="categoryId">
-            <option value="">Sin categoría</option>
+            <option value="" disabled>Seleccioná una categoría</option>
             @for (cat of categories(); track cat.id) {
               @if (cat.type === recType() || cat.type === 'BOTH') {
                 <option [value]="cat.id">{{ cat.name }}</option>
               }
             }
           </select>
+          @if (recurringForm.controls.categoryId.invalid && recurringForm.controls.categoryId.touched) {
+            <span class="field-error">La categoría es requerida</span>
+          }
         </div>
 
         @if (formError()) {

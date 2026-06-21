@@ -47,8 +47,8 @@ public interface TransactionRepository extends JpaRepository<Transaction, UUID> 
                SUM(t.amount)     AS totalAmount
         FROM Transaction t
         WHERE t.user.id = :userId AND t.deletedAt IS NULL AND t.type = :type
-          AND ((t.card IS NOT NULL AND t.paid = FALSE AND t.dueDate         BETWEEN :from AND :to)
-            OR (t.card IS NULL                        AND t.transactionDate BETWEEN :from AND :to))
+          AND ((t.card IS NOT NULL AND t.dueDate         BETWEEN :from AND :to)
+            OR (t.card IS NULL    AND t.transactionDate  BETWEEN :from AND :to))
         GROUP BY t.category.id, t.category.name, t.category.icon, t.category.color
         ORDER BY SUM(t.amount) DESC
         """)
@@ -89,8 +89,8 @@ public interface TransactionRepository extends JpaRepository<Transaction, UUID> 
     @Query(value = """
         SELECT t FROM Transaction t
         WHERE t.user.id = :userId AND t.deletedAt IS NULL
-          AND ((t.card IS NOT NULL AND t.paid = FALSE AND t.dueDate         BETWEEN :from AND :to)
-            OR (t.card IS NULL                        AND t.transactionDate BETWEEN :from AND :to))
+          AND ((t.card IS NOT NULL AND t.dueDate         BETWEEN :from AND :to)
+            OR (t.card IS NULL    AND t.transactionDate  BETWEEN :from AND :to))
           AND (:type IS NULL OR t.type = :type)
           AND (:categoryId IS NULL OR t.category.id = :categoryId)
           AND (:q IS NULL OR LOWER(t.description) LIKE LOWER(CONCAT('%', CAST(:q AS string), '%')))
@@ -99,8 +99,8 @@ public interface TransactionRepository extends JpaRepository<Transaction, UUID> 
         countQuery = """
         SELECT COUNT(t) FROM Transaction t
         WHERE t.user.id = :userId AND t.deletedAt IS NULL
-          AND ((t.card IS NOT NULL AND t.paid = FALSE AND t.dueDate         BETWEEN :from AND :to)
-            OR (t.card IS NULL                        AND t.transactionDate BETWEEN :from AND :to))
+          AND ((t.card IS NOT NULL AND t.dueDate         BETWEEN :from AND :to)
+            OR (t.card IS NULL    AND t.transactionDate  BETWEEN :from AND :to))
           AND (:type IS NULL OR t.type = :type)
           AND (:categoryId IS NULL OR t.category.id = :categoryId)
           AND (:q IS NULL OR LOWER(t.description) LIKE LOWER(CONCAT('%', CAST(:q AS string), '%')))
@@ -118,8 +118,8 @@ public interface TransactionRepository extends JpaRepository<Transaction, UUID> 
         SELECT COALESCE(SUM(t.amount), 0) FROM Transaction t
         WHERE t.user.id = :userId AND t.deletedAt IS NULL
           AND t.type = :type
-          AND ((t.card IS NOT NULL AND t.paid = FALSE AND t.dueDate         BETWEEN :from AND :to)
-            OR (t.card IS NULL                        AND t.transactionDate BETWEEN :from AND :to))
+          AND ((t.card IS NOT NULL AND t.dueDate         BETWEEN :from AND :to)
+            OR (t.card IS NULL    AND t.transactionDate  BETWEEN :from AND :to))
           AND (:categoryId IS NULL OR t.category.id = :categoryId)
           AND (:q IS NULL OR LOWER(t.description) LIKE LOWER(CONCAT('%', CAST(:q AS string), '%')))
         """)
@@ -134,8 +134,8 @@ public interface TransactionRepository extends JpaRepository<Transaction, UUID> 
     @Query("""
         SELECT COUNT(t) FROM Transaction t
         WHERE t.user.id = :userId AND t.deletedAt IS NULL
-          AND ((t.card IS NOT NULL AND t.paid = FALSE AND t.dueDate         BETWEEN :from AND :to)
-            OR (t.card IS NULL                        AND t.transactionDate BETWEEN :from AND :to))
+          AND ((t.card IS NOT NULL AND t.dueDate         BETWEEN :from AND :to)
+            OR (t.card IS NULL    AND t.transactionDate  BETWEEN :from AND :to))
           AND (:type IS NULL OR t.type = :type)
           AND (:categoryId IS NULL OR t.category.id = :categoryId)
           AND (:q IS NULL OR LOWER(t.description) LIKE LOWER(CONCAT('%', CAST(:q AS string), '%')))
@@ -231,6 +231,29 @@ public interface TransactionRepository extends JpaRepository<Transaction, UUID> 
         ORDER BY t.transactionDate DESC, t.createdAt DESC
         """)
     List<Transaction> findCardPaymentTransactions(@Param("userId") UUID userId);
+
+    /**
+     * Cargos extra vinculados a pagos de una tarjeta (card == null, cardPaymentId != null).
+     * Usados por {@link com.vectis.backend.service.CardProjectionService} para incluirlos
+     * en la matriz de financiamiento como fila adicional fuera del límite de crédito.
+     */
+    @EntityGraph(attributePaths = {"category"})
+    @Query("""
+        SELECT t FROM Transaction t
+        WHERE t.cardPaymentId IN (
+            SELECT DISTINCT cuota.cardPaymentId FROM Transaction cuota
+            WHERE cuota.card.id = :cardId
+              AND cuota.cardPaymentId IS NOT NULL
+              AND cuota.deletedAt IS NULL
+        )
+        AND t.card IS NULL
+        AND t.deletedAt IS NULL
+        AND t.transactionDate >= :fromDate
+        ORDER BY t.transactionDate ASC
+        """)
+    List<Transaction> findExtraChargesForCard(
+            @Param("cardId")   UUID cardId,
+            @Param("fromDate") LocalDate fromDate);
 
     /**
      * Cuotas y cargos adicionales vinculados a un pago de tarjeta dado.

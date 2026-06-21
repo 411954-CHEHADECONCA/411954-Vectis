@@ -227,6 +227,23 @@ public class TransactionService {
         requireOwnership(tx, user, "eliminar");
 
         OffsetDateTime now = OffsetDateTime.now(ZoneOffset.UTC);
+
+        if (tx.getType() == TransactionType.CARD_PAYMENT) {
+            List<Transaction> linked = transactionRepository.findByCardPaymentId(tx.getId());
+            linked.forEach(t -> {
+                if (t.getCard() != null) {
+                    t.setPaid(false);
+                    t.setCardPaymentId(null);
+                } else {
+                    t.setDeletedAt(now);
+                }
+            });
+            transactionRepository.saveAll(linked);
+            tx.setDeletedAt(now);
+            transactionRepository.save(tx);
+            return;
+        }
+
         if (tx.getInstallmentGroupId() != null) {
             // Eliminar todo el grupo de cuotas.
             List<Transaction> group = transactionRepository
