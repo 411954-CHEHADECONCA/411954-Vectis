@@ -96,6 +96,12 @@
       <h2 class="page-title">{{ pageTitle() }}</h2>
     </div>
     <div class="topbar-right">
+      @if (oficialRate(); as rate) {
+        <div class="mep-chip" title="Dólar Oficial — {{ rate.rateDate }}">
+          <span class="mep-label">Oficial</span>
+          <span class="mep-value">{{ formatArs(rate.sell) }}</span>
+        </div>
+      }
       <button class="currency-toggle" (click)="currencyService.toggle()" [attr.aria-label]="'Ver en ' + (currencyService.selected() === 'ARS' ? 'USD' : 'ARS')">
         <span [class.currency-active]="currencyService.selected() === 'ARS'" [class.currency-inactive]="currencyService.selected() !== 'ARS'">ARS</span>
         <span class="currency-sep">/</span>
