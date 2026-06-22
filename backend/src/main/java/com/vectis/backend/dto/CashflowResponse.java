@@ -61,4 +61,7 @@ public class CashflowResponse {
 
     @Schema(description = "Indica si el mes futuro aún no tiene una proyección confirmada", example = "false")
     private boolean needsConfirmation;
+
+    @Schema(description = "Cotizacion OFICIAL (venta) al cierre del periodo. Null si no hay datos disponibles.", example = "1062.5000")
+    private String oficialRateAtPeriod;
 }

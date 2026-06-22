@@ -79,5 +79,8 @@ public record MovementResponse(
         boolean paid,
 
         @Schema(description = "ID que agrupa las dos legs de una transferencia entre cuentas (null si no es transferencia)")
-        UUID transferGroupId
+        UUID transferGroupId,
+
+        @Schema(description = "Cotizacion OFICIAL (venta) al momento de la transaccion. Null para transacciones anteriores a esta feature.", example = "1062.5000")
+        String exchangeRateAtTime
 ) {}

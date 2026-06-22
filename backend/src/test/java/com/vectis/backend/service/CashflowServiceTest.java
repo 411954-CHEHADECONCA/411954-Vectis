@@ -9,8 +9,10 @@ import com.vectis.backend.domain.entity.RecurringMovement;
 import com.vectis.backend.domain.entity.TransactionType;
 import com.vectis.backend.domain.entity.User;
 import com.vectis.backend.dto.CashflowResponse;
+import com.vectis.backend.domain.entity.ExchangeRate;
 import com.vectis.backend.repository.AccountRepository;
 import com.vectis.backend.repository.CategoryBudgetRepository;
+import com.vectis.backend.repository.ExchangeRateRepository;
 import com.vectis.backend.repository.MonthPeriodRepository;
 import com.vectis.backend.repository.RecurringMovementRepository;
 import com.vectis.backend.repository.TransactionRepository;
@@ -50,6 +52,7 @@ class CashflowServiceTest {
     @Mock private AccountRepository           accountRepository;
     @Mock private TransactionRepository       transactionRepository;
     @Mock private CategoryBudgetRepository    categoryBudgetRepository;
+    @Mock private ExchangeRateRepository      exchangeRateRepository;
     @Mock private MonthPeriodService          monthPeriodService;
     @Mock private MonthPeriodRepository       monthPeriodRepository;
     @Mock private RecurringMovementRepository recurringMovementRepository;
@@ -588,6 +591,86 @@ class CashflowServiceTest {
         assertThat(result.isProjection()).isTrue();
         // N+2 debe abrir con el cierre proyectado de N+1 = 100000 + 50000 - 30000 = 120000
         assertThat(result.getOpeningBalance().total()).isEqualByComparingTo("120000.0000");
+    }
+
+    // ─── oficialRateAtPeriod ──────────────────────────────────────────────────
+
+    @Test
+    @DisplayName("getCashflow incluye oficialRateAtPeriod cuando existe cotizacion para el ultimo dia del mes")
+    void getCashflow_includesOficialRateAtPeriod_whenExactDateFound() {
+        LocalDate today    = LocalDate.now();
+        int year  = today.getYear();
+        int month = today.getMonthValue();
+        LocalDate firstDay = today.withDayOfMonth(1);
+        LocalDate lastDay  = firstDay.withDayOfMonth(firstDay.lengthOfMonth());
+
+        given(monthPeriodService.getStatus(eq(user), eq(year), eq(month), any(LocalDate.class))).willReturn("curso");
+        given(monthPeriodRepository.findByUser_IdAndYearAndMonth(userId, year, month)).willReturn(Optional.empty());
+        given(accountRepository.findAllByUser_IdAndIncludeInCashflowTrue(userId)).willReturn(Collections.emptyList());
+        given(transactionRepository.netMovementsForAccounts(eq(userId), anyList(), any(LocalDate.class))).willReturn(Collections.emptyList());
+        given(transactionRepository.groupByCategory(eq(userId), any(), any(LocalDate.class), any(LocalDate.class))).willReturn(Collections.emptyList());
+        given(categoryBudgetRepository.findLatestPerCategoryOnOrBefore(userId, firstDay)).willReturn(Collections.emptyList());
+
+        ExchangeRate rate = ExchangeRate.builder()
+                .id(UUID.randomUUID()).rateType("OFICIAL")
+                .buy(new BigDecimal("1060.0000")).sell(new BigDecimal("1062.5000"))
+                .rateDate(lastDay).source("dolarapi.com").createdAt(OffsetDateTime.now()).build();
+        given(exchangeRateRepository.findByRateTypeAndRateDate("OFICIAL", lastDay)).willReturn(Optional.of(rate));
+
+        CashflowResponse result = cashflowService.getCashflow(user, year, month);
+
+        assertThat(result.getOficialRateAtPeriod()).isEqualTo("1062.5000");
+    }
+
+    @Test
+    @DisplayName("getCashflow usa la cotizacion mas reciente cuando no hay una para el ultimo dia del mes")
+    void getCashflow_fallsBackToMostRecentRate_whenExactDateMissing() {
+        LocalDate today    = LocalDate.now();
+        int year  = today.getYear();
+        int month = today.getMonthValue();
+        LocalDate firstDay = today.withDayOfMonth(1);
+        LocalDate lastDay  = firstDay.withDayOfMonth(firstDay.lengthOfMonth());
+
+        given(monthPeriodService.getStatus(eq(user), eq(year), eq(month), any(LocalDate.class))).willReturn("curso");
+        given(monthPeriodRepository.findByUser_IdAndYearAndMonth(userId, year, month)).willReturn(Optional.empty());
+        given(accountRepository.findAllByUser_IdAndIncludeInCashflowTrue(userId)).willReturn(Collections.emptyList());
+        given(transactionRepository.netMovementsForAccounts(eq(userId), anyList(), any(LocalDate.class))).willReturn(Collections.emptyList());
+        given(transactionRepository.groupByCategory(eq(userId), any(), any(LocalDate.class), any(LocalDate.class))).willReturn(Collections.emptyList());
+        given(categoryBudgetRepository.findLatestPerCategoryOnOrBefore(userId, firstDay)).willReturn(Collections.emptyList());
+
+        ExchangeRate fallback = ExchangeRate.builder()
+                .id(UUID.randomUUID()).rateType("OFICIAL")
+                .buy(new BigDecimal("1058.0000")).sell(new BigDecimal("1060.0000"))
+                .rateDate(lastDay.minusDays(3)).source("dolarapi.com").createdAt(OffsetDateTime.now()).build();
+        given(exchangeRateRepository.findByRateTypeAndRateDate("OFICIAL", lastDay)).willReturn(Optional.empty());
+        given(exchangeRateRepository.findTopByRateTypeOrderByRateDateDesc("OFICIAL")).willReturn(Optional.of(fallback));
+
+        CashflowResponse result = cashflowService.getCashflow(user, year, month);
+
+        assertThat(result.getOficialRateAtPeriod()).isEqualTo("1060.0000");
+    }
+
+    @Test
+    @DisplayName("getCashflow deja oficialRateAtPeriod en null cuando no hay cotizacion disponible")
+    void getCashflow_nullRateAtPeriod_whenNoRateAvailable() {
+        LocalDate today    = LocalDate.now();
+        int year  = today.getYear();
+        int month = today.getMonthValue();
+        LocalDate firstDay = today.withDayOfMonth(1);
+
+        given(monthPeriodService.getStatus(eq(user), eq(year), eq(month), any(LocalDate.class))).willReturn("curso");
+        given(monthPeriodRepository.findByUser_IdAndYearAndMonth(userId, year, month)).willReturn(Optional.empty());
+        given(accountRepository.findAllByUser_IdAndIncludeInCashflowTrue(userId)).willReturn(Collections.emptyList());
+        given(transactionRepository.netMovementsForAccounts(eq(userId), anyList(), any(LocalDate.class))).willReturn(Collections.emptyList());
+        given(transactionRepository.groupByCategory(eq(userId), any(), any(LocalDate.class), any(LocalDate.class))).willReturn(Collections.emptyList());
+        given(categoryBudgetRepository.findLatestPerCategoryOnOrBefore(userId, firstDay)).willReturn(Collections.emptyList());
+
+        given(exchangeRateRepository.findByRateTypeAndRateDate(anyString(), any(LocalDate.class))).willReturn(Optional.empty());
+        given(exchangeRateRepository.findTopByRateTypeOrderByRateDateDesc(anyString())).willReturn(Optional.empty());
+
+        CashflowResponse result = cashflowService.getCashflow(user, year, month);
+
+        assertThat(result.getOficialRateAtPeriod()).isNull();
     }
 
     // ─── helpers ──────────────────────────────────────────────────────────────

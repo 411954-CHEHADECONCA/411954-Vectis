@@ -57,6 +57,39 @@ class TransactionMapperTest {
     }
 
     @Test
+    @DisplayName("toResponse mapea exchangeRateAtTime cuando esta presente")
+    void toResponse_includesExchangeRateAtTime() {
+        User user = User.builder().id(UUID.randomUUID()).email("u@v.com").fullName("U").passwordHash("h").build();
+        Transaction tx = Transaction.builder()
+                .id(UUID.randomUUID()).user(user).type(TransactionType.INCOME).description("Sueldo")
+                .amount(new BigDecimal("1240000.0000")).ccy("ARS")
+                .transactionDate(LocalDate.of(2026, 1, 10)).dueDate(LocalDate.of(2026, 1, 10))
+                .installment(false).createdAt(OffsetDateTime.now())
+                .exchangeRateAtTime(new BigDecimal("1062.5000"))
+                .build();
+
+        MovementResponse r = mapper.toResponse(tx);
+
+        assertThat(r.exchangeRateAtTime()).isEqualTo("1062.5000");
+    }
+
+    @Test
+    @DisplayName("toResponse mapea exchangeRateAtTime como null cuando no esta seteado")
+    void toResponse_nullExchangeRate_mapsToNull() {
+        User user = User.builder().id(UUID.randomUUID()).email("u@v.com").fullName("U").passwordHash("h").build();
+        Transaction tx = Transaction.builder()
+                .id(UUID.randomUUID()).user(user).type(TransactionType.INCOME).description("Sueldo")
+                .amount(new BigDecimal("1240000.0000")).ccy("ARS")
+                .transactionDate(LocalDate.of(2026, 1, 10)).dueDate(LocalDate.of(2026, 1, 10))
+                .installment(false).createdAt(OffsetDateTime.now())
+                .build();
+
+        MovementResponse r = mapper.toResponse(tx);
+
+        assertThat(r.exchangeRateAtTime()).isNull();
+    }
+
+    @Test
     @DisplayName("toResponse con cuenta y sin categoría deja nulos los campos de categoría/tarjeta")
     void toResponse_withAccountNoCategory_nullSafe() {
         User user = User.builder().id(UUID.randomUUID()).email("u@v.com").fullName("U").passwordHash("h").build();

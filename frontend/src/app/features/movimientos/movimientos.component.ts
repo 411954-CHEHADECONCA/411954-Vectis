@@ -626,11 +626,17 @@ export class MovimientosComponent implements OnInit {
       .replace('.', '');
   }
 
-  fmtAmount(amount: number, ccy: MovementCcy): string {
-    if (ccy === 'USD') {
-      return `US$ ${amount.toLocaleString('es-AR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
+  fmtAmount(amount: number, ccy: MovementCcy, rateAtTime?: string | null): string {
+    const converted = this.currencyService.convertHistorical(amount, ccy, rateAtTime ?? null);
+    if (converted === null) {
+      if (ccy === 'USD') return `US$ ${amount.toLocaleString('es-AR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
+      return `$ ${Math.round(amount).toLocaleString('es-AR')}`;
     }
-    return `$ ${Math.round(amount).toLocaleString('es-AR')}`;
+    const sel = this.currencyService.selected();
+    if (sel === 'USD') {
+      return `US$ ${converted.toLocaleString('es-AR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
+    }
+    return `$ ${Math.round(converted).toLocaleString('es-AR')}`;
   }
 
   typeBadgeLabel(m: MovementResponse): string {
@@ -640,9 +646,9 @@ export class MovimientosComponent implements OnInit {
   }
 
   signedAmount(m: MovementResponse): string {
-    if (m.transferGroupId) return this.fmtAmount(m.amount, m.ccy);
+    if (m.transferGroupId) return this.fmtAmount(m.amount, m.ccy, m.exchangeRateAtTime);
     const prefix = (m.type === 'EXPENSE' || m.type === 'CARD_PAYMENT') ? '- ' : '+ ';
-    return prefix + this.fmtAmount(m.amount, m.ccy);
+    return prefix + this.fmtAmount(m.amount, m.ccy, m.exchangeRateAtTime);
   }
 }
 

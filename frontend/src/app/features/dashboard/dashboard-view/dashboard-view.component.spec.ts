@@ -1,4 +1,6 @@
 import { TestBed, ComponentFixture } from '@angular/core/testing';
+import { provideHttpClient } from '@angular/common/http';
+import { provideHttpClientTesting } from '@angular/common/http/testing';
 import { DashboardViewComponent } from './dashboard-view.component';
 import { CurrencyService } from '../../../core/services/currency.service';
 
@@ -10,6 +12,7 @@ describe('DashboardViewComponent', () => {
   beforeEach(async () => {
     await TestBed.configureTestingModule({
       imports: [DashboardViewComponent],
+      providers: [provideHttpClient(), provideHttpClientTesting()],
     }).compileComponents();
 
     fixture = TestBed.createComponent(DashboardViewComponent);
@@ -43,9 +46,9 @@ describe('DashboardViewComponent', () => {
     expect(component.fmt(1000000)).toBe('1.000.000');
   });
 
-  it('fmt converts to USD when selected', () => {
+  it('fmt retorna guion cuando moneda es USD pero cotizacion no esta cargada', () => {
     currencyService.selected.set('USD');
-    const result = component.fmt(1167400);
-    expect(result).toContain('1.000,00');
+    // rate not loaded → convert() returns null → fmt returns '–'
+    expect(component.fmt(1000000)).toBe('–');
   });
 });

@@ -11,7 +11,6 @@ import { CurrencyService } from '../../../core/services/currency.service';
 })
 export class DashboardViewComponent {
   readonly currencyService = inject(CurrencyService);
-  private readonly FX = 1167.4;
 
   readonly accounts = [
     { name: 'Galicia · Caja de ahorro', currency: 'ARS', ars: 4120500 },
@@ -38,9 +37,11 @@ export class DashboardViewComponent {
   readonly monthlyExpenses = 1092300;
 
   fmt(ars: number): string {
+    const converted = this.currencyService.convert(ars, 'ARS');
+    if (converted === null) return '–';
     if (this.currencyService.selected() === 'USD') {
-      return (ars / this.FX).toLocaleString('es-AR', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+      return converted.toLocaleString('es-AR', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
     }
-    return Math.round(ars).toLocaleString('es-AR');
+    return Math.round(converted).toLocaleString('es-AR');
   }
 }

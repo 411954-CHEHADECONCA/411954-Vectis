@@ -32,6 +32,7 @@ const MOCK_DATA: CashflowResponse = {
   closingBalance: { total: '8254020.0000', accounts: [
     { accountId: 'a1', name: 'Galicia', ccy: 'ARS', balance: '8254020.0000' },
   ]},
+  oficialRateAtPeriod: '1062.5000',
 };
 
 describe('CashflowComponent', () => {
@@ -51,8 +52,10 @@ describe('CashflowComponent', () => {
 
   afterEach(() => httpMock.verify());
 
-  /** Flush both the current-month and prev-month GET requests fired by forkJoin. */
+  /** Flush the exchange-rate call and both cashflow GET requests fired by forkJoin. */
   function flushCashflow(): void {
+    httpMock.match(r => r.url.includes('exchange-rates/oficial/latest'))
+            .forEach(r => r.flush({ rateType: 'OFICIAL', buy: '1060.0000', sell: '1062.5000', rateDate: '2026-06-22', source: 'test' }));
     const reqs = httpMock.match(r => r.url === '/api/cashflow');
     reqs.forEach(r => r.flush(MOCK_DATA));
     fixture.detectChanges();
@@ -79,6 +82,8 @@ describe('CashflowComponent', () => {
 
   it('error signal is set on HTTP error', fakeAsync(() => {
     fixture.detectChanges();
+    httpMock.match(r => r.url.includes('exchange-rates/oficial/latest'))
+            .forEach(r => r.flush({ rateType: 'OFICIAL', buy: '1060.0000', sell: '1062.5000', rateDate: '2026-06-22', source: 'test' }));
     // forkJoin fires current + prev month; failing one cancels the other (forkJoin behaviour)
     const reqs = httpMock.match(r => r.url === '/api/cashflow');
     // Fail the current-month request; forkJoin will cancel the prev-month request automatically
@@ -155,6 +160,8 @@ describe('CashflowComponent', () => {
 
   it('isProjection returns true when data has isProjection=true', () => {
     fixture.detectChanges();
+    httpMock.match(r => r.url.includes('exchange-rates/oficial/latest'))
+            .forEach(r => r.flush({ rateType: 'OFICIAL', buy: '1060.0000', sell: '1062.5000', rateDate: '2026-06-22', source: 'test' }));
     const reqs = httpMock.match(r => r.url === '/api/cashflow');
     reqs[0].flush({ ...MOCK_DATA, isProjection: true, status: 'proyectado' });
     if (reqs[1]) reqs[1].flush(MOCK_DATA);
@@ -164,6 +171,8 @@ describe('CashflowComponent', () => {
 
   it('should render error state when error signal is set', fakeAsync(() => {
     fixture.detectChanges();
+    httpMock.match(r => r.url.includes('exchange-rates/oficial/latest'))
+            .forEach(r => r.flush({ rateType: 'OFICIAL', buy: '1060.0000', sell: '1062.5000', rateDate: '2026-06-22', source: 'test' }));
     const reqs = httpMock.match(r => r.url === '/api/cashflow');
     // Fail the current-month request; forkJoin cancels the second automatically
     reqs[0].flush('Error', { status: 503, statusText: 'Service Unavailable' });

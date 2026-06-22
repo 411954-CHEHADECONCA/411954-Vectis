@@ -9,6 +9,7 @@ import com.vectis.backend.domain.entity.User;
 import com.vectis.backend.dto.*;
 import com.vectis.backend.repository.AccountRepository;
 import com.vectis.backend.repository.CategoryBudgetRepository;
+import com.vectis.backend.repository.ExchangeRateRepository;
 import com.vectis.backend.repository.MonthPeriodRepository;
 import com.vectis.backend.repository.RecurringMovementRepository;
 import com.vectis.backend.repository.TransactionRepository;
@@ -40,6 +41,7 @@ public class CashflowService {
     private final AccountRepository accountRepository;
     private final TransactionRepository transactionRepository;
     private final CategoryBudgetRepository categoryBudgetRepository;
+    private final ExchangeRateRepository exchangeRateRepository;
     private final MonthPeriodService monthPeriodService;
     private final MonthPeriodRepository monthPeriodRepository;
     private final RecurringMovementRepository recurringMovementRepository;
@@ -169,6 +171,14 @@ public class CashflowService {
                 .map(mp -> "PROJECTED".equals(mp.getStatus()))
                 .orElse(false);
         response.setNeedsConfirmation(isFuture && !hasProjectedRecord);
+
+        // ── Cotizacion OFICIAL al cierre del período ──────────────────────────
+        String oficialRateAtPeriod = exchangeRateRepository
+                .findByRateTypeAndRateDate("OFICIAL", lastDay)
+                .or(() -> exchangeRateRepository.findTopByRateTypeOrderByRateDateDesc("OFICIAL"))
+                .map(r -> r.getSell().toPlainString())
+                .orElse(null);
+        response.setOficialRateAtPeriod(oficialRateAtPeriod);
 
         return response;
     }

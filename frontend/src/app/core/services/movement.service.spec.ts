@@ -15,6 +15,7 @@ const MOCK_RESPONSE: MovementResponse = {
   installment: false, installmentNumber: null, totalInstallments: null,
   installmentGroupId: null, isProjected: false, paid: false, createdAt: '2026-06-09T00:00:00Z',
   transferGroupId: null,
+  exchangeRateAtTime: null,
 };
 
 const MOCK_PAGE: PageResponse<MovementResponse> = {

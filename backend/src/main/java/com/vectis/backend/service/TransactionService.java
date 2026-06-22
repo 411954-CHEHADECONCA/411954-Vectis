@@ -6,6 +6,7 @@ import com.vectis.backend.domain.entity.CreditCard;
 import com.vectis.backend.domain.entity.Transaction;
 import com.vectis.backend.domain.entity.TransactionType;
 import com.vectis.backend.domain.entity.User;
+import com.vectis.backend.dto.ExchangeRateResponse;
 import com.vectis.backend.dto.GroupMovementUpdateRequest;
 import com.vectis.backend.dto.MovementRequest;
 import com.vectis.backend.dto.MovementResponse;
@@ -21,6 +22,7 @@ import com.vectis.backend.repository.CategoryRepository;
 import com.vectis.backend.repository.CreditCardRepository;
 import com.vectis.backend.repository.TransactionRepository;
 import lombok.RequiredArgsConstructor;
+import lombok.extern.slf4j.Slf4j;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.PageRequest;
 import org.springframework.data.domain.Pageable;
@@ -38,6 +40,7 @@ import java.util.List;
 import java.util.Locale;
 import java.util.UUID;
 
+@Slf4j
 @Service
 @RequiredArgsConstructor
 @Transactional
@@ -50,6 +53,7 @@ public class TransactionService {
     private final TransactionMapper transactionMapper;
     private final InstallmentCalculator installmentCalculator;
     private final MonthPeriodService monthPeriodService;
+    private final MacroDataService macroDataService;
 
     @Transactional(readOnly = true)
     public PageResponse<MovementResponse> search(UUID userId, LocalDate from, LocalDate to,
@@ -113,6 +117,8 @@ public class TransactionService {
                     .get(0).dueDate()
                 : request.transactionDate();
 
+        BigDecimal rateAtTime = captureCurrentRate();
+
         Transaction tx = Transaction.builder()
                 .user(user)
                 .type(TransactionType.valueOf(request.type()))
@@ -125,6 +131,7 @@ public class TransactionService {
                 .transactionDate(request.transactionDate())
                 .dueDate(dueDate)
                 .installment(false)
+                .exchangeRateAtTime(rateAtTime)
                 .build();
 
         return List.of(transactionMapper.toResponse(transactionRepository.save(tx)));
@@ -144,6 +151,8 @@ public class TransactionService {
         List<InstallmentCalculator.Installment> parts = installmentCalculator.split(
                 request.amount(), request.transactionDate(), card.getClosingDay(), card.getDueDay(), n);
 
+        BigDecimal rateAtTime = captureCurrentRate();
+
         List<Transaction> toSave = new ArrayList<>(n);
         for (InstallmentCalculator.Installment part : parts) {
             toSave.add(Transaction.builder()
@@ -161,6 +170,7 @@ public class TransactionService {
                     .installmentNumber(part.number())
                     .totalInstallments(n)
                     .installmentGroupId(groupId)
+                    .exchangeRateAtTime(rateAtTime)
                     .build());
         }
 
@@ -309,5 +319,18 @@ public class TransactionService {
     /** Convierte un String normalizado a TransactionType, o null si el filtro es vacío. */
     private static TransactionType parseType(String type) {
         return type == null ? null : TransactionType.valueOf(type);
+    }
+
+    private BigDecimal captureCurrentRate() {
+        try {
+            ExchangeRateResponse rate = macroDataService.getLatestOficialRate();
+            if (rate == null || rate.sell() == null) return null;
+            return new BigDecimal(rate.sell());
+        } catch (VectisException e) {
+            // Solo se captura VectisException (cotizacion no disponible en DB).
+            // DataAccessException u otras excepciones de infraestructura deben propagarse.
+            log.warn("No se pudo capturar cotizacion al crear transaccion: {}", e.getMessage());
+            return null;
+        }
     }
 }

@@ -84,6 +84,9 @@ public class Transaction {
     @Column(name = "transfer_group_id")
     private UUID transferGroupId;
 
+    @Column(name = "exchange_rate_at_time", precision = 19, scale = 4)
+    private BigDecimal exchangeRateAtTime;
+
     @Column(name = "deleted_at")
     private OffsetDateTime deletedAt;
 

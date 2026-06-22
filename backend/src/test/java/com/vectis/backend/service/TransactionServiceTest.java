@@ -4,6 +4,7 @@ import com.vectis.backend.domain.entity.CreditCard;
 import com.vectis.backend.domain.entity.Transaction;
 import com.vectis.backend.domain.entity.TransactionType;
 import com.vectis.backend.domain.entity.User;
+import com.vectis.backend.dto.ExchangeRateResponse;
 import com.vectis.backend.dto.GroupMovementUpdateRequest;
 import com.vectis.backend.dto.MovementRequest;
 import com.vectis.backend.dto.MovementResponse;
@@ -16,6 +17,7 @@ import com.vectis.backend.repository.AccountRepository;
 import com.vectis.backend.repository.CategoryRepository;
 import com.vectis.backend.repository.CreditCardRepository;
 import com.vectis.backend.repository.TransactionRepository;
+import com.vectis.backend.service.MacroDataService;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
@@ -62,6 +64,7 @@ class TransactionServiceTest {
     @Mock private TransactionMapper transactionMapper;
     @Mock private InstallmentCalculator installmentCalculator;
     @Mock private MonthPeriodService monthPeriodService;
+    @Mock private MacroDataService macroDataService;
 
     private User user;
     private User otherUser;
@@ -215,6 +218,46 @@ class TransactionServiceTest {
         assertThatThrownBy(() -> transactionService.create(req, user))
                 .isInstanceOf(VectisException.class)
                 .satisfies(ex -> assertThat(((VectisException) ex).getStatus()).isEqualTo(HttpStatus.FORBIDDEN));
+    }
+
+    // ─── create — bimoneda ───────────────────────────────────────────────────────
+
+    @Test
+    @DisplayName("create captura cotizacion OFICIAL al momento de crear la transaccion")
+    void create_capturesExchangeRateAtTime() {
+        MovementRequest req = new MovementRequest(
+                "Sueldo", new BigDecimal("1240000"), "ARS", "INCOME",
+                null, null, null, LocalDate.of(2026, 6, 10), 1);
+
+        given(macroDataService.getLatestOficialRate())
+                .willReturn(new ExchangeRateResponse("OFICIAL", "1060.0000", "1062.5000", "2026-06-10", "dolarapi.com"));
+        given(transactionRepository.save(any(Transaction.class))).willAnswer(inv -> inv.getArgument(0));
+        given(transactionMapper.toResponse(any(Transaction.class))).willReturn(mock());
+
+        transactionService.create(req, user);
+
+        ArgumentCaptor<Transaction> captor = ArgumentCaptor.forClass(Transaction.class);
+        verify(transactionRepository).save(captor.capture());
+        assertThat(captor.getValue().getExchangeRateAtTime()).isEqualByComparingTo("1062.5000");
+    }
+
+    @Test
+    @DisplayName("create guarda exchangeRateAtTime=null cuando MacroDataService no esta disponible")
+    void create_setsNullRateWhenMacroUnavailable() {
+        MovementRequest req = new MovementRequest(
+                "Sueldo", new BigDecimal("1240000"), "ARS", "INCOME",
+                null, null, null, LocalDate.of(2026, 6, 10), 1);
+
+        given(macroDataService.getLatestOficialRate())
+                .willThrow(new VectisException("Cotizacion no disponible", HttpStatus.NOT_FOUND));
+        given(transactionRepository.save(any(Transaction.class))).willAnswer(inv -> inv.getArgument(0));
+        given(transactionMapper.toResponse(any(Transaction.class))).willReturn(mock());
+
+        transactionService.create(req, user);
+
+        ArgumentCaptor<Transaction> captor = ArgumentCaptor.forClass(Transaction.class);
+        verify(transactionRepository).save(captor.capture());
+        assertThat(captor.getValue().getExchangeRateAtTime()).isNull();
     }
 
     // ─── update ─────────────────────────────────────────────────────────────────
