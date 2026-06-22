@@ -31,6 +31,7 @@ public class TransactionMapper {
                 .createdAt(t.getCreatedAt())
                 .isProjected(t.isProjected())
                 .paid(t.isPaid())
+                .transferGroupId(t.getTransferGroupId())
                 .build();
     }
 }

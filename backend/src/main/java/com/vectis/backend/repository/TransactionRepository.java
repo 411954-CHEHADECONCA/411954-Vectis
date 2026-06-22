@@ -9,11 +9,13 @@ import org.springframework.data.domain.Pageable;
 import org.springframework.data.jpa.repository.EntityGraph;
 import org.springframework.data.jpa.repository.JpaRepository;
 import org.springframework.data.jpa.repository.Lock;
+import org.springframework.data.jpa.repository.Modifying;
 import org.springframework.data.jpa.repository.Query;
 import org.springframework.data.repository.query.Param;
 
 import java.math.BigDecimal;
 import java.time.LocalDate;
+import java.time.OffsetDateTime;
 import java.util.List;
 import java.util.Optional;
 import java.util.UUID;
@@ -47,6 +49,7 @@ public interface TransactionRepository extends JpaRepository<Transaction, UUID> 
                SUM(t.amount)     AS totalAmount
         FROM Transaction t
         WHERE t.user.id = :userId AND t.deletedAt IS NULL AND t.type = :type
+          AND t.transferGroupId IS NULL
           AND ((t.card IS NOT NULL AND t.dueDate         BETWEEN :from AND :to)
             OR (t.card IS NULL    AND t.transactionDate  BETWEEN :from AND :to))
         GROUP BY t.category.id, t.category.name, t.category.icon, t.category.color
@@ -113,11 +116,12 @@ public interface TransactionRepository extends JpaRepository<Transaction, UUID> 
                              @Param("q") String q,
                              Pageable pageable);
 
-    /** Suma de montos por tipo dentro del período/filtros (para el resumen). */
+    /** Suma de montos por tipo dentro del período/filtros (para el resumen). Excluye legs de transferencias. */
     @Query("""
         SELECT COALESCE(SUM(t.amount), 0) FROM Transaction t
         WHERE t.user.id = :userId AND t.deletedAt IS NULL
           AND t.type = :type
+          AND t.transferGroupId IS NULL
           AND ((t.card IS NOT NULL AND t.dueDate         BETWEEN :from AND :to)
             OR (t.card IS NULL    AND t.transactionDate  BETWEEN :from AND :to))
           AND (:categoryId IS NULL OR t.category.id = :categoryId)
@@ -266,4 +270,20 @@ public interface TransactionRepository extends JpaRepository<Transaction, UUID> 
         ORDER BY t.amount DESC
         """)
     List<Transaction> findByCardPaymentId(@Param("paymentId") UUID paymentId);
+
+    /**
+     * Soft-delete atómico de las dos legs de una transferencia.
+     * Devuelve la cantidad de registros actualizados (debe ser 2 en condiciones normales).
+     */
+    @Modifying
+    @Query("""
+        UPDATE Transaction t
+        SET t.deletedAt = :now
+        WHERE t.transferGroupId = :groupId
+          AND t.user.id = :userId
+          AND t.deletedAt IS NULL
+        """)
+    int softDeleteByTransferGroupId(@Param("groupId") UUID groupId,
+                                     @Param("userId")  UUID userId,
+                                     @Param("now")     OffsetDateTime now);
 }

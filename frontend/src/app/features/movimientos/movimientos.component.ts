@@ -50,6 +50,7 @@ import { AccountService } from '../../core/services/account.service';
 import { CreditCardService } from '../../core/services/credit-card.service';
 import { CardProjectionService } from '../../core/services/card-projection.service';
 import { CurrencyService } from '../../core/services/currency.service';
+import { TransferService } from '../../core/services/transfer.service';
 import {
   GroupMovementUpdateRequest,
   MovementResponse,
@@ -59,6 +60,7 @@ import {
   MovementCcy,
   MovementFilters,
 } from '../../core/models/movement.models';
+import { TransferRequest } from '../../core/models/transfer.models';
 import { PageResponse } from '../../core/models/pagination.models';
 import { CategoryResponse } from '../../core/models/category.models';
 import { AccountResponse } from '../../core/models/account.models';
@@ -73,6 +75,7 @@ interface MovementModalState {
   label?: string;
   isInstallment?: boolean;
   installmentGroupId?: string;
+  transferGroupId?: string;
 }
 
 @Component({
@@ -98,6 +101,7 @@ export class MovimientosComponent implements OnInit {
   private readonly accountService        = inject(AccountService);
   private readonly creditCardService     = inject(CreditCardService);
   private readonly cardProjectionService = inject(CardProjectionService);
+  private readonly transferService       = inject(TransferService);
   private readonly route                 = inject(ActivatedRoute);
   readonly currencyService               = inject(CurrencyService);
 
@@ -148,7 +152,7 @@ export class MovimientosComponent implements OnInit {
   formError  = signal<string | null>(null);
 
   movementForm = new FormGroup({
-    description:     new FormControl('',  { nonNullable: true, validators: [Validators.required, Validators.maxLength(200)] }),
+    description:     new FormControl('',  { nonNullable: true, validators: [Validators.maxLength(200)] }),
     type:           new FormControl<MovementType>('EXPENSE', { nonNullable: true }),
     categoryId:     new FormControl<string | null>(null),
     paymentSource:  new FormControl('',   { nonNullable: true, validators: [MovimientosComponent.paymentSourceValid] }),
@@ -156,6 +160,8 @@ export class MovimientosComponent implements OnInit {
     amount:         new FormControl<number>(0, { nonNullable: true, validators: [Validators.required, Validators.min(0.01)] }),
     transactionDate: new FormControl(todayISO(), { nonNullable: true, validators: [Validators.required] }),
     installments:   new FormControl<number>(1, { nonNullable: true, validators: [Validators.required, Validators.min(1), Validators.max(360)] }),
+    destAccountId:  new FormControl<string | null>(null),
+    destAmount:     new FormControl<number | null>(null),
   });
 
   private readonly formValues = toSignal(this.movementForm.valueChanges, {
@@ -166,6 +172,27 @@ export class MovimientosComponent implements OnInit {
   formSource = computed(() => this.formValues().paymentSource ?? '');
   /** Las cuotas solo aplican a egresos pagados con tarjeta. */
   showInstallments = computed(() => this.formType() === 'EXPENSE' && this.formSource().startsWith('card:'));
+
+  isTransfer = computed(() => this.formType() === 'TRANSFER');
+
+  /** Cuentas destino disponibles (excluye la cuenta origen para evitar transferirse a sí mismo). */
+  destAccounts = computed(() => {
+    const src = this.formSource();
+    const srcId = src.startsWith('acc:') ? src.slice(4) : null;
+    return this.accounts().filter(a => a.id !== srcId);
+  });
+
+  /** Muestra el campo "Monto destino" solo cuando origen y destino tienen distinta moneda. */
+  showDestAmount = computed(() => {
+    if (!this.isTransfer()) return false;
+    const src = this.formSource();
+    const srcId = src.startsWith('acc:') ? src.slice(4) : null;
+    const destId = this.formValues().destAccountId;
+    if (!srcId || !destId) return false;
+    const srcAcc  = this.accounts().find(a => a.id === srcId);
+    const destAcc = this.accounts().find(a => a.id === destId);
+    return !!srcAcc && !!destAcc && srcAcc.ccy !== destAcc.ccy;
+  });
 
   /** Face de la tarjeta seleccionada en el formulario (con consumido y límite). */
   selectedCardFace = computed(() => {
@@ -363,6 +390,7 @@ export class MovimientosComponent implements OnInit {
     this.movementForm.reset({
       description: '', type: 'EXPENSE', categoryId: null, paymentSource: '',
       ccy: 'ARS', amount: 0, transactionDate: this.defaultCreateDate(), installments: 1,
+      destAccountId: null, destAmount: null,
     });
     this.formError.set(null);
     this.modal.set({ mode: 'create' });
@@ -407,7 +435,10 @@ export class MovimientosComponent implements OnInit {
   }
 
   openDelete(m: MovementResponse): void {
-    this.modal.set({ mode: 'delete', id: m.id, label: m.description, isInstallment: m.installment });
+    this.modal.set({
+      mode: 'delete', id: m.id, label: m.description, isInstallment: m.installment,
+      transferGroupId: m.transferGroupId ?? undefined,
+    });
   }
 
   closeModal(): void {
@@ -424,9 +455,11 @@ export class MovimientosComponent implements OnInit {
     if (type === 'INCOME' && source.startsWith('card:')) {
       this.movementForm.patchValue({ paymentSource: '' });
     }
-    if (!(this.movementForm.controls.type.value === 'EXPENSE'
-          && this.movementForm.controls.paymentSource.value.startsWith('card:'))) {
+    if (!(type === 'EXPENSE' && source.startsWith('card:'))) {
       this.movementForm.patchValue({ installments: 1 });
+    }
+    if (type !== 'TRANSFER') {
+      this.movementForm.patchValue({ destAccountId: null, destAmount: null });
     }
     const catId = this.movementForm.controls.categoryId.value;
     if (catId) {
@@ -445,6 +478,35 @@ export class MovimientosComponent implements OnInit {
     this.formError.set(null);
     const v = this.movementForm.getRawValue();
     const ps = v.paymentSource;
+    const m = this.modal();
+    if (!m) return;
+
+    // Transferencia entre cuentas propias
+    if (v.type === 'TRANSFER') {
+      const srcId = ps.startsWith('acc:') ? ps.slice(4) : null;
+      if (!srcId || !v.destAccountId) {
+        this.formError.set('Seleccioná las cuentas de origen y destino');
+        this.submitting.set(false);
+        return;
+      }
+      const transferReq: TransferRequest = {
+        sourceAccountId: srcId,
+        destAccountId:   v.destAccountId,
+        sourceAmount:    v.amount,
+        destAmount:      this.showDestAmount() ? (v.destAmount ?? undefined) : undefined,
+        transactionDate: v.transactionDate,
+        description:     v.description || undefined,
+      };
+      this.transferService.create(transferReq).subscribe({
+        next: () => { this.submitting.set(false); this.closeModal(); this.reload(); },
+        error: (err: HttpErrorResponse) => {
+          this.submitting.set(false);
+          this.formError.set(err.error?.message ?? 'Ocurrió un error al crear la transferencia');
+        },
+      });
+      return;
+    }
+
     const installments = this.showInstallments() ? v.installments : 1;
     const req: MovementRequest = {
       description: v.description,
@@ -457,8 +519,6 @@ export class MovimientosComponent implements OnInit {
       transactionDate: v.transactionDate,
       installments,
     };
-    const m = this.modal();
-    if (!m) return;
 
     // Edición de plan de cuotas: solo descripción base + categoría
     if (m.isInstallment && m.installmentGroupId) {
@@ -467,11 +527,7 @@ export class MovimientosComponent implements OnInit {
         categoryId: v.categoryId || null,
       };
       this.movementService.updateGroup(m.installmentGroupId, groupReq).subscribe({
-        next: () => {
-          this.submitting.set(false);
-          this.closeModal();
-          this.reload();
-        },
+        next: () => { this.submitting.set(false); this.closeModal(); this.reload(); },
         error: (err: HttpErrorResponse) => {
           this.submitting.set(false);
           this.formError.set(err.error?.message ?? 'Ocurrió un error al guardar');
@@ -485,11 +541,7 @@ export class MovimientosComponent implements OnInit {
       : this.movementService.create(req).pipe(map(() => void 0));
 
     op$.subscribe({
-      next: () => {
-        this.submitting.set(false);
-        this.closeModal();
-        this.reload();
-      },
+      next: () => { this.submitting.set(false); this.closeModal(); this.reload(); },
       error: (err: HttpErrorResponse) => {
         this.submitting.set(false);
         this.formError.set(err.error?.message ?? 'Ocurrió un error al guardar');
@@ -501,12 +553,14 @@ export class MovimientosComponent implements OnInit {
     const m = this.modal();
     if (!m?.id || this.submitting()) return;
     this.submitting.set(true);
-    this.movementService.delete(m.id).subscribe({
-      next: () => {
-        this.submitting.set(false);
-        this.closeModal();
-        this.reload();
-      },
+
+    // Elimina ambas legs de una transferencia de forma atómica
+    const op$ = m.transferGroupId
+      ? this.transferService.delete(m.transferGroupId)
+      : this.movementService.delete(m.id);
+
+    op$.subscribe({
+      next: () => { this.submitting.set(false); this.closeModal(); this.reload(); },
       error: (err: HttpErrorResponse) => {
         this.submitting.set(false);
         this.error.set(err.error?.message ?? 'No se pudo eliminar el movimiento');
@@ -586,6 +640,7 @@ export class MovimientosComponent implements OnInit {
   }
 
   signedAmount(m: MovementResponse): string {
+    if (m.transferGroupId) return this.fmtAmount(m.amount, m.ccy);
     const prefix = (m.type === 'EXPENSE' || m.type === 'CARD_PAYMENT') ? '- ' : '+ ';
     return prefix + this.fmtAmount(m.amount, m.ccy);
   }

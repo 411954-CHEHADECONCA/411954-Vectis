@@ -81,6 +81,9 @@ public class Transaction {
     @Column(name = "card_payment_id")
     private UUID cardPaymentId;
 
+    @Column(name = "transfer_group_id")
+    private UUID transferGroupId;
+
     @Column(name = "deleted_at")
     private OffsetDateTime deletedAt;
 

@@ -24,6 +24,7 @@ export interface MovementResponse {
   isProjected: boolean;
   paid: boolean;
   createdAt: string;
+  transferGroupId: string | null;
 }
 
 export interface MovementRequest {

@@ -76,5 +76,8 @@ public record MovementResponse(
         boolean isProjected,
 
         @Schema(description = "Indica si la cuota de tarjeta fue incluida en un pago de liquidación registrado", example = "false")
-        boolean paid
+        boolean paid,
+
+        @Schema(description = "ID que agrupa las dos legs de una transferencia entre cuentas (null si no es transferencia)")
+        UUID transferGroupId
 ) {}
