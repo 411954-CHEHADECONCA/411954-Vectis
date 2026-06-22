@@ -27,8 +27,9 @@ public class Transaction {
     @JoinColumn(name = "user_id", nullable = false)
     private User user;
 
+    @Enumerated(EnumType.STRING)
     @Column(nullable = false, length = 10)
-    private String type;
+    private TransactionType type;
 
     @Column(nullable = false, length = 200)
     private String description;
@@ -68,6 +69,20 @@ public class Transaction {
 
     @Column(name = "installment_group_id")
     private UUID installmentGroupId;
+
+    @Builder.Default
+    @Column(name = "is_projected", nullable = false)
+    private boolean isProjected = false;
+
+    @Builder.Default
+    @Column(name = "is_paid", nullable = false)
+    private boolean paid = false;
+
+    @Column(name = "card_payment_id")
+    private UUID cardPaymentId;
+
+    @Column(name = "transfer_group_id")
+    private UUID transferGroupId;
 
     @Column(name = "deleted_at")
     private OffsetDateTime deletedAt;

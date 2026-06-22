@@ -143,6 +143,7 @@ describe('ConfiguracionComponent', () => {
     component.accountForm.setValue({
       name: 'Brubank', kind: 'Banco', detail: '****1234',
       ccy: 'USD', balance: 5000, remunerada: false, tna: null,
+      includeInCashflow: true,
     });
     component.submitAccount();
 
@@ -347,13 +348,25 @@ describe('ConfiguracionComponent', () => {
     expect(recurringServiceSpy.createRecurringMovement).not.toHaveBeenCalled();
   });
 
+  it('recurringForm es inválido cuando categoryId es null', () => {
+    component.openCreateRecurring();
+    component.recurringForm.patchValue({ categoryId: null, paymentSource: 'acc:acc-1' });
+    expect(component.recurringForm.controls.categoryId.invalid).toBeTrue();
+  });
+
+  it('recurringForm es inválido cuando paymentSource está vacío', () => {
+    component.openCreateRecurring();
+    component.recurringForm.patchValue({ categoryId: '2', paymentSource: '' });
+    expect(component.recurringForm.controls.paymentSource.invalid).toBeTrue();
+  });
+
   it('creates a recurring movement via service', () => {
     recurringServiceSpy.createRecurringMovement.and.returnValue(of(MOCK_RECURRING));
 
     component.openCreateRecurring();
     component.recurringForm.setValue({
       description: 'Netflix', amount: 15000, ccy: 'ARS', type: 'EXPENSE',
-      categoryId: null, paymentSource: '', dayOfMonth: 10,
+      categoryId: '2', paymentSource: 'acc:acc-1', dayOfMonth: 10,
     });
     component.submitRecurring();
 
@@ -411,7 +424,7 @@ describe('ConfiguracionComponent', () => {
     component.openCreateRecurring();
     component.recurringForm.setValue({
       description: 'Netflix', amount: 15000, ccy: 'ARS', type: 'EXPENSE',
-      categoryId: null, paymentSource: 'card:card-42', dayOfMonth: 10,
+      categoryId: '2', paymentSource: 'card:card-42', dayOfMonth: 10,
     });
     component.submitRecurring();
 
@@ -426,7 +439,7 @@ describe('ConfiguracionComponent', () => {
     component.openCreateRecurring();
     component.recurringForm.setValue({
       description: 'Netflix', amount: 15000, ccy: 'ARS', type: 'EXPENSE',
-      categoryId: null, paymentSource: 'acc:acc-1', dayOfMonth: 10,
+      categoryId: '2', paymentSource: 'acc:acc-1', dayOfMonth: 10,
     });
     component.submitRecurring();
 

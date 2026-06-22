@@ -18,6 +18,7 @@ public class AccountMapper {
                 .computedBalance(null)
                 .remunerada(account.isRemunerada())
                 .tna(account.getTna())
+                .includeInCashflow(account.isIncludeInCashflow())
                 .createdAt(account.getCreatedAt())
                 .updatedAt(account.getUpdatedAt())
                 .build();

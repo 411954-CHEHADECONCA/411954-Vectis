@@ -66,6 +66,7 @@ public class AccountService {
                 .balance(request.balance())
                 .remunerada(Boolean.TRUE.equals(request.remunerada()))
                 .tna(request.tna())
+                .includeInCashflow(request.includeInCashflow())
                 .build();
 
         Account saved = accountRepository.save(account);
@@ -87,6 +88,7 @@ public class AccountService {
         account.setBalance(request.balance());
         account.setRemunerada(Boolean.TRUE.equals(request.remunerada()));
         account.setTna(request.tna());
+        account.setIncludeInCashflow(request.includeInCashflow());
 
         Account saved = accountRepository.save(account);
         return withComputedBalance(saved, user.getId());
@@ -116,6 +118,7 @@ public class AccountService {
                 .computedBalance(computed)
                 .remunerada(base.remunerada())
                 .tna(base.tna())
+                .includeInCashflow(base.includeInCashflow())
                 .createdAt(base.createdAt())
                 .updatedAt(base.updatedAt())
                 .build();

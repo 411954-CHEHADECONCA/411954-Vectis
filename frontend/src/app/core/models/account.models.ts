@@ -2,17 +2,18 @@ export type AccountKind = 'Banco' | 'Billetera' | 'Efectivo';
 export type AccountCcy  = 'ARS' | 'USD';
 
 export interface AccountResponse {
-  id:              string;
-  name:            string;
-  kind:            AccountKind;
-  detail:          string | null;
-  ccy:             AccountCcy;
-  balance:         number;
-  computedBalance: number | null;
-  remunerada:      boolean;
-  tna:             number | null;
-  createdAt:       string;
-  updatedAt:       string;
+  id:                 string;
+  name:               string;
+  kind:               AccountKind;
+  detail:             string | null;
+  ccy:                AccountCcy;
+  balance:            number;
+  computedBalance:    number | null;
+  remunerada:         boolean;
+  tna:                number | null;
+  includeInCashflow?: boolean;
+  createdAt:          string;
+  updatedAt:          string;
 }
 
 export interface AccountBalanceResponse {
@@ -25,11 +26,12 @@ export interface AccountBalanceResponse {
 }
 
 export interface AccountRequest {
-  name:       string;
-  kind:       AccountKind;
-  detail:     string | null;
-  ccy:        AccountCcy;
-  balance:    number;
-  remunerada: boolean;
-  tna:        number | null;
+  name:              string;
+  kind:              AccountKind;
+  detail:            string | null;
+  ccy:               AccountCcy;
+  balance:           number;
+  remunerada:        boolean;
+  tna:               number | null;
+  includeInCashflow?: boolean;
 }

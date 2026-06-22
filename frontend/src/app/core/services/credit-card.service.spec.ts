@@ -2,6 +2,7 @@ import { TestBed } from '@angular/core/testing';
 import { HttpClientTestingModule, HttpTestingController } from '@angular/common/http/testing';
 import { CreditCardService } from './credit-card.service';
 import { CardRequest, CardResponse } from '../models/card.models';
+import { CardPaymentHistory, CardPaymentRequest, CardPaymentResponse } from '../models/card-payment.models';
 
 const MOCK_CARD: CardResponse = {
   id:          'card-123',
@@ -90,5 +91,61 @@ describe('CreditCardService', () => {
     const req = httpMock.expectOne(r => r.url.includes(`/api/cards/${id}`) && r.method === 'DELETE');
     expect(req.request.method).toBe('DELETE');
     req.flush(null);
+  });
+
+  it('getCardPayments() hace GET a /api/cards/payments y retorna el historial', () => {
+    const mockHistory: CardPaymentHistory = {
+      paymentTransactionId: 'tx-pay-1',
+      cardId: 'card-123',
+      cardName: 'Galicia ····1234',
+      periodYear: 2026,
+      periodMonth: 6,
+      paidDate: '2026-07-05',
+      paidAmount: 82700,
+      ccy: 'ARS',
+      cuotas: [
+        { description: 'Notebook', installmentLabel: '3/6', amount: 82700,
+          dueDate: '2026-07-02', categoryIcon: 'monitor', categoryColor: '#52eacd' },
+      ],
+      extraCharges: [],
+    };
+
+    service.getCardPayments().subscribe(history => {
+      expect(history.length).toBe(1);
+      expect(history[0].paymentTransactionId).toBe('tx-pay-1');
+      expect(history[0].cuotas.length).toBe(1);
+    });
+
+    const req = httpMock.expectOne(r => r.url.includes('/api/cards/payments') && r.method === 'GET');
+    req.flush([mockHistory]);
+  });
+
+  it('payCard() hace POST a /api/cards/{id}/payments con el body correcto', () => {
+    const cardId = 'card-pay-001';
+    const request: CardPaymentRequest = {
+      accountId: 'acc-123',
+      paidDate: '2026-07-25',
+      paidAmount: 82700,
+      periodYear: 2026,
+      periodMonth: 7,
+      paymentCategoryId: null,
+      extraCharges: [],
+    };
+    const mockResponse: CardPaymentResponse = {
+      cuotasMarcadas: 3,
+      paymentTransactionId: 'tx-abc',
+      extraChargesCreated: 0,
+    };
+
+    service.payCard(cardId, request).subscribe(res => {
+      expect(res.cuotasMarcadas).toBe(3);
+      expect(res.paymentTransactionId).toBe('tx-abc');
+    });
+
+    const httpReq = httpMock.expectOne(
+      r => r.url.includes(`/api/cards/${cardId}/payments`) && r.method === 'POST'
+    );
+    expect(httpReq.request.body).toEqual(request);
+    httpReq.flush(mockResponse);
   });
 });

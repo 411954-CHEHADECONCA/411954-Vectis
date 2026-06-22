@@ -5,6 +5,7 @@ import com.vectis.backend.domain.entity.Category;
 import com.vectis.backend.domain.entity.CategoryType;
 import com.vectis.backend.domain.entity.CreditCard;
 import com.vectis.backend.domain.entity.Transaction;
+import com.vectis.backend.domain.entity.TransactionType;
 import com.vectis.backend.domain.entity.User;
 import com.vectis.backend.dto.MovementResponse;
 import org.junit.jupiter.api.DisplayName;
@@ -33,7 +34,7 @@ class TransactionMapperTest {
                 .createdAt(OffsetDateTime.now()).updatedAt(OffsetDateTime.now()).build();
 
         Transaction tx = Transaction.builder()
-                .id(UUID.randomUUID()).user(user).type("EXPENSE").description("Notebook — cuota 3/6")
+                .id(UUID.randomUUID()).user(user).type(TransactionType.EXPENSE).description("Notebook — cuota 3/6")
                 .amount(new BigDecimal("612300.0000")).ccy("ARS")
                 .category(cat).card(card)
                 .transactionDate(LocalDate.of(2026, 4, 7)).dueDate(LocalDate.of(2026, 7, 15))
@@ -65,7 +66,7 @@ class TransactionMapperTest {
                 .createdAt(OffsetDateTime.now()).updatedAt(OffsetDateTime.now()).build();
 
         Transaction tx = Transaction.builder()
-                .id(UUID.randomUUID()).user(user).type("INCOME").description("Sueldo")
+                .id(UUID.randomUUID()).user(user).type(TransactionType.INCOME).description("Sueldo")
                 .amount(new BigDecimal("1240000.0000")).ccy("ARS").account(account)
                 .transactionDate(LocalDate.of(2026, 6, 10)).dueDate(LocalDate.of(2026, 6, 10))
                 .installment(false).createdAt(OffsetDateTime.now())

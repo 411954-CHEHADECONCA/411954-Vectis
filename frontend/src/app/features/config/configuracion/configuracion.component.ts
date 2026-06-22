@@ -24,7 +24,6 @@ import {
   LucideX,
   LucideAlertCircle,
   LucideRefreshCw,
-  LucideLock,
   LucideBuilding2,
   LucideWallet,
   LucideBanknote,
@@ -44,13 +43,13 @@ import {
   LucideArrowRightLeft,
   LucideDumbbell,
   LucideCircle,
+  LucideDollarSign,
 } from '@lucide/angular';
 import { CategoryService } from '../../../core/services/category.service';
 import { AccountService } from '../../../core/services/account.service';
 import { CreditCardService } from '../../../core/services/credit-card.service';
 import { RecurringMovementService } from '../../../core/services/recurring-movement.service';
 import { CategoryBadgeComponent } from '../../../shared/components/category-badge/category-badge.component';
-import { AccountBalanceCardComponent } from '../../../shared/components/account-balance-card/account-balance-card.component';
 import {
   CategoryRequest,
   CategoryResponse,
@@ -130,13 +129,13 @@ export const CARD_PALETTE = [
     ReactiveFormsModule,
     NgTemplateOutlet,
     CategoryBadgeComponent,
-    AccountBalanceCardComponent,
     LucidePlus, LucidePencil, LucideTrash2, LucideX,
-    LucideAlertCircle, LucideRefreshCw, LucideLock,
+    LucideAlertCircle, LucideRefreshCw,
     LucideBuilding2, LucideWallet, LucideBanknote, LucideCreditCard,
     LucideUtensils, LucideCar, LucideZap, LucideRepeat, LucideMusic,
     LucideHeart, LucideBook, LucideShirt, LucideHome, LucideBriefcase,
     LucideMonitor, LucideTrendingUp, LucideArrowRightLeft, LucideDumbbell, LucideCircle,
+    LucideDollarSign,
   ],
 })
 export class ConfiguracionComponent implements OnInit {
@@ -176,6 +175,13 @@ export class ConfiguracionComponent implements OnInit {
     this.categories().filter(c => c.type === 'EXPENSE' || c.type === 'BOTH')
   );
 
+  readonly totalIngresoBudget = computed(() =>
+    this.ingresos().reduce((s, c) => s + (c.estimatedAmount ?? 0), 0)
+  );
+  readonly totalEgresoBudget = computed(() =>
+    this.egresos().reduce((s, c) => s + (c.estimatedAmount ?? 0), 0)
+  );
+
   // ── Recurring movements ───────────────────────────────────────────────────
   recurringMovements  = signal<RecurringMovementResponse[]>([]);
   recurringLoading    = signal(false);
@@ -194,15 +200,22 @@ export class ConfiguracionComponent implements OnInit {
   submitting = signal(false);
   formError  = signal<string | null>(null);
 
+  // ── Budget modal (system categories) ─────────────────────────────────────
+  budgetTarget     = signal<CategoryResponse | null>(null);
+  budgetSubmitting = signal(false);
+  budgetError      = signal<string | null>(null);
+  budgetControl    = new FormControl<number | null>(null, [Validators.required, Validators.min(1)]);
+
   // ── Account form ──────────────────────────────────────────────────────────
   accountForm = new FormGroup({
-    name:       new FormControl('',    { nonNullable: true, validators: [Validators.required] }),
-    kind:       new FormControl<AccountKind>('Banco', { nonNullable: true }),
-    detail:     new FormControl('',    { nonNullable: true }),
-    ccy:        new FormControl<AccountCcy>('ARS', { nonNullable: true }),
-    balance:    new FormControl(0,     { nonNullable: true }),
-    remunerada: new FormControl(false, { nonNullable: true }),
-    tna:        new FormControl<number | null>(null),
+    name:              new FormControl('',    { nonNullable: true, validators: [Validators.required] }),
+    kind:              new FormControl<AccountKind>('Banco', { nonNullable: true }),
+    detail:            new FormControl('',    { nonNullable: true }),
+    ccy:               new FormControl<AccountCcy>('ARS', { nonNullable: true }),
+    balance:           new FormControl(0,     { nonNullable: true }),
+    remunerada:        new FormControl(false, { nonNullable: true }),
+    tna:               new FormControl<number | null>(null),
+    includeInCashflow: new FormControl(true,  { nonNullable: true }),
   });
 
   // ── Card form ─────────────────────────────────────────────────────────────
@@ -223,8 +236,8 @@ export class ConfiguracionComponent implements OnInit {
     amount:        new FormControl<number>(0, { nonNullable: true, validators: [Validators.required, Validators.min(0.01)] }),
     ccy:           new FormControl<'ARS' | 'USD'>('ARS', { nonNullable: true }),
     type:          new FormControl<'INCOME' | 'EXPENSE'>('EXPENSE', { nonNullable: true }),
-    categoryId:    new FormControl<string | null>(null),
-    paymentSource: new FormControl('', { nonNullable: true }),
+    categoryId:    new FormControl<string | null>(null, [Validators.required]),
+    paymentSource: new FormControl('', { nonNullable: true, validators: [Validators.required] }),
     dayOfMonth:    new FormControl<number>(1, { nonNullable: true, validators: [Validators.required, Validators.min(1), Validators.max(31)] }),
   });
 
@@ -331,7 +344,7 @@ export class ConfiguracionComponent implements OnInit {
 
   // ── Account CRUD ──────────────────────────────────────────────────────────
   openCreateAccount(): void {
-    this.accountForm.reset({ name: '', kind: 'Banco', detail: '', ccy: 'ARS', balance: 0, remunerada: false, tna: null });
+    this.accountForm.reset({ name: '', kind: 'Banco', detail: '', ccy: 'ARS', balance: 0, remunerada: false, tna: null, includeInCashflow: true });
     this.formError.set(null);
     this.modal.set({ kind: 'account', mode: 'create' });
   }
@@ -340,6 +353,7 @@ export class ConfiguracionComponent implements OnInit {
     this.accountForm.setValue({
       name: a.name, kind: a.kind, detail: a.detail ?? '',
       ccy: a.ccy, balance: a.balance, remunerada: a.remunerada, tna: a.tna,
+      includeInCashflow: a.includeInCashflow ?? true,
     });
     this.formError.set(null);
     this.modal.set({ kind: 'account', mode: 'edit', id: a.id });
@@ -620,6 +634,38 @@ export class ConfiguracionComponent implements OnInit {
     });
   }
 
+  // ── Budget CRUD (system categories) ──────────────────────────────────────
+  openBudgetModal(cat: CategoryResponse): void {
+    this.budgetTarget.set(cat);
+    this.budgetControl.setValue(cat.estimatedAmount ?? null);
+    this.budgetControl.markAsUntouched();
+    this.budgetError.set(null);
+  }
+
+  closeBudgetModal(): void {
+    this.budgetTarget.set(null);
+    this.budgetError.set(null);
+  }
+
+  submitBudget(): void {
+    const cat    = this.budgetTarget();
+    const amount = this.budgetControl.value;
+    if (!cat || amount === null || this.budgetControl.invalid || this.budgetSubmitting()) return;
+    this.budgetSubmitting.set(true);
+    this.budgetError.set(null);
+    this.categoryService.updateBudget(cat.id, amount).subscribe({
+      next: saved => {
+        this.categories.update(list => list.map(c => c.id === cat.id ? saved : c));
+        this.budgetSubmitting.set(false);
+        this.closeBudgetModal();
+      },
+      error: (err: HttpErrorResponse) => {
+        this.budgetSubmitting.set(false);
+        this.budgetError.set(err.error?.message ?? 'No se pudo guardar el presupuesto');
+      },
+    });
+  }
+
   // ── Unified delete confirm ────────────────────────────────────────────────
   confirmDelete(): void {
     const m = this.modal();
@@ -636,6 +682,10 @@ export class ConfiguracionComponent implements OnInit {
       return `US$ ${balance.toLocaleString('es-AR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
     }
     return `$ ${Math.round(balance).toLocaleString('es-AR')}`;
+  }
+
+  fmtARS(value: number): string {
+    return `$ ${Math.round(value).toLocaleString('es-AR')}`;
   }
 
   cardGradient(accent: string): string {

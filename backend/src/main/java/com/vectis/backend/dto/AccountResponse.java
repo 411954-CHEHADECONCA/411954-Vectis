@@ -38,6 +38,9 @@ public record AccountResponse(
     @Schema(description = "TNA estimada (null si no es remunerada)", example = "81.0000")
     BigDecimal tna,
 
+    @Schema(description = "Si la cuenta se incluye en el cálculo de cashflow mensual", example = "true")
+    boolean includeInCashflow,
+
     @Schema(description = "Fecha de creación")
     OffsetDateTime createdAt,
 

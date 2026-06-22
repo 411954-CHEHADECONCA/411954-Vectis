@@ -2,6 +2,7 @@ package com.vectis.backend.service;
 
 import com.vectis.backend.domain.entity.CreditCard;
 import com.vectis.backend.domain.entity.Transaction;
+import com.vectis.backend.domain.entity.TransactionType;
 import com.vectis.backend.domain.entity.User;
 import com.vectis.backend.dto.GroupMovementUpdateRequest;
 import com.vectis.backend.dto.MovementRequest;
@@ -24,6 +25,8 @@ import org.mockito.ArgumentMatchers;
 import org.mockito.InjectMocks;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
+import org.mockito.junit.jupiter.MockitoSettings;
+import org.mockito.quality.Strictness;
 import org.springframework.data.domain.PageImpl;
 import org.springframework.data.domain.Pageable;
 import org.springframework.http.HttpStatus;
@@ -46,6 +49,7 @@ import static org.mockito.BDDMockito.given;
 import static org.mockito.Mockito.verify;
 
 @ExtendWith(MockitoExtension.class)
+@MockitoSettings(strictness = Strictness.LENIENT)
 @DisplayName("TransactionService")
 class TransactionServiceTest {
 
@@ -57,6 +61,7 @@ class TransactionServiceTest {
     @Mock private CreditCardRepository creditCardRepository;
     @Mock private TransactionMapper transactionMapper;
     @Mock private InstallmentCalculator installmentCalculator;
+    @Mock private MonthPeriodService monthPeriodService;
 
     private User user;
     private User otherUser;
@@ -71,6 +76,8 @@ class TransactionServiceTest {
         otherUser = User.builder()
                 .id(UUID.randomUUID()).email("other@vectis.com").fullName("Other").passwordHash("hash")
                 .build();
+        // By default, period is open (allow posting) for all create() tests
+        given(monthPeriodService.isOpen(any(UUID.class), anyInt(), anyInt())).willReturn(true);
     }
 
     // ─── create simple ────────────────────────────────────────────────────────
@@ -271,6 +278,76 @@ class TransactionServiceTest {
     }
 
     @Test
+    @DisplayName("delete CARD_PAYMENT revierte cuotas a estado impago y limpia cardPaymentId")
+    void deleteCardPayment_revertsLinkedCuotas() {
+        UUID paymentId = UUID.randomUUID();
+        CreditCard creditCard = card(UUID.randomUUID(), user);
+
+        Transaction paymentTx = Transaction.builder()
+                .id(paymentId).user(user).type(TransactionType.CARD_PAYMENT)
+                .description("Pago Galicia 04/2026").amount(new BigDecimal("50000")).ccy("ARS")
+                .transactionDate(LocalDate.of(2026, 5, 10)).dueDate(LocalDate.of(2026, 5, 10))
+                .installment(false).createdAt(OffsetDateTime.now()).build();
+
+        Transaction cuota1 = Transaction.builder()
+                .id(UUID.randomUUID()).user(user).type(TransactionType.EXPENSE)
+                .description("Notebook — cuota 1/2").amount(new BigDecimal("25000")).ccy("ARS")
+                .card(creditCard).paid(true).cardPaymentId(paymentId)
+                .transactionDate(LocalDate.of(2026, 4, 7)).dueDate(LocalDate.of(2026, 5, 15))
+                .installment(true).installmentNumber(1).totalInstallments(2)
+                .createdAt(OffsetDateTime.now()).build();
+        Transaction cuota2 = Transaction.builder()
+                .id(UUID.randomUUID()).user(user).type(TransactionType.EXPENSE)
+                .description("Notebook — cuota 2/2").amount(new BigDecimal("25000")).ccy("ARS")
+                .card(creditCard).paid(true).cardPaymentId(paymentId)
+                .transactionDate(LocalDate.of(2026, 4, 7)).dueDate(LocalDate.of(2026, 5, 15))
+                .installment(true).installmentNumber(2).totalInstallments(2)
+                .createdAt(OffsetDateTime.now()).build();
+
+        given(transactionRepository.findByIdAndDeletedAtIsNull(paymentId)).willReturn(Optional.of(paymentTx));
+        given(transactionRepository.findByCardPaymentId(paymentId)).willReturn(List.of(cuota1, cuota2));
+
+        transactionService.delete(paymentId, user);
+
+        assertThat(cuota1.isPaid()).isFalse();
+        assertThat(cuota1.getCardPaymentId()).isNull();
+        assertThat(cuota2.isPaid()).isFalse();
+        assertThat(cuota2.getCardPaymentId()).isNull();
+        assertThat(paymentTx.getDeletedAt()).isNotNull();
+        verify(transactionRepository).saveAll(List.of(cuota1, cuota2));
+        verify(transactionRepository).save(paymentTx);
+    }
+
+    @Test
+    @DisplayName("delete CARD_PAYMENT soft-deletea los cargos extra vinculados (sin tarjeta)")
+    void deleteCardPayment_softDeletesExtraCharges() {
+        UUID paymentId = UUID.randomUUID();
+
+        Transaction paymentTx = Transaction.builder()
+                .id(paymentId).user(user).type(TransactionType.CARD_PAYMENT)
+                .description("Pago Galicia 04/2026").amount(new BigDecimal("52000")).ccy("ARS")
+                .transactionDate(LocalDate.of(2026, 5, 10)).dueDate(LocalDate.of(2026, 5, 10))
+                .installment(false).createdAt(OffsetDateTime.now()).build();
+
+        Transaction extraCharge = Transaction.builder()
+                .id(UUID.randomUUID()).user(user).type(TransactionType.EXPENSE)
+                .description("Interés financiero").amount(new BigDecimal("2000")).ccy("ARS")
+                .cardPaymentId(paymentId)
+                .transactionDate(LocalDate.of(2026, 5, 10)).dueDate(LocalDate.of(2026, 5, 10))
+                .installment(false).createdAt(OffsetDateTime.now()).build();
+
+        given(transactionRepository.findByIdAndDeletedAtIsNull(paymentId)).willReturn(Optional.of(paymentTx));
+        given(transactionRepository.findByCardPaymentId(paymentId)).willReturn(List.of(extraCharge));
+
+        transactionService.delete(paymentId, user);
+
+        assertThat(extraCharge.getDeletedAt()).isNotNull();
+        assertThat(paymentTx.getDeletedAt()).isNotNull();
+        verify(transactionRepository).saveAll(List.of(extraCharge));
+        verify(transactionRepository).save(paymentTx);
+    }
+
+    @Test
     @DisplayName("delete de una cuota soft-deletea todo el grupo")
     void delete_installment_softDeletesWholeGroup() {
         UUID id = UUID.randomUUID();
@@ -314,9 +391,9 @@ class TransactionServiceTest {
     @Test
     @DisplayName("summary calcula ingresos, egresos y neto del período")
     void summary_computesNet() {
-        given(transactionRepository.sumByType(eq(userId), eq("INCOME"), any(), any(), any(), any()))
+        given(transactionRepository.sumByType(eq(userId), eq(TransactionType.INCOME), any(), any(), any(), any()))
                 .willReturn(new BigDecimal("1000"));
-        given(transactionRepository.sumByType(eq(userId), eq("EXPENSE"), any(), any(), any(), any()))
+        given(transactionRepository.sumByType(eq(userId), eq(TransactionType.EXPENSE), any(), any(), any(), any()))
                 .willReturn(new BigDecimal("400"));
         given(transactionRepository.countFiltered(eq(userId), any(), any(), isNull(), any(), any()))
                 .willReturn(5L);
@@ -358,13 +435,13 @@ class TransactionServiceTest {
     void updateGroup_updatesAllRows() {
         UUID groupId = UUID.randomUUID();
         Transaction t1 = Transaction.builder()
-                .id(UUID.randomUUID()).user(user).type("EXPENSE")
+                .id(UUID.randomUUID()).user(user).type(TransactionType.EXPENSE)
                 .description("Notebook — cuota 1/3").amount(new BigDecimal("20000")).ccy("ARS")
                 .installment(true).installmentNumber(1).totalInstallments(3).installmentGroupId(groupId)
                 .transactionDate(LocalDate.of(2026, 6, 1)).dueDate(LocalDate.of(2026, 7, 15))
                 .createdAt(OffsetDateTime.now()).build();
         Transaction t2 = Transaction.builder()
-                .id(UUID.randomUUID()).user(user).type("EXPENSE")
+                .id(UUID.randomUUID()).user(user).type(TransactionType.EXPENSE)
                 .description("Notebook — cuota 2/3").amount(new BigDecimal("20000")).ccy("ARS")
                 .installment(true).installmentNumber(2).totalInstallments(3).installmentGroupId(groupId)
                 .transactionDate(LocalDate.of(2026, 6, 1)).dueDate(LocalDate.of(2026, 8, 15))
@@ -403,7 +480,7 @@ class TransactionServiceTest {
     void updateGroup_wrongOwner_throws403() {
         UUID groupId = UUID.randomUUID();
         Transaction t1 = Transaction.builder()
-                .id(UUID.randomUUID()).user(otherUser).type("EXPENSE")
+                .id(UUID.randomUUID()).user(otherUser).type(TransactionType.EXPENSE)
                 .description("X — cuota 1/2").amount(new BigDecimal("1000")).ccy("ARS")
                 .installment(true).installmentNumber(1).totalInstallments(2).installmentGroupId(groupId)
                 .transactionDate(LocalDate.now()).dueDate(LocalDate.now())
@@ -425,7 +502,7 @@ class TransactionServiceTest {
 
     private Transaction simpleTx(User owner) {
         return Transaction.builder()
-                .id(UUID.randomUUID()).user(owner).type("EXPENSE").description("Coto")
+                .id(UUID.randomUUID()).user(owner).type(TransactionType.EXPENSE).description("Coto")
                 .amount(new BigDecimal("1000")).ccy("ARS")
                 .transactionDate(LocalDate.of(2026, 6, 10)).dueDate(LocalDate.of(2026, 6, 10))
                 .installment(false).createdAt(OffsetDateTime.now())

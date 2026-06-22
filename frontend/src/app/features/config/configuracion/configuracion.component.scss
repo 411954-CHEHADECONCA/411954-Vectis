@@ -247,14 +247,26 @@
   margin-top: 2px;
 }
 
-.cat-name {
+.cat-info {
   flex: 1;
   min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.cat-name {
   font-size: var(--text-sm);
   color: var(--color-on-surface);
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
+}
+
+.cat-budget-label {
+  font-size: var(--text-overline);
+  color: var(--color-text-muted);
+  font-variant-numeric: tabular-nums;
 }
 
 // ── Inline badges ─────────────────────────────────────────────────────────────
@@ -324,6 +336,12 @@
   background: color-mix(in srgb, var(--color-error) 10%, transparent);
   color: var(--color-error);
   border-color: color-mix(in srgb, var(--color-error) 25%, transparent);
+}
+
+.icon-btn--budget:hover {
+  background: color-mix(in srgb, var(--color-primary) 10%, transparent);
+  color: var(--color-primary);
+  border-color: color-mix(in srgb, var(--color-primary) 25%, transparent);
 }
 
 // ── Buttons ───────────────────────────────────────────────────────────────────
@@ -429,6 +447,50 @@
 }
 
 @keyframes pulse { 0%, 100% { opacity: 0.55; } 50% { opacity: 0.25; } }
+
+// ── Budget summary bar ────────────────────────────────────────────────────────
+
+.budget-summary {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding: 0 0 10px;
+  margin-bottom: 4px;
+}
+
+.budget-summary__head {
+  display: flex;
+  justify-content: space-between;
+  align-items: baseline;
+  gap: 8px;
+}
+
+.budget-summary__label {
+  font-size: var(--text-caption);
+  color: var(--color-text-muted);
+}
+
+.budget-summary__total {
+  font-size: var(--text-sm);
+  font-weight: var(--weight-semibold);
+  font-variant-numeric: tabular-nums;
+  color: var(--color-on-surface);
+  white-space: nowrap;
+}
+
+.budget-summary__bar {
+  height: 6px;
+  border-radius: 99px;
+  background: var(--color-outline-variant);
+  display: flex;
+  overflow: hidden;
+}
+
+.budget-summary__segment {
+  height: 100%;
+  transition: width 0.3s ease;
+  opacity: 0.85;
+}
 
 .error-state {
   display: flex;
@@ -607,6 +669,8 @@
   font-size: var(--text-caption);
   color: var(--color-error);
 }
+
+.field-required { color: var(--color-error); }
 
 .form-grid-2 {
   display: grid;

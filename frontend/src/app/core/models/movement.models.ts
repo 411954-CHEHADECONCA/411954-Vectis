@@ -1,4 +1,4 @@
-export type MovementType = 'INCOME' | 'EXPENSE';
+export type MovementType = 'INCOME' | 'EXPENSE' | 'CARD_PAYMENT' | 'TRANSFER';
 export type MovementCcy = 'ARS' | 'USD';
 
 export interface MovementResponse {
@@ -21,7 +21,10 @@ export interface MovementResponse {
   installmentNumber: number | null;
   totalInstallments: number | null;
   installmentGroupId: string | null;
+  isProjected: boolean;
+  paid: boolean;
   createdAt: string;
+  transferGroupId: string | null;
 }
 
 export interface MovementRequest {

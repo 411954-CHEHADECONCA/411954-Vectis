@@ -1,5 +1,6 @@
 import { TestBed, ComponentFixture } from '@angular/core/testing';
 import { ReactiveFormsModule } from '@angular/forms';
+import { ActivatedRoute, convertToParamMap } from '@angular/router';
 import { provideHttpClient } from '@angular/common/http';
 import { provideHttpClientTesting } from '@angular/common/http/testing';
 import { of } from 'rxjs';
@@ -9,6 +10,7 @@ import { CategoryService } from '../../core/services/category.service';
 import { AccountService } from '../../core/services/account.service';
 import { CreditCardService } from '../../core/services/credit-card.service';
 import { CardProjectionService } from '../../core/services/card-projection.service';
+import { TransferService } from '../../core/services/transfer.service';
 import { MovementResponse } from '../../core/models/movement.models';
 import { PageResponse } from '../../core/models/pagination.models';
 import { CategoryResponse } from '../../core/models/category.models';
@@ -51,7 +53,8 @@ const MOCK_MOVEMENT: MovementResponse = {
   accountId: 'acc-1', accountName: 'Galicia', cardId: null, cardName: null,
   transactionDate: '2026-06-09', dueDate: '2026-06-09',
   installment: false, installmentNumber: null, totalInstallments: null,
-  installmentGroupId: null, createdAt: '2026-06-09T00:00:00Z',
+  installmentGroupId: null, isProjected: false, paid: false, createdAt: '2026-06-09T00:00:00Z',
+  transferGroupId: null,
 };
 
 const MOCK_INSTALLMENT: MovementResponse = {
@@ -72,6 +75,7 @@ describe('MovimientosComponent', () => {
   let accServiceSpy: jasmine.SpyObj<AccountService>;
   let cardServiceSpy: jasmine.SpyObj<CreditCardService>;
   let cardProjectionSpy: jasmine.SpyObj<CardProjectionService>;
+  let transferServiceSpy: jasmine.SpyObj<TransferService>;
 
   beforeEach(async () => {
     movServiceSpy = jasmine.createSpyObj<MovementService>('MovementService',
@@ -95,6 +99,10 @@ describe('MovimientosComponent', () => {
     cardProjectionSpy = jasmine.createSpyObj<CardProjectionService>('CardProjectionService', ['getOverview']);
     cardProjectionSpy.getOverview.and.returnValue(of(MOCK_OVERVIEW));
 
+    transferServiceSpy = jasmine.createSpyObj<TransferService>('TransferService', ['create', 'delete']);
+    transferServiceSpy.create.and.returnValue(of({} as any));
+    transferServiceSpy.delete.and.returnValue(of(void 0));
+
     await TestBed.configureTestingModule({
       imports: [MovimientosComponent, ReactiveFormsModule],
       providers: [
@@ -105,6 +113,8 @@ describe('MovimientosComponent', () => {
         { provide: AccountService,        useValue: accServiceSpy       },
         { provide: CreditCardService,     useValue: cardServiceSpy      },
         { provide: CardProjectionService, useValue: cardProjectionSpy   },
+        { provide: TransferService,       useValue: transferServiceSpy  },
+        { provide: ActivatedRoute, useValue: { snapshot: { queryParamMap: convertToParamMap({}) } } },
       ],
     }).compileComponents();
 
@@ -148,6 +158,7 @@ describe('MovimientosComponent', () => {
     component.movementForm.setValue({
       description: 'Notebook', type: 'EXPENSE', categoryId: '2', paymentSource: 'card:card-1',
       ccy: 'ARS', amount: 60000, transactionDate: '2026-04-07', installments: 3,
+      destAccountId: null, destAmount: null,
     });
     component.submit();
 
@@ -163,6 +174,7 @@ describe('MovimientosComponent', () => {
     component.movementForm.setValue({
       description: 'Sueldo', type: 'INCOME', categoryId: '1', paymentSource: 'acc:acc-1',
       ccy: 'ARS', amount: 1240000, transactionDate: '2026-06-10', installments: 1,
+      destAccountId: null, destAmount: null,
     });
     component.submit();
 
@@ -214,6 +226,7 @@ describe('MovimientosComponent', () => {
     component.movementForm.setValue({
       description: 'Compra grande', type: 'EXPENSE', categoryId: '2', paymentSource: 'card:card-1',
       ccy: 'ARS', amount: 500000, transactionDate: '2026-06-12', installments: 1,
+      destAccountId: null, destAmount: null,
     });
 
     component.submit();
@@ -227,10 +240,106 @@ describe('MovimientosComponent', () => {
     component.movementForm.setValue({
       description: 'Compra ok', type: 'EXPENSE', categoryId: '2', paymentSource: 'card:card-1',
       ccy: 'ARS', amount: 100000, transactionDate: '2026-06-12', installments: 1,
+      destAccountId: null, destAmount: null,
     });
 
     component.submit();
 
     expect(movServiceSpy.create).toHaveBeenCalled();
+  });
+
+  it('warns when amount exceeds account balance but still allows submit', () => {
+    // MOCK_ACCOUNT tiene computedBalance: 0 → advertencia visible pero no bloquea
+    component.openCreate();
+    component.movementForm.setValue({
+      description: 'Mercado', type: 'EXPENSE', categoryId: '2',
+      paymentSource: 'acc:acc-1', ccy: 'ARS', amount: 1000,
+      transactionDate: '2026-06-18', installments: 1,
+      destAccountId: null, destAmount: null,
+    });
+    expect(component.accountBalanceWarning()).toContain('Saldo insuficiente');
+    component.submit();
+    expect(movServiceSpy.create).toHaveBeenCalled();
+  });
+
+  it('allows submit when amount is within account balance', async () => {
+    accServiceSpy.getAccounts.and.returnValue(of([{ ...MOCK_ACCOUNT, computedBalance: 200000 }]));
+    // Recrear componente para que reciba la nueva lista de cuentas
+    fixture = TestBed.createComponent(MovimientosComponent);
+    component = fixture.componentInstance;
+    fixture.detectChanges();
+
+    component.openCreate();
+    component.movementForm.setValue({
+      description: 'Mercado', type: 'EXPENSE', categoryId: '2',
+      paymentSource: 'acc:acc-1', ccy: 'ARS', amount: 50000,
+      transactionDate: '2026-06-18', installments: 1,
+      destAccountId: null, destAmount: null,
+    });
+    component.submit();
+    expect(movServiceSpy.create).toHaveBeenCalled();
+  });
+
+  it('switching type to TRANSFER hides category and shows transfer fields', () => {
+    component.openCreate();
+    component.movementForm.controls.type.setValue('TRANSFER');
+    component.onTypeOrSourceChange();
+
+    expect(component.isTransfer()).toBeTrue();
+    expect(component.showInstallments()).toBeFalse();
+    expect(component.movementForm.controls.destAccountId.value).toBeNull();
+  });
+
+  it('submit with type TRANSFER calls transferService.create, not movementService.create', () => {
+    const MOCK_ACCOUNT_2: AccountResponse = {
+      ...MOCK_ACCOUNT, id: 'acc-2', name: 'Mercado Pago',
+    };
+    accServiceSpy.getAccounts.and.returnValue(of([MOCK_ACCOUNT, MOCK_ACCOUNT_2]));
+    fixture = TestBed.createComponent(MovimientosComponent);
+    component = fixture.componentInstance;
+    fixture.detectChanges();
+
+    component.openCreate();
+    component.movementForm.setValue({
+      description: 'Recarga', type: 'TRANSFER', categoryId: null,
+      paymentSource: 'acc:acc-1', ccy: 'ARS', amount: 10000,
+      transactionDate: '2026-06-21', installments: 1,
+      destAccountId: 'acc-2', destAmount: null,
+    });
+    component.submit();
+
+    expect(transferServiceSpy.create).toHaveBeenCalled();
+    expect(movServiceSpy.create).not.toHaveBeenCalled();
+    const req = transferServiceSpy.create.calls.mostRecent().args[0];
+    expect(req.sourceAccountId).toBe('acc-1');
+    expect(req.destAccountId).toBe('acc-2');
+    expect(req.sourceAmount).toBe(10000);
+  });
+
+  it('confirmDelete with transferGroupId calls transferService.delete', () => {
+    const TRANSFER_MOVEMENT: MovementResponse = {
+      ...MOCK_MOVEMENT, id: 'mv-t1', transferGroupId: 'grp-transfer-1',
+    };
+    component.openDelete(TRANSFER_MOVEMENT);
+    movServiceSpy.search.calls.reset();
+    component.confirmDelete();
+
+    expect(transferServiceSpy.delete).toHaveBeenCalledWith('grp-transfer-1');
+    expect(movServiceSpy.delete).not.toHaveBeenCalled();
+  });
+
+  it('destAccounts excludes the selected source account', () => {
+    const MOCK_ACCOUNT_2: AccountResponse = { ...MOCK_ACCOUNT, id: 'acc-2', name: 'MP' };
+    accServiceSpy.getAccounts.and.returnValue(of([MOCK_ACCOUNT, MOCK_ACCOUNT_2]));
+    fixture = TestBed.createComponent(MovimientosComponent);
+    component = fixture.componentInstance;
+    fixture.detectChanges();
+
+    component.openCreate();
+    component.movementForm.patchValue({ type: 'TRANSFER', paymentSource: 'acc:acc-1' });
+    component.onTypeOrSourceChange();
+
+    expect(component.destAccounts().length).toBe(1);
+    expect(component.destAccounts()[0].id).toBe('acc-2');
   });
 });

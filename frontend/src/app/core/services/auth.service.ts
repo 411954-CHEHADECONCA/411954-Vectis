@@ -1,7 +1,7 @@
 import { Injectable, inject } from '@angular/core';
 import { HttpClient } from '@angular/common/http';
 import { Router } from '@angular/router';
-import { BehaviorSubject, Observable, tap } from 'rxjs';
+import { BehaviorSubject, Observable, throwError, tap, finalize, shareReplay } from 'rxjs';
 import { environment } from '../../../environments/environment';
 import { StorageService } from './storage.service';
 import {
@@ -19,6 +19,8 @@ export class AuthService {
   private readonly router = inject(Router);
 
   private readonly baseUrl = `${environment.apiUrl}/auth`;
+
+  private refreshInProgress$: Observable<AuthResponse> | null = null;
 
   private readonly _currentUser$ = new BehaviorSubject<UserInfo | null>(
     this.storage.getUser<UserInfo>()
@@ -43,15 +45,30 @@ export class AuthService {
   }
 
   refreshToken(): Observable<AuthResponse> {
-    const refreshToken = this.storage.getRefreshToken();
-    return this.http
-      .post<AuthResponse>(`${this.baseUrl}/refresh`, { refreshToken })
+    if (this.refreshInProgress$) {
+      return this.refreshInProgress$;
+    }
+
+    const token = this.storage.getRefreshToken();
+    if (!token) {
+      this.clearSession();
+      return throwError(() => new Error('No refresh token available'));
+    }
+
+    this.refreshInProgress$ = this.http
+      .post<AuthResponse>(`${this.baseUrl}/refresh`, { refreshToken: token })
       .pipe(
         tap((res) => {
           this.storage.setAccessToken(res.accessToken);
           this.storage.setRefreshToken(res.refreshToken);
-        })
+        }),
+        finalize(() => {
+          this.refreshInProgress$ = null;
+        }),
+        shareReplay(1)
       );
+
+    return this.refreshInProgress$;
   }
 
   forgotPassword(email: string): Observable<void> {

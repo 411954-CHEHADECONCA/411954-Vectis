@@ -60,8 +60,53 @@
   --color-text-secondary:             #989FA1;
   --color-text-base:                  #BAC2C0;
 
-  /* Tipografía */
-  --font-sans: 'Inter', sans-serif;
+  /* Tipografía — escala de fuentes */
+  --font-sans:    'Inter', sans-serif;
+  --font-mono:    'Inter', ui-monospace, 'SF Mono', monospace;
+
+  --text-display:   2.5rem;
+  --text-h1:        1.875rem;
+  --text-h2:        1.5rem;
+  --text-h3:        1.125rem;
+  --text-body-lg:   1rem;
+  --text-body:      0.9375rem;
+  --text-sm:        0.875rem;
+  --text-label:     0.8125rem;
+  --text-caption:   0.75rem;
+  --text-overline:  0.625rem;
+  --text-metric-lg: 2rem;
+  --text-metric:    1.5rem;
+
+  --weight-regular:  400;
+  --weight-medium:   500;
+  --weight-semibold: 600;
+  --weight-bold:     700;
+
+  --leading-tight:   1.1;
+  --leading-snug:    1.2;
+  --leading-normal:  1.5;
+  --leading-relaxed: 1.7;
+
+  --tracking-display:   -0.03em;
+  --tracking-tight:     -0.02em;
+  --tracking-snug:      -0.01em;
+  --tracking-normal:     0;
+  --tracking-wide:       0.02em;
+  --tracking-overline:   0.15em;
+  --tracking-watermark:  0.2em;
+
+  /* Señales financieras */
+  --color-positive: #52eacd;
+  --color-negative: #ffb4ab;
+  --color-warning:  #e8c37a;
+
+  /* Motion */
+  --ease-standard: cubic-bezier(0.4, 0, 0.2, 1);
+  --ease-out:      cubic-bezier(0, 0, 0.2, 1);
+  --dur-fast:      100ms;
+  --dur-base:      150ms;
+  --dur-slow:      200ms;
+  --press-scale:   0.98;
 
   /* Radios */
   --radius-sm:   0.25rem;
