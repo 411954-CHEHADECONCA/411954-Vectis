@@ -15,8 +15,10 @@ public class AccountMapper {
                 .detail(account.getDetail())
                 .ccy(account.getCcy())
                 .balance(account.getBalance())
+                .computedBalance(null)
                 .remunerada(account.isRemunerada())
                 .tna(account.getTna())
+                .includeInCashflow(account.isIncludeInCashflow())
                 .createdAt(account.getCreatedAt())
                 .updatedAt(account.getUpdatedAt())
                 .build();

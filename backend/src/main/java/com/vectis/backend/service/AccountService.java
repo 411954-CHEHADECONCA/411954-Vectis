@@ -2,6 +2,7 @@ package com.vectis.backend.service;
 
 import com.vectis.backend.domain.entity.Account;
 import com.vectis.backend.domain.entity.User;
+import com.vectis.backend.dto.AccountBalanceResponse;
 import com.vectis.backend.dto.AccountRequest;
 import com.vectis.backend.dto.AccountResponse;
 import com.vectis.backend.exception.AccountNotFoundException;
@@ -13,6 +14,8 @@ import org.springframework.http.HttpStatus;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
+import java.math.BigDecimal;
+import java.time.LocalDate;
 import java.util.List;
 import java.util.UUID;
 
@@ -23,13 +26,34 @@ public class AccountService {
 
     private final AccountRepository accountRepository;
     private final AccountMapper accountMapper;
+    private final BalanceService balanceService;
 
     @Transactional(readOnly = true)
     public List<AccountResponse> getAccounts(UUID userId) {
         return accountRepository.findAllByUser_IdOrderByCreatedAtAsc(userId)
                 .stream()
-                .map(accountMapper::toResponse)
+                .map(a -> withComputedBalance(a, userId))
                 .toList();
+    }
+
+    @Transactional(readOnly = true)
+    public AccountBalanceResponse getBalance(UUID accountId, User user, LocalDate asOf) {
+        Account account = accountRepository.findById(accountId)
+                .orElseThrow(() -> new AccountNotFoundException(accountId));
+
+        if (!account.getUser().getId().equals(user.getId())) {
+            throw new VectisException("No tenés permiso para consultar esta cuenta", HttpStatus.FORBIDDEN);
+        }
+
+        BigDecimal computed = balanceService.balanceAtDate(account, user.getId(), asOf);
+        return new AccountBalanceResponse(
+                account.getId(),
+                account.getName(),
+                account.getCcy(),
+                account.getBalance(),
+                computed,
+                asOf
+        );
     }
 
     public AccountResponse createAccount(AccountRequest request, User user) {
@@ -42,9 +66,11 @@ public class AccountService {
                 .balance(request.balance())
                 .remunerada(Boolean.TRUE.equals(request.remunerada()))
                 .tna(request.tna())
+                .includeInCashflow(request.includeInCashflow())
                 .build();
 
-        return accountMapper.toResponse(accountRepository.save(account));
+        Account saved = accountRepository.save(account);
+        return withComputedBalance(saved, user.getId());
     }
 
     public AccountResponse updateAccount(UUID id, AccountRequest request, User user) {
@@ -62,8 +88,10 @@ public class AccountService {
         account.setBalance(request.balance());
         account.setRemunerada(Boolean.TRUE.equals(request.remunerada()));
         account.setTna(request.tna());
+        account.setIncludeInCashflow(request.includeInCashflow());
 
-        return accountMapper.toResponse(accountRepository.save(account));
+        Account saved = accountRepository.save(account);
+        return withComputedBalance(saved, user.getId());
     }
 
     public void deleteAccount(UUID id, User user) {
@@ -75,5 +103,24 @@ public class AccountService {
         }
 
         accountRepository.delete(account);
+    }
+
+    private AccountResponse withComputedBalance(Account account, UUID userId) {
+        AccountResponse base = accountMapper.toResponse(account);
+        BigDecimal computed = balanceService.currentBalance(account, userId);
+        return AccountResponse.builder()
+                .id(base.id())
+                .name(base.name())
+                .kind(base.kind())
+                .detail(base.detail())
+                .ccy(base.ccy())
+                .balance(base.balance())
+                .computedBalance(computed)
+                .remunerada(base.remunerada())
+                .tna(base.tna())
+                .includeInCashflow(base.includeInCashflow())
+                .createdAt(base.createdAt())
+                .updatedAt(base.updatedAt())
+                .build();
     }
 }

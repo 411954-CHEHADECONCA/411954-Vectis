@@ -13,5 +13,6 @@ public record CardMatrixConsumo(
         @Schema(description = "Etiqueta de cuota (k/N), null si es pago único", example = "3/6") String installmentLabel,
         @Schema(description = "Ícono de la categoría") String categoryIcon,
         @Schema(description = "Color de la categoría") String categoryColor,
-        @Schema(description = "Montos por mes alineados a las columnas (null = celda vacía)") List<BigDecimal> cellsByMonth
+        @Schema(description = "Montos por mes alineados a las columnas (null = celda vacía)") List<BigDecimal> cellsByMonth,
+        @Schema(description = "Si la celda de cada mes está completamente pagada (null = celda vacía)") List<Boolean> paidByMonth
 ) {}

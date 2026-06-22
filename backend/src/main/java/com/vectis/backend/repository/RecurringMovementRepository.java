@@ -12,4 +12,6 @@ public interface RecurringMovementRepository extends JpaRepository<RecurringMove
     List<RecurringMovement> findAllByUser_IdAndDeletedAtIsNullOrderByCreatedAtAsc(UUID userId);
 
     Optional<RecurringMovement> findByIdAndDeletedAtIsNull(UUID id);
+
+    List<RecurringMovement> findAllByUser_IdAndActiveTrueAndDeletedAtIsNull(UUID userId);
 }

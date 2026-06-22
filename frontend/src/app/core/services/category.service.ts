@@ -21,6 +21,12 @@ export class CategoryService {
     return this.http.put<CategoryResponse>(`${this.baseUrl}/${id}`, req);
   }
 
+  updateBudget(id: string, amount: number): Observable<CategoryResponse> {
+    return this.http.patch<CategoryResponse>(`${this.baseUrl}/${id}/budget`, null, {
+      params: { amount: amount.toString() },
+    });
+  }
+
   deleteCategory(id: string): Observable<void> {
     return this.http.delete<void>(`${this.baseUrl}/${id}`);
   }

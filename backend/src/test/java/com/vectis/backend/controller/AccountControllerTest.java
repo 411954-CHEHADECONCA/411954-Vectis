@@ -3,6 +3,7 @@ package com.vectis.backend.controller;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.vectis.backend.config.SecurityConfig;
 import com.vectis.backend.domain.entity.User;
+import com.vectis.backend.dto.AccountBalanceResponse;
 import com.vectis.backend.dto.AccountRequest;
 import com.vectis.backend.dto.AccountResponse;
 import com.vectis.backend.exception.AccountNotFoundException;
@@ -24,6 +25,7 @@ import org.springframework.test.context.ActiveProfiles;
 import org.springframework.test.web.servlet.MockMvc;
 
 import java.math.BigDecimal;
+import java.time.LocalDate;
 import java.time.OffsetDateTime;
 import java.util.List;
 import java.util.Optional;
@@ -115,7 +117,7 @@ class AccountControllerTest {
     @DisplayName("POST /api/accounts con nombre en blanco retorna 400")
     void createAccount_blankName_returns400() throws Exception {
         AccountRequest request = new AccountRequest("", "Banco", null, "ARS",
-                BigDecimal.ZERO, false, null);
+                BigDecimal.ZERO, false, null, true);
 
         mockMvc.perform(post("/api/accounts")
                         .header(HttpHeaders.AUTHORIZATION, AUTH_HEADER)
@@ -128,7 +130,7 @@ class AccountControllerTest {
     @DisplayName("POST /api/accounts remunerada=true sin TNA retorna 400")
     void createAccount_remuneradaTrueTnaNull_returns400() throws Exception {
         AccountRequest request = new AccountRequest("Mi Cuenta", "Banco", null, "ARS",
-                new BigDecimal("100000"), true, null);
+                new BigDecimal("100000"), true, null, true);
 
         mockMvc.perform(post("/api/accounts")
                         .header(HttpHeaders.AUTHORIZATION, AUTH_HEADER)
@@ -200,16 +202,110 @@ class AccountControllerTest {
                 .andExpect(status().isNotFound());
     }
 
+    // ─── GET /api/accounts/{id}/balance ──────────────────────────────────────
+
+    @Test
+    @DisplayName("GET /api/accounts/{id}/balance sin token retorna 401")
+    void getBalance_withoutToken_returns401() throws Exception {
+        mockMvc.perform(get("/api/accounts/" + UUID.randomUUID() + "/balance"))
+                .andExpect(status().isUnauthorized());
+    }
+
+    @Test
+    @DisplayName("GET /api/accounts/{id}/balance cuenta inexistente retorna 404")
+    void getBalance_notFound_returns404() throws Exception {
+        UUID id = UUID.randomUUID();
+        given(accountService.getBalance(eq(id), any(User.class), any(LocalDate.class)))
+                .willThrow(new AccountNotFoundException(id));
+
+        mockMvc.perform(get("/api/accounts/" + id + "/balance")
+                        .header(HttpHeaders.AUTHORIZATION, AUTH_HEADER))
+                .andExpect(status().isNotFound());
+    }
+
+    @Test
+    @DisplayName("GET /api/accounts/{id}/balance cuenta de otro usuario retorna 403")
+    void getBalance_otherUserAccount_returns403() throws Exception {
+        UUID id = UUID.randomUUID();
+        given(accountService.getBalance(eq(id), any(User.class), any(LocalDate.class)))
+                .willThrow(new VectisException("No permitido", HttpStatus.FORBIDDEN));
+
+        mockMvc.perform(get("/api/accounts/" + id + "/balance")
+                        .header(HttpHeaders.AUTHORIZATION, AUTH_HEADER))
+                .andExpect(status().isForbidden())
+                .andExpect(jsonPath("$.message").exists());
+    }
+
+    @Test
+    @DisplayName("GET /api/accounts/{id}/balance con fecha válida retorna 200 y el saldo calculado")
+    void getBalance_withDate_returns200WithComputedBalance() throws Exception {
+        UUID id = UUID.randomUUID();
+        LocalDate asOf = LocalDate.of(2025, 1, 31);
+        AccountBalanceResponse response = new AccountBalanceResponse(
+                id, "Cuenta Test", "ARS",
+                new BigDecimal("150000.0000"),
+                new BigDecimal("163500.0000"),
+                asOf);
+
+        given(accountService.getBalance(eq(id), any(User.class), eq(asOf))).willReturn(response);
+
+        mockMvc.perform(get("/api/accounts/" + id + "/balance")
+                        .header(HttpHeaders.AUTHORIZATION, AUTH_HEADER)
+                        .param("date", "2025-01-31"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.computedBalance").value(163500.0))
+                .andExpect(jsonPath("$.openingBalance").value(150000.0))
+                .andExpect(jsonPath("$.asOf").value("2025-01-31"));
+    }
+
+    @Test
+    @DisplayName("GET /api/accounts/{id}/balance sin fecha usa hoy por defecto")
+    void getBalance_withoutDate_usesToday() throws Exception {
+        UUID id = UUID.randomUUID();
+        AccountBalanceResponse response = new AccountBalanceResponse(
+                id, "Cuenta Test", "ARS",
+                new BigDecimal("150000.0000"),
+                new BigDecimal("150000.0000"),
+                LocalDate.now());
+
+        given(accountService.getBalance(eq(id), any(User.class), eq(LocalDate.now()))).willReturn(response);
+
+        mockMvc.perform(get("/api/accounts/" + id + "/balance")
+                        .header(HttpHeaders.AUTHORIZATION, AUTH_HEADER))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.accountId").exists());
+    }
+
+    // ─── includeInCashflow ────────────────────────────────────────────────────
+
+    @Test
+    @DisplayName("GET /api/accounts includeInCashflow aparece en la respuesta JSON")
+    void getAccounts_includeInCashflowPresentInResponse() throws Exception {
+        AccountResponse response = new AccountResponse(
+                UUID.randomUUID(), "Cuenta Test", "Banco", null, "ARS",
+                new BigDecimal("100000.0000"), new BigDecimal("100000.0000"),
+                false, null, false,
+                OffsetDateTime.now(), OffsetDateTime.now());
+
+        given(accountService.getAccounts(userId)).willReturn(List.of(response));
+
+        mockMvc.perform(get("/api/accounts")
+                        .header(HttpHeaders.AUTHORIZATION, AUTH_HEADER))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$[0].includeInCashflow").value(false));
+    }
+
     // ─── Helpers ──────────────────────────────────────────────────────────────
 
     private AccountRequest buildRequest(boolean remunerada, BigDecimal tna) {
         return new AccountRequest("Cuenta Test", "Banco", "Caja de Ahorro $", "ARS",
-                new BigDecimal("150000.0000"), remunerada, tna);
+                new BigDecimal("150000.0000"), remunerada, tna, true);
     }
 
     private AccountResponse buildResponse(UUID id) {
         return new AccountResponse(id, "Cuenta Test", "Banco", "Caja de Ahorro $", "ARS",
-                new BigDecimal("150000.0000"), false, null,
+                new BigDecimal("150000.0000"), new BigDecimal("150000.0000"),
+                false, null, true,
                 OffsetDateTime.now(), OffsetDateTime.now());
     }
 }

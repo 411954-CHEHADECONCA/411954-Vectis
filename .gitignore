@@ -6,6 +6,8 @@ e2e/
 .playwright/
 .playwright-cli/
 .playwright-mcp/
+.impeccable/
+testsprite_tests/
 # Documentación y recursos locales
 CLAUDE.md
 DESIGN.md
@@ -26,3 +28,5 @@ frontend/.angular/
 .idea/
 *.iml
 .vscode/
+
+testsprite_tests\tmp\config.json

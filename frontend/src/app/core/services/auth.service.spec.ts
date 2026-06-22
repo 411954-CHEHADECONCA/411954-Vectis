@@ -149,6 +149,37 @@ describe('AuthService', () => {
     expect(storageSpy.setRefreshToken).toHaveBeenCalledWith('refresh-token-xyz');
   });
 
+  it('refreshToken() emite error y limpia sesión cuando no hay refresh token en storage', (done) => {
+    storageSpy.getRefreshToken.and.returnValue(null);
+
+    service.refreshToken().subscribe({
+      error: (err: Error) => {
+        expect(err.message).toBe('No refresh token available');
+        expect(storageSpy.clear).toHaveBeenCalled();
+        httpMock.expectNone((r) => r.url.includes('/auth/refresh'));
+        done();
+      },
+    });
+  });
+
+  it('refreshToken() concurrente realiza un único request HTTP (no rota el token dos veces)', () => {
+    storageSpy.getRefreshToken.and.returnValue('shared-refresh-token');
+
+    let firstResult: AuthResponse | undefined;
+    let secondResult: AuthResponse | undefined;
+
+    service.refreshToken().subscribe((r) => (firstResult = r));
+    service.refreshToken().subscribe((r) => (secondResult = r));
+
+    // Solo debe haber UN request HTTP aunque se llamó dos veces
+    const requests = httpMock.match((r) => r.url.includes('/auth/refresh'));
+    expect(requests.length).toBe(1);
+    requests[0].flush(MOCK_RESPONSE);
+
+    expect(firstResult).toEqual(MOCK_RESPONSE);
+    expect(secondResult).toEqual(MOCK_RESPONSE);
+  });
+
   // ─── logout() ───────────────────────────────────────────────────────────────
 
   it('logout() limpia el storage y navega a /login', () => {

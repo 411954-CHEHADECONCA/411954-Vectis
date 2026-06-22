@@ -46,6 +46,10 @@ public class Account {
     @Column(precision = 8, scale = 4)
     private BigDecimal tna;
 
+    @Builder.Default
+    @Column(name = "include_in_cashflow", nullable = false)
+    private boolean includeInCashflow = true;
+
     @Column(name = "created_at", nullable = false, updatable = false)
     private OffsetDateTime createdAt;
 

@@ -4,9 +4,14 @@ import com.vectis.backend.domain.entity.Account;
 import org.springframework.data.jpa.repository.JpaRepository;
 
 import java.util.List;
+import java.util.Optional;
 import java.util.UUID;
 
 public interface AccountRepository extends JpaRepository<Account, UUID> {
 
     List<Account> findAllByUser_IdOrderByCreatedAtAsc(UUID userId);
+
+    List<Account> findAllByUser_IdAndIncludeInCashflowTrue(UUID userId);
+
+    Optional<Account> findByIdAndUser_Id(UUID id, UUID userId);
 }

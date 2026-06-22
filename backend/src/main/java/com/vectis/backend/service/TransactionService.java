@@ -4,6 +4,7 @@ import com.vectis.backend.domain.entity.Account;
 import com.vectis.backend.domain.entity.Category;
 import com.vectis.backend.domain.entity.CreditCard;
 import com.vectis.backend.domain.entity.Transaction;
+import com.vectis.backend.domain.entity.TransactionType;
 import com.vectis.backend.domain.entity.User;
 import com.vectis.backend.dto.GroupMovementUpdateRequest;
 import com.vectis.backend.dto.MovementRequest;
@@ -31,8 +32,10 @@ import java.math.BigDecimal;
 import java.time.LocalDate;
 import java.time.OffsetDateTime;
 import java.time.ZoneOffset;
+import java.time.format.TextStyle;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Locale;
 import java.util.UUID;
 
 @Service
@@ -46,6 +49,7 @@ public class TransactionService {
     private final CreditCardRepository creditCardRepository;
     private final TransactionMapper transactionMapper;
     private final InstallmentCalculator installmentCalculator;
+    private final MonthPeriodService monthPeriodService;
 
     @Transactional(readOnly = true)
     public PageResponse<MovementResponse> search(UUID userId, LocalDate from, LocalDate to,
@@ -53,7 +57,7 @@ public class TransactionService {
                                                  int page, int size) {
         Pageable pageable = PageRequest.of(page, size);
         Page<Transaction> result = transactionRepository.search(
-                userId, from, to, normalize(type), categoryId, normalize(q), pageable);
+                userId, from, to, parseType(normalize(type)), categoryId, normalize(q), pageable);
         List<MovementResponse> content = result.getContent().stream()
                 .map(transactionMapper::toResponse)
                 .toList();
@@ -63,15 +67,15 @@ public class TransactionService {
     @Transactional(readOnly = true)
     public MovementSummaryResponse summary(UUID userId, LocalDate from, LocalDate to,
                                            String type, UUID categoryId, String q) {
-        String t = normalize(type);
+        TransactionType txType = parseType(normalize(type));
         String search = normalize(q);
-        BigDecimal income = (t == null || t.equals("INCOME"))
-                ? transactionRepository.sumByType(userId, "INCOME", from, to, categoryId, search)
+        BigDecimal income = (txType == null || txType == TransactionType.INCOME)
+                ? transactionRepository.sumByType(userId, TransactionType.INCOME, from, to, categoryId, search)
                 : BigDecimal.ZERO;
-        BigDecimal expense = (t == null || t.equals("EXPENSE"))
-                ? transactionRepository.sumByType(userId, "EXPENSE", from, to, categoryId, search)
+        BigDecimal expense = (txType == null || txType == TransactionType.EXPENSE)
+                ? transactionRepository.sumByType(userId, TransactionType.EXPENSE, from, to, categoryId, search)
                 : BigDecimal.ZERO;
-        long count = transactionRepository.countFiltered(userId, from, to, t, categoryId, search);
+        long count = transactionRepository.countFiltered(userId, from, to, txType, categoryId, search);
         return MovementSummaryResponse.builder()
                 .totalIncome(income)
                 .totalExpense(expense)
@@ -83,7 +87,15 @@ public class TransactionService {
     public List<MovementResponse> create(MovementRequest request, User user) {
         validateSinglePaymentMethod(request.accountId(), request.cardId());
 
-        Category category = resolveCategory(request.categoryId());
+        LocalDate refDate = request.transactionDate();
+        if (!monthPeriodService.isOpen(user.getId(), refDate.getYear(), refDate.getMonthValue())) {
+            String monthName = refDate.getMonth().getDisplayName(TextStyle.FULL, Locale.of("es"));
+            throw new VectisException(
+                    "El mes " + monthName + " " + refDate.getYear() + " está cerrado. Reabrilo para registrar movimientos.",
+                    HttpStatus.CONFLICT);
+        }
+
+        Category category = resolveCategory(request.categoryId(), user);
         Account account   = resolveAccount(request.accountId(), user);
         CreditCard card   = resolveCard(request.cardId(), user);
 
@@ -103,7 +115,7 @@ public class TransactionService {
 
         Transaction tx = Transaction.builder()
                 .user(user)
-                .type(request.type())
+                .type(TransactionType.valueOf(request.type()))
                 .description(request.description())
                 .amount(request.amount())
                 .ccy(request.ccy())
@@ -123,7 +135,7 @@ public class TransactionService {
         if (card == null) {
             throw new VectisException("Pagar en cuotas requiere una tarjeta de crédito", HttpStatus.BAD_REQUEST);
         }
-        if (!"EXPENSE".equals(request.type())) {
+        if (TransactionType.EXPENSE != TransactionType.valueOf(request.type())) {
             throw new VectisException("Solo los egresos pueden financiarse en cuotas", HttpStatus.BAD_REQUEST);
         }
 
@@ -136,7 +148,7 @@ public class TransactionService {
         for (InstallmentCalculator.Installment part : parts) {
             toSave.add(Transaction.builder()
                     .user(user)
-                    .type(request.type())
+                    .type(TransactionType.valueOf(request.type()))
                     .description(request.description() + " — cuota " + part.number() + "/" + n)
                     .amount(part.amount())
                     .ccy(request.ccy())
@@ -172,11 +184,11 @@ public class TransactionService {
 
         validateSinglePaymentMethod(request.accountId(), request.cardId());
 
-        Category category = resolveCategory(request.categoryId());
+        Category category = resolveCategory(request.categoryId(), user);
         Account account   = resolveAccount(request.accountId(), user);
         CreditCard card   = resolveCard(request.cardId(), user);
 
-        tx.setType(request.type());
+        tx.setType(TransactionType.valueOf(request.type()));
         tx.setDescription(request.description());
         tx.setAmount(request.amount());
         tx.setCcy(request.ccy());
@@ -196,7 +208,7 @@ public class TransactionService {
         }
         requireOwnership(group.get(0), user, "modificar");
 
-        Category category = resolveCategory(request.categoryId());
+        Category category = resolveCategory(request.categoryId(), user);
 
         for (Transaction tx : group) {
             tx.setDescription(request.description() + " — cuota "
@@ -215,6 +227,23 @@ public class TransactionService {
         requireOwnership(tx, user, "eliminar");
 
         OffsetDateTime now = OffsetDateTime.now(ZoneOffset.UTC);
+
+        if (tx.getType() == TransactionType.CARD_PAYMENT) {
+            List<Transaction> linked = transactionRepository.findByCardPaymentId(tx.getId());
+            linked.forEach(t -> {
+                if (t.getCard() != null) {
+                    t.setPaid(false);
+                    t.setCardPaymentId(null);
+                } else {
+                    t.setDeletedAt(now);
+                }
+            });
+            transactionRepository.saveAll(linked);
+            tx.setDeletedAt(now);
+            transactionRepository.save(tx);
+            return;
+        }
+
         if (tx.getInstallmentGroupId() != null) {
             // Eliminar todo el grupo de cuotas.
             List<Transaction> group = transactionRepository
@@ -241,10 +270,14 @@ public class TransactionService {
         }
     }
 
-    private Category resolveCategory(UUID categoryId) {
+    private Category resolveCategory(UUID categoryId, User user) {
         if (categoryId == null) return null;
-        return categoryRepository.findById(categoryId)
+        Category cat = categoryRepository.findById(categoryId)
                 .orElseThrow(() -> new VectisException("Categoría no encontrada: " + categoryId, HttpStatus.NOT_FOUND));
+        if (cat.getUser() != null && !cat.getUser().getId().equals(user.getId())) {
+            throw new VectisException("La categoría no pertenece al usuario autenticado", HttpStatus.FORBIDDEN);
+        }
+        return cat;
     }
 
     private Account resolveAccount(UUID accountId, User user) {
@@ -271,5 +304,10 @@ public class TransactionService {
     private String normalize(String value) {
         if (value == null || value.isBlank()) return null;
         return value.trim();
+    }
+
+    /** Convierte un String normalizado a TransactionType, o null si el filtro es vacío. */
+    private static TransactionType parseType(String type) {
+        return type == null ? null : TransactionType.valueOf(type);
     }
 }

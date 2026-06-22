@@ -113,10 +113,18 @@
                 <div class="row-name">{{ m.description }}</div>
                 <div class="row-sub">{{ rowSub(m) }}</div>
               </div>
-              <span class="row-badge" [class.row-badge--in]="m.type === 'INCOME'" [class.row-badge--out]="m.type === 'EXPENSE'">
-                {{ m.type === 'INCOME' ? 'Ingreso' : 'Egreso' }}
+              <span class="row-badge"
+                [class.row-badge--in]="m.type === 'INCOME'"
+                [class.row-badge--out]="m.type === 'EXPENSE'"
+                [class.row-badge--neutral]="m.type === 'CARD_PAYMENT'">
+                {{ typeBadgeLabel(m) }}
               </span>
-              <span class="row-amount" [class.row-amount--out]="m.type === 'EXPENSE'" [class.row-amount--in]="m.type === 'INCOME'">
+              @if (m.paid && m.cardId) {
+                <span class="row-badge row-badge--paid">Pagado</span>
+              }
+              <span class="row-amount"
+                [class.row-amount--out]="m.type === 'EXPENSE' || m.type === 'CARD_PAYMENT'"
+                [class.row-amount--in]="m.type === 'INCOME'">
                 {{ signedAmount(m) }}
               </span>
               <div class="row-actions">
@@ -191,7 +199,7 @@
               <div class="cfg-field">
                 <label class="cfg-label">Tipo de movimiento</label>
                 <div class="segmented">
-                  @for (t of [{ v: 'INCOME', l: 'Ingreso' }, { v: 'EXPENSE', l: 'Egreso' }]; track t.v) {
+                  @for (t of [{ v: 'INCOME', l: 'Ingreso' }, { v: 'EXPENSE', l: 'Egreso' }, { v: 'TRANSFER', l: 'Transferencia' }]; track t.v) {
                     <button
                       type="button"
                       class="segmented-btn"
@@ -204,95 +212,154 @@
               <!-- Descripción -->
               <div class="cfg-field">
                 <label class="cfg-label" for="mv-desc">Descripción</label>
-                <input id="mv-desc" type="text" class="text-input" formControlName="description" placeholder="Ej. Coto — compra semanal" />
+                <input id="mv-desc" type="text" class="text-input" formControlName="description"
+                  [placeholder]="isTransfer() ? 'Ej. Recarga Mercado Pago' : 'Ej. Coto — compra semanal'" />
               </div>
 
-              <!-- Categoría + Medio de pago -->
-              <div class="form-grid-2 form-grid-even">
+              @if (isTransfer()) {
+                <!-- ── Campos de transferencia ── -->
                 <div class="cfg-field">
-                  <label class="cfg-label" for="mv-cat">Categoría</label>
-                  <select id="mv-cat" class="text-input" formControlName="categoryId">
-                    <option [ngValue]="null">Sin categoría</option>
-                    @for (c of formCategories(); track c.id) {
-                      <option [ngValue]="c.id">{{ c.name }}</option>
+                  <label class="cfg-label" for="mv-src-account">Cuenta origen</label>
+                  <select id="mv-src-account" class="text-input" formControlName="paymentSource" (change)="onTypeOrSourceChange()">
+                    <option value="" disabled>Seleccioná la cuenta origen</option>
+                    @for (a of accounts(); track a.id) {
+                      <option [value]="'acc:' + a.id">{{ a.name }} ({{ a.ccy }})</option>
                     }
                   </select>
-                </div>
-                <div class="cfg-field">
-                  <label class="cfg-label" for="mv-payment">Medio de pago <span class="cfg-hint">(opcional)</span></label>
-                  <select id="mv-payment" class="text-input" formControlName="paymentSource" (change)="onTypeOrSourceChange()">
-                    <option value="">Sin medio de pago</option>
-                    @if (accounts().length > 0) {
-                      <optgroup label="Cuentas bancarias">
-                        @for (a of accounts(); track a.id) {
-                          <option [value]="'acc:' + a.id">{{ a.name }}</option>
-                        }
-                      </optgroup>
-                    }
-                    @if (formType() === 'EXPENSE' && cards().length > 0) {
-                      <optgroup label="Tarjetas de crédito">
-                        @for (c of cards(); track c.id) {
-                          <option [value]="'card:' + c.id">{{ c.bank }} ····{{ c.last4 }}</option>
-                        }
-                      </optgroup>
-                    }
-                  </select>
-                  @if (availableCredit() !== null) {
-                    <span class="cfg-hint" [class.cfg-hint--error]="creditLimitError() !== null">
-                      Disponible: {{ fmtAmount(availableCredit()!, selectedCardFace()!.ccy) }}
+                  @if (selectedAccount() !== null) {
+                    <span class="cfg-hint">
+                      Saldo: {{ fmtAmount(selectedAccount()!.computedBalance ?? 0, selectedAccount()!.ccy) }}
                     </span>
                   }
                 </div>
-              </div>
 
-              <!-- Moneda + Monto -->
-              <div class="form-grid-2">
                 <div class="cfg-field">
-                  <label class="cfg-label">Moneda</label>
-                  <div class="segmented">
-                    @for (c of ['ARS', 'USD']; track c) {
-                      <button
-                        type="button"
-                        class="segmented-btn"
-                        [class.segmented-btn--active]="movementForm.controls.ccy.value === c"
-                        (click)="movementForm.controls.ccy.setValue($any(c))">{{ c }}</button>
+                  <label class="cfg-label" for="mv-dest-account">Cuenta destino</label>
+                  <select id="mv-dest-account" class="text-input" formControlName="destAccountId">
+                    <option [ngValue]="null" disabled>Seleccioná la cuenta destino</option>
+                    @for (a of destAccounts(); track a.id) {
+                      <option [ngValue]="a.id">{{ a.name }} ({{ a.ccy }})</option>
+                    }
+                  </select>
+                </div>
+
+                <div class="cfg-field">
+                  <label class="cfg-label" for="mv-src-amount">Monto a transferir ($)</label>
+                  <input id="mv-src-amount" type="number" class="text-input text-input--mono"
+                    formControlName="amount" placeholder="0" min="0" step="0.01" />
+                </div>
+
+                @if (showDestAmount()) {
+                  <div class="cfg-field">
+                    <label class="cfg-label" for="mv-dest-amount">Monto destino (en moneda de destino)</label>
+                    <input id="mv-dest-amount" type="number" class="text-input text-input--mono"
+                      formControlName="destAmount" placeholder="0" min="0" step="0.01" />
+                    <span class="cfg-hint">Las cuentas tienen monedas distintas. Ingresá el monto equivalente.</span>
+                  </div>
+                }
+
+                <div class="cfg-field">
+                  <label class="cfg-label" for="mv-date-t">Fecha</label>
+                  <input id="mv-date-t" type="date" class="text-input" formControlName="transactionDate" />
+                </div>
+              } @else {
+                <!-- ── Formulario normal (ingreso / egreso) ── -->
+
+                <!-- Categoría + Medio de pago -->
+                <div class="form-grid-2 form-grid-even">
+                  <div class="cfg-field">
+                    <label class="cfg-label" for="mv-cat">Categoría</label>
+                    <select id="mv-cat" class="text-input" formControlName="categoryId">
+                      <option [ngValue]="null">Sin categoría</option>
+                      @for (c of formCategories(); track c.id) {
+                        <option [ngValue]="c.id">{{ c.name }}</option>
+                      }
+                    </select>
+                  </div>
+                  <div class="cfg-field">
+                    <label class="cfg-label" for="mv-payment">Medio de pago</label>
+                    <select id="mv-payment" class="text-input" formControlName="paymentSource" (change)="onTypeOrSourceChange()">
+                      <option value="" disabled>Seleccioná un medio de pago</option>
+                      @if (accounts().length > 0) {
+                        <optgroup label="Cuentas bancarias">
+                          @for (a of accounts(); track a.id) {
+                            <option [value]="'acc:' + a.id">{{ a.name }}</option>
+                          }
+                        </optgroup>
+                      }
+                      @if (formType() === 'EXPENSE' && cards().length > 0) {
+                        <optgroup label="Tarjetas de crédito">
+                          @for (c of cards(); track c.id) {
+                            <option [value]="'card:' + c.id">{{ c.bank }} ····{{ c.last4 }}</option>
+                          }
+                        </optgroup>
+                      }
+                    </select>
+                    @if (availableCredit() !== null) {
+                      <span class="cfg-hint" [class.cfg-hint--error]="creditLimitError() !== null">
+                        Disponible: {{ fmtAmount(availableCredit()!, selectedCardFace()!.ccy) }}
+                      </span>
+                    }
+                    @if (selectedAccount() !== null) {
+                      <span class="cfg-hint" [class.cfg-hint--warning]="accountBalanceWarning() !== null">
+                        Disponible: {{ fmtAmount(selectedAccount()!.computedBalance ?? 0, selectedAccount()!.ccy) }}
+                      </span>
+                    }
+                    @if (paymentSourceError() && movementForm.controls.paymentSource.touched) {
+                      <span class="cfg-hint cfg-hint--error">{{ paymentSourceError() }}</span>
                     }
                   </div>
                 </div>
-                <div class="cfg-field">
-                  <label class="cfg-label" for="mv-amount">Monto {{ movementForm.controls.ccy.value === 'USD' ? '(US$)' : '($)' }}</label>
-                  <input id="mv-amount" type="number" class="text-input text-input--mono" formControlName="amount" placeholder="0" min="0" step="0.01" />
-                </div>
-              </div>
 
-              <!-- Fecha -->
-              <div class="cfg-field">
-                <label class="cfg-label" for="mv-date">Fecha</label>
-                <input id="mv-date" type="date" class="text-input" formControlName="transactionDate" />
-              </div>
-
-              <!-- Cuotas (solo egreso con tarjeta) -->
-              @if (showInstallments()) {
-                <div class="cfg-field">
-                  <label class="cfg-label" for="mv-installments">Cantidad de cuotas</label>
-                  <input
-                    id="mv-installments"
-                    type="number"
-                    class="text-input text-input--mono"
-                    formControlName="installments"
-                    min="1"
-                    max="360"
-                    step="1"
-                    placeholder="1" />
-                  @if (movementForm.controls.installments.value > 1) {
-                    <span class="cfg-hint">
-                      {{ movementForm.controls.installments.value }} cuotas de
-                      {{ fmtAmount(previewInstallmentAmount(), movementForm.controls.ccy.value) }}
-                    </span>
-                  } @else {
-                    <span class="cfg-hint">1 = pago único. Ingresá la cantidad de cuotas.</span>
-                  }
+                <!-- Moneda + Monto -->
+                <div class="form-grid-2">
+                  <div class="cfg-field">
+                    <label class="cfg-label">Moneda</label>
+                    <div class="segmented">
+                      @for (c of ['ARS', 'USD']; track c) {
+                        <button
+                          type="button"
+                          class="segmented-btn"
+                          [class.segmented-btn--active]="movementForm.controls.ccy.value === c"
+                          (click)="movementForm.controls.ccy.setValue($any(c))">{{ c }}</button>
+                      }
+                    </div>
+                  </div>
+                  <div class="cfg-field">
+                    <label class="cfg-label" for="mv-amount">Monto {{ movementForm.controls.ccy.value === 'USD' ? '(US$)' : '($)' }}</label>
+                    <input id="mv-amount" type="number" class="text-input text-input--mono" formControlName="amount" placeholder="0" min="0" step="0.01" />
+                  </div>
                 </div>
+
+                <!-- Fecha -->
+                <div class="cfg-field">
+                  <label class="cfg-label" for="mv-date">Fecha</label>
+                  <input id="mv-date" type="date" class="text-input" formControlName="transactionDate" />
+                </div>
+
+                <!-- Cuotas (solo egreso con tarjeta) -->
+                @if (showInstallments()) {
+                  <div class="cfg-field">
+                    <label class="cfg-label" for="mv-installments">Cantidad de cuotas</label>
+                    <input
+                      id="mv-installments"
+                      type="number"
+                      class="text-input text-input--mono"
+                      formControlName="installments"
+                      min="1"
+                      max="360"
+                      step="1"
+                      placeholder="1" />
+                    @if (movementForm.controls.installments.value > 1) {
+                      <span class="cfg-hint">
+                        {{ movementForm.controls.installments.value }} cuotas de
+                        {{ fmtAmount(previewInstallmentAmount(), movementForm.controls.ccy.value) }}
+                      </span>
+                    } @else {
+                      <span class="cfg-hint">1 = pago único. Ingresá la cantidad de cuotas.</span>
+                    }
+                  </div>
+                }
               }
 
               <!-- Vista previa -->
@@ -311,6 +378,9 @@
 
             }
 
+            @if (accountBalanceWarning()) {
+              <p class="form-warning">{{ accountBalanceWarning() }}</p>
+            }
             @if (creditLimitError() || formError()) {
               <p class="form-error">{{ creditLimitError() ?? formError() }}</p>
             }

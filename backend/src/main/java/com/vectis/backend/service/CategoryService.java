@@ -9,6 +9,7 @@ import com.vectis.backend.exception.CategoryNotFoundException;
 import com.vectis.backend.mapper.CategoryMapper;
 import com.vectis.backend.repository.CategoryBudgetRepository;
 import com.vectis.backend.repository.CategoryRepository;
+import com.vectis.backend.repository.MonthPeriodRepository;
 import lombok.RequiredArgsConstructor;
 import org.springframework.http.HttpStatus;
 import org.springframework.stereotype.Service;
@@ -31,14 +32,15 @@ public class CategoryService {
     private final CategoryRepository categoryRepository;
     private final CategoryBudgetRepository categoryBudgetRepository;
     private final CategoryMapper categoryMapper;
+    private final MonthPeriodRepository monthPeriodRepository;
 
     @Transactional(readOnly = true)
     public List<CategoryResponse> getCategories(UUID userId) {
         List<Category> categories = categoryRepository.findAllForUser(userId);
 
-        LocalDate month = LocalDate.now().withDayOfMonth(1);
+        LocalDate effectiveMonth = getEffectiveMonth(userId);
         Map<UUID, BigDecimal> budgetMap = categoryBudgetRepository
-                .findAllByUser_IdAndValidFrom(userId, month)
+                .findLatestPerCategoryOnOrBefore(userId, effectiveMonth)
                 .stream()
                 .collect(Collectors.toMap(b -> b.getCategory().getId(), CategoryBudget::getAmount));
 
@@ -66,13 +68,13 @@ public class CategoryService {
 
         Category saved = categoryRepository.save(category);
 
+        LocalDate budgetMonth = getEffectiveMonth(user.getId());
         if (request.estimatedAmount() != null) {
-            upsertBudget(saved, user, request.estimatedAmount());
+            upsertBudget(saved, user, request.estimatedAmount(), budgetMonth);
         }
 
-        LocalDate month = LocalDate.now().withDayOfMonth(1);
         BigDecimal amount = request.estimatedAmount() != null
-                ? categoryBudgetRepository.findByCategory_IdAndUser_IdAndValidFrom(saved.getId(), user.getId(), month)
+                ? categoryBudgetRepository.findByCategory_IdAndUser_IdAndValidFrom(saved.getId(), user.getId(), budgetMonth)
                         .map(CategoryBudget::getAmount).orElse(null)
                 : null;
 
@@ -83,7 +85,9 @@ public class CategoryService {
         Category category = categoryRepository.findById(id)
                 .orElseThrow(() -> new CategoryNotFoundException(id));
 
-        if (category.isDefault() || !category.getUser().getId().equals(user.getId())) {
+        // Categorías sistema (isDefault) son editables por cualquier usuario autenticado.
+        // Categorías propias solo por su dueño. Igual que updateBudget().
+        if (!category.isDefault() && !category.getUser().getId().equals(user.getId())) {
             throw new VectisException(
                     "No tenés permiso para modificar esta categoría",
                     HttpStatus.FORBIDDEN
@@ -97,16 +101,37 @@ public class CategoryService {
 
         Category saved = categoryRepository.save(category);
 
+        LocalDate budgetMonth = getEffectiveMonth(user.getId());
         if (request.estimatedAmount() != null) {
-            upsertBudget(saved, user, request.estimatedAmount());
+            upsertBudget(saved, user, request.estimatedAmount(), budgetMonth);
         }
 
-        LocalDate month = LocalDate.now().withDayOfMonth(1);
         BigDecimal amount = categoryBudgetRepository
-                .findByCategory_IdAndUser_IdAndValidFrom(saved.getId(), user.getId(), month)
+                .findByCategory_IdAndUser_IdAndValidFrom(saved.getId(), user.getId(), budgetMonth)
                 .map(CategoryBudget::getAmount).orElse(null);
 
         return categoryMapper.toResponse(saved, amount);
+    }
+
+    /** Asigna o actualiza el presupuesto para el mes efectivo. Si el mes actual está CLOSED, aplica al mes siguiente. */
+    public CategoryResponse updateBudget(UUID id, BigDecimal amount, User user) {
+        Category category = categoryRepository.findById(id)
+                .orElseThrow(() -> new CategoryNotFoundException(id));
+
+        // Para categorías de sistema (isDefault) aceptamos cualquier usuario autenticado.
+        // Para categorías personalizadas verificamos que le pertenezcan.
+        if (!category.isDefault() && !category.getUser().getId().equals(user.getId())) {
+            throw new VectisException("No tenés permiso para modificar esta categoría", HttpStatus.FORBIDDEN);
+        }
+
+        LocalDate effectiveMonth = getEffectiveMonth(user.getId());
+        upsertBudget(category, user, amount, effectiveMonth);
+
+        BigDecimal saved = categoryBudgetRepository
+                .findByCategory_IdAndUser_IdAndValidFrom(category.getId(), user.getId(), effectiveMonth)
+                .map(CategoryBudget::getAmount).orElse(null);
+
+        return categoryMapper.toResponse(category, saved);
     }
 
     public void deleteCategory(UUID id, User user) {
@@ -123,8 +148,17 @@ public class CategoryService {
         categoryRepository.delete(category);
     }
 
-    private void upsertBudget(Category category, User user, BigDecimal amount) {
-        LocalDate month = LocalDate.now().withDayOfMonth(1);
+    /** Devuelve el mes actual si no está cerrado; el mes siguiente si está CLOSED. */
+    private LocalDate getEffectiveMonth(UUID userId) {
+        LocalDate currentMonth = LocalDate.now().withDayOfMonth(1);
+        boolean isClosed = monthPeriodRepository
+                .findByUser_IdAndYearAndMonth(userId, currentMonth.getYear(), currentMonth.getMonthValue())
+                .map(mp -> "CLOSED".equals(mp.getStatus()))
+                .orElse(false);
+        return isClosed ? currentMonth.plusMonths(1) : currentMonth;
+    }
+
+    private void upsertBudget(Category category, User user, BigDecimal amount, LocalDate month) {
         CategoryBudget budget = categoryBudgetRepository
                 .findByCategory_IdAndUser_IdAndValidFrom(category.getId(), user.getId(), month)
                 .orElseGet(() -> CategoryBudget.builder()

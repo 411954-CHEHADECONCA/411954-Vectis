@@ -85,9 +85,19 @@
                   <span class="row-name">{{ a.name }}</span>
                   <span class="row-badge" [class.row-badge--accent]="a.ccy === 'USD'" [class.row-badge--neutral]="a.ccy !== 'USD'">{{ a.ccy }}</span>
                 </div>
-                <div class="row-sub">{{ a.kind }} · {{ a.detail }}</div>
+                <div class="row-sub">
+                  {{ a.kind }} · {{ a.detail }}
+                  @if (!(a.includeInCashflow ?? true)) {
+                    <span style="color: var(--color-text-muted); margin-left: 6px;">· Excluida del Cash Flow</span>
+                  }
+                </div>
               </div>
-              <span class="row-amount">{{ fmtAmount(a.balance, a.ccy) }}</span>
+              <div class="row-balance-wrap">
+                <span class="row-amount">{{ fmtAmount(a.computedBalance ?? a.balance, a.ccy) }}</span>
+                @if (a.computedBalance != null && a.computedBalance !== a.balance) {
+                  <span class="row-balance-opening">Inicial: {{ fmtAmount(a.balance, a.ccy) }}</span>
+                }
+              </div>
               <div class="row-actions">
                 <button class="icon-btn" title="Editar" (click)="openEditAccount(a)">
                   <svg lucidePencil [size]="16" [strokeWidth]="1.75" />
@@ -296,6 +306,28 @@
               <svg lucidePlus [size]="15" [strokeWidth]="2.5" /> Agregar ingreso
             </button>
           </div>
+
+          @if (totalIngresoBudget() > 0) {
+            <div class="budget-summary">
+              <div class="budget-summary__head">
+                <span class="budget-summary__label">Presupuesto total asignado</span>
+                <span class="budget-summary__total">{{ fmtARS(totalIngresoBudget()) }}</span>
+              </div>
+              <div class="budget-summary__bar">
+                @for (cat of ingresos(); track cat.id) {
+                  @if ((cat.estimatedAmount ?? 0) > 0) {
+                    <div
+                      class="budget-summary__segment"
+                      [style.width.%]="(cat.estimatedAmount! / totalIngresoBudget()) * 100"
+                      [style.background]="cat.color"
+                      [title]="cat.name + ': ' + fmtARS(cat.estimatedAmount!)"
+                    ></div>
+                  }
+                }
+              </div>
+            </div>
+          }
+
           <div class="cfg-list">
             @if (ingresos().length === 0) {
               <p class="cat-empty-msg">Sin categorías de ingreso.</p>
@@ -305,21 +337,25 @@
                 <span class="cat-chip" [style.background]="'color-mix(in srgb, ' + cat.color + ' 15%, transparent)'" [style.color]="cat.color">
                   <ng-container [ngTemplateOutlet]="catIconTpl" [ngTemplateOutletContext]="{ $implicit: cat.icon, size: 18 }" />
                 </span>
-                <span class="cat-name">{{ cat.name }}</span>
-                @if (cat.isDefault) {
-                  <span class="system-tag">
-                    <svg lucideLock [size]="10" [strokeWidth]="2" /> Sistema
-                  </span>
-                } @else {
-                  <div class="row-actions">
-                    <button class="icon-btn" title="Editar" (click)="openEditCategory(cat)">
-                      <svg lucidePencil [size]="15" [strokeWidth]="1.75" />
-                    </button>
-                    <button class="icon-btn icon-btn--danger" title="Eliminar" (click)="openDeleteCategory(cat)">
+                <div class="cat-info">
+                  <span class="cat-name">{{ cat.name }}</span>
+                  @if (cat.estimatedAmount) {
+                    <span class="cat-budget-label">Presup. {{ fmtARS(cat.estimatedAmount) }}</span>
+                  }
+                </div>
+                <div class="row-actions">
+                  <button class="icon-btn" title="Editar categoría" (click)="openEditCategory(cat)">
+                    <svg lucidePencil [size]="15" [strokeWidth]="1.75" />
+                  </button>
+                  <button class="icon-btn icon-btn--budget" title="Asignar presupuesto mensual" (click)="openBudgetModal(cat)">
+                    <svg lucideDollarSign [size]="15" [strokeWidth]="1.75" />
+                  </button>
+                  @if (!cat.isDefault) {
+                    <button class="icon-btn icon-btn--danger" title="Eliminar categoría" (click)="openDeleteCategory(cat)">
                       <svg lucideTrash2 [size]="15" [strokeWidth]="1.75" />
                     </button>
-                  </div>
-                }
+                  }
+                </div>
               </div>
             }
           </div>
@@ -336,6 +372,28 @@
               <svg lucidePlus [size]="15" [strokeWidth]="2.5" /> Agregar egreso
             </button>
           </div>
+
+          @if (totalEgresoBudget() > 0) {
+            <div class="budget-summary">
+              <div class="budget-summary__head">
+                <span class="budget-summary__label">Presupuesto total asignado</span>
+                <span class="budget-summary__total">{{ fmtARS(totalEgresoBudget()) }}</span>
+              </div>
+              <div class="budget-summary__bar">
+                @for (cat of egresos(); track cat.id) {
+                  @if ((cat.estimatedAmount ?? 0) > 0) {
+                    <div
+                      class="budget-summary__segment"
+                      [style.width.%]="(cat.estimatedAmount! / totalEgresoBudget()) * 100"
+                      [style.background]="cat.color"
+                      [title]="cat.name + ': ' + fmtARS(cat.estimatedAmount!)"
+                    ></div>
+                  }
+                }
+              </div>
+            </div>
+          }
+
           <div class="cfg-list">
             @if (egresos().length === 0) {
               <p class="cat-empty-msg">Sin categorías de egreso.</p>
@@ -345,21 +403,25 @@
                 <span class="cat-chip" [style.background]="'color-mix(in srgb, ' + cat.color + ' 15%, transparent)'" [style.color]="cat.color">
                   <ng-container [ngTemplateOutlet]="catIconTpl" [ngTemplateOutletContext]="{ $implicit: cat.icon, size: 18 }" />
                 </span>
-                <span class="cat-name">{{ cat.name }}</span>
-                @if (cat.isDefault) {
-                  <span class="system-tag">
-                    <svg lucideLock [size]="10" [strokeWidth]="2" /> Sistema
-                  </span>
-                } @else {
-                  <div class="row-actions">
-                    <button class="icon-btn" title="Editar" (click)="openEditCategory(cat)">
-                      <svg lucidePencil [size]="15" [strokeWidth]="1.75" />
-                    </button>
-                    <button class="icon-btn icon-btn--danger" title="Eliminar" (click)="openDeleteCategory(cat)">
+                <div class="cat-info">
+                  <span class="cat-name">{{ cat.name }}</span>
+                  @if (cat.estimatedAmount) {
+                    <span class="cat-budget-label">Presup. {{ fmtARS(cat.estimatedAmount) }}</span>
+                  }
+                </div>
+                <div class="row-actions">
+                  <button class="icon-btn" title="Editar categoría" (click)="openEditCategory(cat)">
+                    <svg lucidePencil [size]="15" [strokeWidth]="1.75" />
+                  </button>
+                  <button class="icon-btn icon-btn--budget" title="Asignar presupuesto mensual" (click)="openBudgetModal(cat)">
+                    <svg lucideDollarSign [size]="15" [strokeWidth]="1.75" />
+                  </button>
+                  @if (!cat.isDefault) {
+                    <button class="icon-btn icon-btn--danger" title="Eliminar categoría" (click)="openDeleteCategory(cat)">
                       <svg lucideTrash2 [size]="15" [strokeWidth]="1.75" />
                     </button>
-                  </div>
-                }
+                  }
+                </div>
               </div>
             }
           </div>
@@ -484,6 +546,25 @@
             <input id="acc-tna" class="text-input text-input--mono" type="number" formControlName="tna" placeholder="Ej: 81.00" step="0.01" inputmode="decimal" />
           </div>
         }
+
+        <!-- Incluir en Cash Flow -->
+        <div class="cfg-field cfg-field--inline">
+          <div class="toggle-label">
+            <span class="cfg-label">Incluir en Cash Flow</span>
+            <span class="cfg-hint">Esta cuenta se considera al calcular el saldo disponible mensual. Desactivá esto para cuentas de ahorro en USD o de largo plazo.</span>
+          </div>
+          <button
+            type="button"
+            class="toggle"
+            [class.toggle--on]="accountForm.controls.includeInCashflow.value"
+            (click)="accountForm.controls.includeInCashflow.setValue(!accountForm.controls.includeInCashflow.value)"
+            [attr.aria-checked]="accountForm.controls.includeInCashflow.value"
+            role="switch"
+            aria-label="Incluir en Cash Flow"
+          >
+            <span class="toggle-thumb"></span>
+          </button>
+        </div>
 
         @if (formError()) {
           <p class="form-error">{{ formError() }}</p>
@@ -693,9 +774,9 @@
 
         <!-- Medio de pago unificado -->
         <div class="cfg-field">
-          <label class="cfg-label" for="rec-payment">Medio de pago <span class="cfg-hint">(opcional)</span></label>
+          <label class="cfg-label" for="rec-payment">Medio de pago <span class="field-required">*</span></label>
           <select id="rec-payment" class="text-input" formControlName="paymentSource">
-            <option value="">Sin medio de pago</option>
+            <option value="" disabled>Seleccioná un medio de pago</option>
             @if (accounts().length > 0) {
               <optgroup label="Cuentas bancarias">
                 @for (a of accounts(); track a.id) {
@@ -711,19 +792,25 @@
               </optgroup>
             }
           </select>
+          @if (recurringForm.controls.paymentSource.invalid && recurringForm.controls.paymentSource.touched) {
+            <span class="field-error">El medio de pago es requerido</span>
+          }
         </div>
 
         <!-- Categoría -->
         <div class="cfg-field">
-          <label class="cfg-label" for="rec-category">Categoría <span class="cfg-hint">(opcional)</span></label>
+          <label class="cfg-label" for="rec-category">Categoría <span class="field-required">*</span></label>
           <select id="rec-category" class="text-input" formControlName="categoryId">
-            <option value="">Sin categoría</option>
+            <option value="" disabled>Seleccioná una categoría</option>
             @for (cat of categories(); track cat.id) {
               @if (cat.type === recType() || cat.type === 'BOTH') {
                 <option [value]="cat.id">{{ cat.name }}</option>
               }
             }
           </select>
+          @if (recurringForm.controls.categoryId.invalid && recurringForm.controls.categoryId.touched) {
+            <span class="field-error">La categoría es requerida</span>
+          }
         </div>
 
         @if (formError()) {
@@ -735,6 +822,54 @@
         <button class="btn-ghost" type="button" (click)="closeModal()">Cancelar</button>
         <button class="btn-confirm" type="button" [disabled]="recurringForm.invalid || submitting()" (click)="submitRecurring()">
           {{ submitting() ? 'Guardando...' : (modal()?.mode === 'create' ? 'Crear movimiento' : 'Guardar cambios') }}
+        </button>
+      </div>
+    </div>
+  </div>
+}
+
+<!-- ── Budget modal (system categories) ─────────────────────────────────── -->
+@if (budgetTarget()) {
+  <div class="backdrop" (click)="closeBudgetModal()">
+    <div class="modal modal--sm" (click)="$event.stopPropagation()">
+      <div class="modal-head">
+        <div>
+          <h3>Presupuesto mensual</h3>
+          <p class="modal-sub">Asigná un monto estimado para <strong>{{ budgetTarget()!.name }}</strong>.</p>
+        </div>
+        <button class="close-btn" (click)="closeBudgetModal()" aria-label="Cerrar">
+          <svg lucideX [size]="17" [strokeWidth]="2" />
+        </button>
+      </div>
+      <div class="modal-body">
+        <div class="cfg-field">
+          <label class="cfg-label" for="budget-amount">Monto mensual (ARS)</label>
+          <input
+            id="budget-amount"
+            class="text-input text-input--mono"
+            type="number"
+            min="1"
+            step="1000"
+            placeholder="Ej: 50000"
+            [formControl]="budgetControl"
+          />
+          @if (budgetControl.invalid && budgetControl.touched) {
+            <span class="field-error">Ingresá un monto mayor a 0</span>
+          }
+        </div>
+        @if (budgetError()) {
+          <p class="form-error">{{ budgetError() }}</p>
+        }
+      </div>
+      <div class="modal-footer">
+        <button class="btn-ghost" type="button" (click)="closeBudgetModal()">Cancelar</button>
+        <button
+          class="btn-confirm"
+          type="button"
+          [disabled]="budgetControl.invalid || budgetSubmitting()"
+          (click)="submitBudget()"
+        >
+          {{ budgetSubmitting() ? 'Guardando...' : 'Guardar presupuesto' }}
         </button>
       </div>
     </div>

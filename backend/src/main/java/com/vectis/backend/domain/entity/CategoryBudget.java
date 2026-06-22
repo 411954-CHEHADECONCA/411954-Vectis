@@ -33,6 +33,10 @@ public class CategoryBudget {
     @Column(nullable = false, precision = 19, scale = 4)
     private BigDecimal amount;
 
+    @ManyToOne(fetch = FetchType.LAZY)
+    @JoinColumn(name = "account_id")
+    private Account account; // nullable
+
     @Column(name = "valid_from", nullable = false)
     private LocalDate validFrom;
 

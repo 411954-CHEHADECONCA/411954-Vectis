@@ -3,6 +3,7 @@ package com.vectis.backend.service;
 import com.vectis.backend.domain.entity.Category;
 import com.vectis.backend.domain.entity.CategoryBudget;
 import com.vectis.backend.domain.entity.CategoryType;
+import com.vectis.backend.domain.entity.MonthPeriod;
 import com.vectis.backend.domain.entity.User;
 import com.vectis.backend.dto.CategoryRequest;
 import com.vectis.backend.dto.CategoryResponse;
@@ -11,6 +12,7 @@ import com.vectis.backend.exception.VectisException;
 import com.vectis.backend.mapper.CategoryMapper;
 import com.vectis.backend.repository.CategoryBudgetRepository;
 import com.vectis.backend.repository.CategoryRepository;
+import com.vectis.backend.repository.MonthPeriodRepository;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
@@ -49,6 +51,9 @@ class CategoryServiceTest {
     @Mock
     private CategoryMapper categoryMapper;
 
+    @Mock
+    private MonthPeriodRepository monthPeriodRepository;
+
     private User user;
     private User otherUser;
     private UUID userId;
@@ -84,9 +89,9 @@ class CategoryServiceTest {
         CategoryResponse globalResponse = buildResponse(global, null);
         CategoryResponse customResponse = buildResponse(custom, null);
 
-        LocalDate month = LocalDate.now().withDayOfMonth(1);
+        LocalDate today = LocalDate.now().withDayOfMonth(1);
         given(categoryRepository.findAllForUser(userId)).willReturn(List.of(global, custom));
-        given(categoryBudgetRepository.findAllByUser_IdAndValidFrom(userId, month)).willReturn(List.of());
+        given(categoryBudgetRepository.findLatestPerCategoryOnOrBefore(userId, today)).willReturn(List.of());
         given(categoryMapper.toResponse(global, null)).willReturn(globalResponse);
         given(categoryMapper.toResponse(custom, null)).willReturn(customResponse);
 
@@ -97,7 +102,7 @@ class CategoryServiceTest {
     }
 
     @Test
-    @DisplayName("getCategories incluye el monto estimado del mes actual")
+    @DisplayName("getCategories incluye el presupuesto activo (findLatestPerCategoryOnOrBefore)")
     void getCategories_includesBudgetForCurrentMonth() {
         Category custom = buildCategory(user, "Gym", false);
         CategoryBudget budget = CategoryBudget.builder()
@@ -109,9 +114,9 @@ class CategoryServiceTest {
                 .build();
         CategoryResponse responseWithBudget = buildResponse(custom, new BigDecimal("50000.0000"));
 
-        LocalDate month = LocalDate.now().withDayOfMonth(1);
+        LocalDate today = LocalDate.now().withDayOfMonth(1);
         given(categoryRepository.findAllForUser(userId)).willReturn(List.of(custom));
-        given(categoryBudgetRepository.findAllByUser_IdAndValidFrom(userId, month)).willReturn(List.of(budget));
+        given(categoryBudgetRepository.findLatestPerCategoryOnOrBefore(userId, today)).willReturn(List.of(budget));
         given(categoryMapper.toResponse(custom, new BigDecimal("50000.0000"))).willReturn(responseWithBudget);
 
         List<CategoryResponse> result = categoryService.getCategories(userId);
@@ -184,17 +189,25 @@ class CategoryServiceTest {
     // ─── updateCategory ───────────────────────────────────────────────────────
 
     @Test
-    @DisplayName("updateCategory de categoría global lanza FORBIDDEN")
-    void updateCategory_globalCategory_throwsForbidden() {
+    @DisplayName("updateCategory de categoría sistema permite edición por cualquier usuario autenticado")
+    void updateCategory_systemCategory_succeeds() {
         UUID id = UUID.randomUUID();
         Category global = buildCategory(null, "Alimentos", true);
+        global.setId(id);
         CategoryRequest request = new CategoryRequest("Comida", "utensils", "#10B981", CategoryType.EXPENSE, null);
+        CategoryResponse response = buildResponse(global, null);
 
+        LocalDate month = LocalDate.now().withDayOfMonth(1);
         given(categoryRepository.findById(id)).willReturn(Optional.of(global));
+        given(categoryRepository.save(any(Category.class))).willReturn(global);
+        given(categoryBudgetRepository.findByCategory_IdAndUser_IdAndValidFrom(id, userId, month))
+                .willReturn(Optional.empty());
+        given(categoryMapper.toResponse(global, null)).willReturn(response);
 
-        assertThatThrownBy(() -> categoryService.updateCategory(id, request, user))
-                .isInstanceOf(VectisException.class)
-                .satisfies(ex -> assertThat(((VectisException) ex).getStatus()).isEqualTo(HttpStatus.FORBIDDEN));
+        CategoryResponse result = categoryService.updateCategory(id, request, user);
+
+        assertThat(result).isNotNull();
+        verify(categoryRepository).save(global);
     }
 
     @Test
@@ -254,6 +267,39 @@ class CategoryServiceTest {
     }
 
     @Test
+    @DisplayName("updateCategory con período CLOSED guarda el presupuesto en el mes siguiente")
+    void updateCategory_whenPeriodIsClosed_savesForNextMonth() {
+        UUID id = UUID.randomUUID();
+        Category custom = buildCategory(user, "Gym", false);
+        custom.setId(id);
+        CategoryRequest request = new CategoryRequest("Gym", "dumbbell", "#EC4899", CategoryType.EXPENSE, new BigDecimal("45000"));
+        LocalDate currentMonth = LocalDate.now().withDayOfMonth(1);
+        LocalDate nextMonth = currentMonth.plusMonths(1);
+
+        MonthPeriod closedPeriod = MonthPeriod.builder()
+                .id(UUID.randomUUID()).user(user)
+                .year(currentMonth.getYear()).month(currentMonth.getMonthValue()).status("CLOSED").build();
+        CategoryBudget savedBudget = CategoryBudget.builder()
+                .id(UUID.randomUUID()).category(custom).user(user)
+                .amount(new BigDecimal("45000")).validFrom(nextMonth).build();
+        CategoryResponse response = buildResponse(custom, new BigDecimal("45000"));
+
+        given(categoryRepository.findById(id)).willReturn(Optional.of(custom));
+        given(categoryRepository.save(any(Category.class))).willReturn(custom);
+        given(monthPeriodRepository.findByUser_IdAndYearAndMonth(userId, currentMonth.getYear(), currentMonth.getMonthValue()))
+                .willReturn(Optional.of(closedPeriod));
+        given(categoryBudgetRepository.findByCategory_IdAndUser_IdAndValidFrom(id, userId, nextMonth))
+                .willReturn(Optional.empty()).willReturn(Optional.of(savedBudget));
+        given(categoryBudgetRepository.save(any(CategoryBudget.class))).willReturn(savedBudget);
+        given(categoryMapper.toResponse(custom, new BigDecimal("45000"))).willReturn(response);
+
+        CategoryResponse result = categoryService.updateCategory(id, request, user);
+
+        assertThat(result.estimatedAmount()).isEqualByComparingTo(new BigDecimal("45000"));
+        verify(categoryBudgetRepository).save(any(CategoryBudget.class));
+    }
+
+    @Test
     @DisplayName("updateCategory sin monto estimado no toca la tabla de presupuestos")
     void updateCategory_withNullEstimatedAmount_doesNotTouchBudget() {
         UUID id = UUID.randomUUID();
@@ -272,6 +318,96 @@ class CategoryServiceTest {
         categoryService.updateCategory(id, request, user);
 
         verify(categoryBudgetRepository, never()).save(any(CategoryBudget.class));
+    }
+
+    // ─── updateBudget ─────────────────────────────────────────────────────────
+
+    @Test
+    @DisplayName("updateBudget con período OPEN guarda el presupuesto")
+    void updateBudget_whenPeriodIsOpen_savesBudget() {
+        UUID id = UUID.randomUUID();
+        Category custom = buildCategory(user, "Gym", false);
+        custom.setId(id);
+        BigDecimal amount = new BigDecimal("50000");
+        LocalDate month = LocalDate.now().withDayOfMonth(1);
+
+        MonthPeriod openPeriod = MonthPeriod.builder()
+                .id(UUID.randomUUID()).user(user)
+                .year(month.getYear()).month(month.getMonthValue()).status("OPEN").build();
+        CategoryBudget savedBudget = CategoryBudget.builder()
+                .id(UUID.randomUUID()).category(custom).user(user).amount(amount).validFrom(month).build();
+        CategoryResponse response = buildResponse(custom, amount);
+
+        given(categoryRepository.findById(id)).willReturn(Optional.of(custom));
+        given(monthPeriodRepository.findByUser_IdAndYearAndMonth(userId, month.getYear(), month.getMonthValue()))
+                .willReturn(Optional.of(openPeriod));
+        given(categoryBudgetRepository.findByCategory_IdAndUser_IdAndValidFrom(id, userId, month))
+                .willReturn(Optional.empty()).willReturn(Optional.of(savedBudget));
+        given(categoryBudgetRepository.save(any(CategoryBudget.class))).willReturn(savedBudget);
+        given(categoryMapper.toResponse(custom, amount)).willReturn(response);
+
+        CategoryResponse result = categoryService.updateBudget(id, amount, user);
+
+        assertThat(result.estimatedAmount()).isEqualByComparingTo(amount);
+        verify(categoryBudgetRepository).save(any(CategoryBudget.class));
+    }
+
+    @Test
+    @DisplayName("updateBudget con período CLOSED guarda el presupuesto en el mes siguiente")
+    void updateBudget_whenPeriodIsClosed_savesForNextMonth() {
+        UUID id = UUID.randomUUID();
+        Category custom = buildCategory(user, "Gym", false);
+        custom.setId(id);
+        BigDecimal amount = new BigDecimal("50000");
+        LocalDate currentMonth = LocalDate.now().withDayOfMonth(1);
+        LocalDate nextMonth = currentMonth.plusMonths(1);
+
+        MonthPeriod closedPeriod = MonthPeriod.builder()
+                .id(UUID.randomUUID()).user(user)
+                .year(currentMonth.getYear()).month(currentMonth.getMonthValue()).status("CLOSED").build();
+        CategoryBudget savedBudget = CategoryBudget.builder()
+                .id(UUID.randomUUID()).category(custom).user(user).amount(amount).validFrom(nextMonth).build();
+        CategoryResponse response = buildResponse(custom, amount);
+
+        given(categoryRepository.findById(id)).willReturn(Optional.of(custom));
+        given(monthPeriodRepository.findByUser_IdAndYearAndMonth(userId, currentMonth.getYear(), currentMonth.getMonthValue()))
+                .willReturn(Optional.of(closedPeriod));
+        given(categoryBudgetRepository.findByCategory_IdAndUser_IdAndValidFrom(id, userId, nextMonth))
+                .willReturn(Optional.empty()).willReturn(Optional.of(savedBudget));
+        given(categoryBudgetRepository.save(any(CategoryBudget.class))).willReturn(savedBudget);
+        given(categoryMapper.toResponse(custom, amount)).willReturn(response);
+
+        CategoryResponse result = categoryService.updateBudget(id, amount, user);
+
+        assertThat(result.estimatedAmount()).isEqualByComparingTo(amount);
+        verify(categoryBudgetRepository).save(any(CategoryBudget.class));
+    }
+
+    @Test
+    @DisplayName("updateBudget sin registro de período guarda el presupuesto")
+    void updateBudget_whenNoPeriodRecord_savesBudget() {
+        UUID id = UUID.randomUUID();
+        Category custom = buildCategory(user, "Gym", false);
+        custom.setId(id);
+        BigDecimal amount = new BigDecimal("30000");
+        LocalDate month = LocalDate.now().withDayOfMonth(1);
+
+        CategoryBudget savedBudget = CategoryBudget.builder()
+                .id(UUID.randomUUID()).category(custom).user(user).amount(amount).validFrom(month).build();
+        CategoryResponse response = buildResponse(custom, amount);
+
+        given(categoryRepository.findById(id)).willReturn(Optional.of(custom));
+        given(monthPeriodRepository.findByUser_IdAndYearAndMonth(userId, month.getYear(), month.getMonthValue()))
+                .willReturn(Optional.empty());
+        given(categoryBudgetRepository.findByCategory_IdAndUser_IdAndValidFrom(id, userId, month))
+                .willReturn(Optional.empty()).willReturn(Optional.of(savedBudget));
+        given(categoryBudgetRepository.save(any(CategoryBudget.class))).willReturn(savedBudget);
+        given(categoryMapper.toResponse(custom, amount)).willReturn(response);
+
+        CategoryResponse result = categoryService.updateBudget(id, amount, user);
+
+        assertThat(result.estimatedAmount()).isEqualByComparingTo(amount);
+        verify(categoryBudgetRepository).save(any(CategoryBudget.class));
     }
 
     // ─── deleteCategory ───────────────────────────────────────────────────────

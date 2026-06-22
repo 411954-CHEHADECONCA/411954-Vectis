@@ -70,5 +70,14 @@ public record MovementResponse(
         UUID installmentGroupId,
 
         @Schema(description = "Fecha de creación")
-        OffsetDateTime createdAt
+        OffsetDateTime createdAt,
+
+        @Schema(description = "Indica si el movimiento fue materializado como proyección futura (no es un registro manual)", example = "false")
+        boolean isProjected,
+
+        @Schema(description = "Indica si la cuota de tarjeta fue incluida en un pago de liquidación registrado", example = "false")
+        boolean paid,
+
+        @Schema(description = "ID que agrupa las dos legs de una transferencia entre cuentas (null si no es transferencia)")
+        UUID transferGroupId
 ) {}
