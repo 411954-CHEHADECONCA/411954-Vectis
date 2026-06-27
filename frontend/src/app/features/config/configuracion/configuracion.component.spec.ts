@@ -9,10 +9,14 @@ import { CategoryService } from '../../../core/services/category.service';
 import { AccountService } from '../../../core/services/account.service';
 import { CreditCardService } from '../../../core/services/credit-card.service';
 import { RecurringMovementService } from '../../../core/services/recurring-movement.service';
+import { MacroService } from '../../../core/services/macro.service';
+import { InvestmentService } from '../../../core/services/investment.service';
 import { CategoryResponse } from '../../../core/models/category.models';
 import { AccountResponse } from '../../../core/models/account.models';
 import { CardResponse } from '../../../core/models/card.models';
 import { RecurringMovementResponse } from '../../../core/models/recurring-movement.models';
+import { ExchangeRateResponse, InflationResponse } from '../../../core/models/macro.models';
+import { MarketApiStatus } from '../../../core/models/investment.models';
 
 const MOCK_RECURRING: RecurringMovementResponse = {
   id: 'rm-1', description: 'Netflix', amount: 15000, ccy: 'ARS', type: 'EXPENSE',
@@ -39,6 +43,20 @@ const MOCK_CARD: CardResponse = {
   createdAt: '2026-06-10T00:00:00Z', updatedAt: '2026-06-10T00:00:00Z',
 };
 
+const MOCK_OFICIAL: ExchangeRateResponse = {
+  rateType: 'OFICIAL', buy: '1060.0000', sell: '1062.5000', rateDate: '2026-06-22', source: 'dolarapi.com',
+};
+const MOCK_MEP: ExchangeRateResponse = {
+  rateType: 'MEP', buy: '1250.0000', sell: '1255.0000', rateDate: '2026-06-22', source: 'argentinadatos.com',
+};
+const MOCK_IPC: InflationResponse = {
+  monthlyRate: '2.4000', periodDate: '2026-05-31', source: 'argentinadatos.com',
+};
+const MOCK_MARKET_STATUS: MarketApiStatus = {
+  fciSnapshotsTotal: 74, fciLastSync: '2026-06-25',
+  ppiConfigured: true,
+};
+
 describe('ConfiguracionComponent', () => {
   let fixture: ComponentFixture<ConfiguracionComponent>;
   let component: ConfiguracionComponent;
@@ -46,6 +64,8 @@ describe('ConfiguracionComponent', () => {
   let accServiceSpy: jasmine.SpyObj<AccountService>;
   let cardServiceSpy: jasmine.SpyObj<CreditCardService>;
   let recurringServiceSpy: jasmine.SpyObj<RecurringMovementService>;
+  let macroServiceSpy: jasmine.SpyObj<MacroService>;
+  let investmentServiceSpy: jasmine.SpyObj<InvestmentService>;
 
   beforeEach(async () => {
     catServiceSpy = jasmine.createSpyObj<CategoryService>('CategoryService', [
@@ -69,16 +89,30 @@ describe('ConfiguracionComponent', () => {
     ]);
     recurringServiceSpy.getRecurringMovements.and.returnValue(of([]));
 
+    macroServiceSpy = jasmine.createSpyObj<MacroService>('MacroService', [
+      'getLatestOficialRate', 'getLatestMepRate', 'getLatestInflation',
+    ]);
+    macroServiceSpy.getLatestOficialRate.and.returnValue(of(MOCK_OFICIAL));
+    macroServiceSpy.getLatestMepRate.and.returnValue(of(MOCK_MEP));
+    macroServiceSpy.getLatestInflation.and.returnValue(of(MOCK_IPC));
+
+    investmentServiceSpy = jasmine.createSpyObj<InvestmentService>('InvestmentService', [
+      'getMarketApiStatus',
+    ]);
+    investmentServiceSpy.getMarketApiStatus.and.returnValue(of(MOCK_MARKET_STATUS));
+
     await TestBed.configureTestingModule({
       imports: [ConfiguracionComponent, ReactiveFormsModule],
       providers: [
         provideHttpClient(),
         provideHttpClientTesting(),
         provideRouter([]),
-        { provide: CategoryService,         useValue: catServiceSpy        },
-        { provide: AccountService,          useValue: accServiceSpy        },
-        { provide: CreditCardService,       useValue: cardServiceSpy       },
-        { provide: RecurringMovementService, useValue: recurringServiceSpy },
+        { provide: CategoryService,          useValue: catServiceSpy          },
+        { provide: AccountService,           useValue: accServiceSpy          },
+        { provide: CreditCardService,        useValue: cardServiceSpy         },
+        { provide: RecurringMovementService, useValue: recurringServiceSpy    },
+        { provide: MacroService,             useValue: macroServiceSpy        },
+        { provide: InvestmentService,        useValue: investmentServiceSpy   },
       ],
     }).compileComponents();
 
@@ -106,9 +140,9 @@ describe('ConfiguracionComponent', () => {
     expect(cardServiceSpy.getCards).toHaveBeenCalledOnceWith();
   });
 
-  it('renders four tabs', () => {
+  it('renders five tabs', () => {
     const tabs = fixture.nativeElement.querySelectorAll('.tab');
-    expect(tabs.length).toBe(4);
+    expect(tabs.length).toBe(5);
   });
 
   // ── Tab switching ──────────────────────────────────────────────────────────
@@ -405,6 +439,70 @@ describe('ConfiguracionComponent', () => {
     expect(component.recurringError()).toBe('No se pudieron cargar los movimientos recurrentes');
   });
 
+  // ── API Control tab ────────────────────────────────────────────────────────
+
+  describe('tab API Control', () => {
+    beforeEach(() => {
+      component.setTab('api');
+      fixture.detectChanges();
+    });
+
+    it('se puede seleccionar el tab api', () => {
+      expect(component.activeTab()).toBe('api');
+    });
+
+    it('tabDefs incluye api tab con count null', () => {
+      const apiTab = component.tabDefs().find(t => t.id === 'api');
+      expect(apiTab).toBeTruthy();
+      expect(apiTab?.label).toBe('API Control');
+      expect(apiTab?.count).toBeNull();
+    });
+
+    it('oficialRate se carga con el mock', () => {
+      expect(component.oficialRate()).toEqual(MOCK_OFICIAL);
+    });
+
+    it('mepRate se carga con el mock', () => {
+      expect(component.mepRate()).toEqual(MOCK_MEP);
+    });
+
+    it('inflation se carga con el mock', () => {
+      expect(component.inflation()).toEqual(MOCK_IPC);
+    });
+
+    it('muestra cinco badges Activo cuando todos los datos estan disponibles', () => {
+      const badges = fixture.nativeElement.querySelectorAll('.macro-badge--ok');
+      expect(badges.length).toBe(5);
+    });
+
+    it('muestra el sell de la cotizacion OFICIAL en el DOM formateado', () => {
+      const sells: NodeListOf<HTMLElement> = fixture.nativeElement.querySelectorAll('.macro-card__sell');
+      expect(sells[0].textContent).toContain(component.fmtRate(MOCK_OFICIAL.sell));
+    });
+
+    it('muestra el sell de la cotizacion MEP en el DOM formateado', () => {
+      const sells: NodeListOf<HTMLElement> = fixture.nativeElement.querySelectorAll('.macro-card__sell');
+      expect(sells[1].textContent).toContain(component.fmtRate(MOCK_MEP.sell));
+    });
+
+    it('muestra el rate de IPC en el DOM formateado', () => {
+      const sells: NodeListOf<HTMLElement> = fixture.nativeElement.querySelectorAll('.macro-card__sell');
+      expect(sells[2].textContent).toContain(component.fmtRate(MOCK_IPC.monthlyRate));
+    });
+
+    it('muestra el source chip de cada cotizacion', () => {
+      const sources: NodeListOf<HTMLElement> = fixture.nativeElement.querySelectorAll('.macro-card__source-chip');
+      expect(sources[0].textContent).toContain('dolarapi.com');
+      expect(sources[1].textContent).toContain('argentinadatos.com');
+      expect(sources[2].textContent).toContain('argentinadatos.com');
+    });
+
+    it('no muestra ningun badge Sin datos cuando todos los datos estan disponibles', () => {
+      const errorBadges = fixture.nativeElement.querySelectorAll('.macro-badge--error');
+      expect(errorBadges.length).toBe(0);
+    });
+  });
+
   it('openEditRecurring sets paymentSource to card: prefix when rm has cardId', () => {
     const rmWithCard: RecurringMovementResponse = { ...MOCK_RECURRING, cardId: 'card-42', cardName: 'Galicia ····4821' };
     component.openEditRecurring(rmWithCard);
@@ -446,5 +544,73 @@ describe('ConfiguracionComponent', () => {
     expect(recurringServiceSpy.createRecurringMovement).toHaveBeenCalledOnceWith(
       jasmine.objectContaining({ accountId: 'acc-1', cardId: null })
     );
+  });
+});
+
+describe('ConfiguracionComponent — tab API Control sin datos', () => {
+  let fixture: ComponentFixture<ConfiguracionComponent>;
+  let component: ConfiguracionComponent;
+
+  beforeEach(async () => {
+    const errorMacroSpy = jasmine.createSpyObj<MacroService>('MacroService', [
+      'getLatestOficialRate', 'getLatestMepRate', 'getLatestInflation',
+    ]);
+    errorMacroSpy.getLatestOficialRate.and.returnValue(throwError(() => new Error('no data')));
+    errorMacroSpy.getLatestMepRate.and.returnValue(throwError(() => new Error('no data')));
+    errorMacroSpy.getLatestInflation.and.returnValue(throwError(() => new Error('no data')));
+
+    const errorInvestmentSpy = jasmine.createSpyObj<InvestmentService>('InvestmentService', [
+      'getMarketApiStatus',
+    ]);
+    errorInvestmentSpy.getMarketApiStatus.and.returnValue(throwError(() => new Error('no data')));
+
+    const catSpy = jasmine.createSpyObj<CategoryService>('CategoryService', ['getCategories']);
+    catSpy.getCategories.and.returnValue(of([]));
+    const accSpy = jasmine.createSpyObj<AccountService>('AccountService', ['getAccounts']);
+    accSpy.getAccounts.and.returnValue(of([]));
+    const cardSpy = jasmine.createSpyObj<CreditCardService>('CreditCardService', ['getCards']);
+    cardSpy.getCards.and.returnValue(of([]));
+    const recSpy = jasmine.createSpyObj<RecurringMovementService>('RecurringMovementService', ['getRecurringMovements']);
+    recSpy.getRecurringMovements.and.returnValue(of([]));
+
+    await TestBed.configureTestingModule({
+      imports: [ConfiguracionComponent, ReactiveFormsModule],
+      providers: [
+        provideHttpClient(),
+        provideHttpClientTesting(),
+        provideRouter([]),
+        { provide: CategoryService,          useValue: catSpy               },
+        { provide: AccountService,           useValue: accSpy               },
+        { provide: CreditCardService,        useValue: cardSpy              },
+        { provide: RecurringMovementService, useValue: recSpy               },
+        { provide: MacroService,             useValue: errorMacroSpy        },
+        { provide: InvestmentService,        useValue: errorInvestmentSpy   },
+      ],
+    }).compileComponents();
+
+    fixture = TestBed.createComponent(ConfiguracionComponent);
+    component = fixture.componentInstance;
+    fixture.detectChanges();
+    component.setTab('api');
+    fixture.detectChanges();
+  });
+
+  it('oficialRate es null cuando el servicio falla', () => {
+    expect(component.oficialRate()).toBeNull();
+  });
+
+  it('muestra tres badges Sin datos (--error) para los datos macro cuando fallan', () => {
+    const errorBadges = fixture.nativeElement.querySelectorAll('.macro-badge--error');
+    expect(errorBadges.length).toBe(3);
+  });
+
+  it('no muestra ningun badge Activo cuando los servicios fallan', () => {
+    const okBadges = fixture.nativeElement.querySelectorAll('.macro-badge--ok');
+    expect(okBadges.length).toBe(0);
+  });
+
+  it('muestra cinco mensajes de sin datos o cargando cuando todos los servicios fallan', () => {
+    const empties: NodeListOf<HTMLElement> = fixture.nativeElement.querySelectorAll('.macro-card__empty');
+    expect(empties.length).toBe(5);
   });
 });

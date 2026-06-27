@@ -1,0 +1,50 @@
+package com.vectis.backend.domain.entity;
+
+import jakarta.persistence.*;
+import lombok.*;
+
+import java.math.BigDecimal;
+import java.time.LocalDate;
+import java.time.OffsetDateTime;
+import java.time.ZoneOffset;
+import java.util.UUID;
+
+@Entity
+@Table(name = "investment_movements")
+@Getter
+@Setter
+@NoArgsConstructor
+@AllArgsConstructor
+@Builder
+public class InvestmentMovement {
+
+    @Id
+    @GeneratedValue(strategy = GenerationType.UUID)
+    private UUID id;
+
+    @ManyToOne(fetch = FetchType.LAZY)
+    @JoinColumn(name = "investment_id", nullable = false)
+    private InvestmentAsset investmentAsset;
+
+    @Column(name = "movement_date", nullable = false)
+    private LocalDate movementDate;
+
+    @Enumerated(EnumType.STRING)
+    @Column(nullable = false, length = 15)
+    private InvestmentMovementType type;
+
+    @Column(nullable = false, precision = 19, scale = 4)
+    private BigDecimal amount;
+
+    /** Cuotapartes involucradas en el movimiento. Null para tipos que no sean FCI_CUOTAPARTES. */
+    @Column(nullable = true, precision = 19, scale = 6)
+    private BigDecimal units;
+
+    @Column(name = "created_at", nullable = false, updatable = false)
+    private OffsetDateTime createdAt;
+
+    @PrePersist
+    protected void onCreate() {
+        createdAt = OffsetDateTime.now(ZoneOffset.UTC);
+    }
+}

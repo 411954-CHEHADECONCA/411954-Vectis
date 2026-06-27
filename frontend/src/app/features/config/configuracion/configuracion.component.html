@@ -41,7 +41,9 @@
         [attr.aria-selected]="activeTab() === tab.id"
       >
         {{ tab.label }}
-        <span class="tab-count" [class.tab-count--active]="activeTab() === tab.id">{{ tab.count }}</span>
+        @if (tab.count !== null) {
+          <span class="tab-count" [class.tab-count--active]="activeTab() === tab.id">{{ tab.count }}</span>
+        }
       </button>
     }
   </div>
@@ -428,6 +430,194 @@
         </div>
       </div>
     }
+  }
+
+  <!-- ── API CONTROL ───────────────────────────────────────────────────── -->
+  @if (activeTab() === 'api') {
+    <div class="api-panel">
+
+      <!-- Sección: Datos macro -->
+      <div class="api-section-head">
+        <div>
+          <h3 class="api-section-head__title">Datos macro</h3>
+          <p class="api-section-head__sub">Cotizaciones e inflación sincronizadas automáticamente</p>
+        </div>
+        <span class="api-source-chip">argentinadatos.com · dolarapi.com</span>
+      </div>
+
+      <div class="macro-grid">
+
+        <!-- Dólar OFICIAL -->
+        <div class="macro-card">
+          <div class="macro-card__header">
+            <div class="macro-card__title-group">
+              <div class="macro-card__icon macro-card__icon--primary">
+                <svg lucideDollarSign [size]="14" [strokeWidth]="2" />
+              </div>
+              <span class="macro-card__label">Dólar Oficial</span>
+            </div>
+            @if (oficialRate()) {
+              <span class="macro-badge macro-badge--ok">Activo</span>
+            } @else {
+              <span class="macro-badge macro-badge--error">Sin datos</span>
+            }
+          </div>
+          <div class="macro-card__body">
+            @if (oficialRate(); as r) {
+              <p class="macro-card__sell">$ {{ fmtRate(r.sell) }}</p>
+              <div class="macro-card__meta">
+                <span>Compra: $ {{ fmtRate(r.buy) }}</span>
+                <span>{{ fmtIsoDate(r.rateDate) }}</span>
+              </div>
+            } @else {
+              <p class="macro-card__empty">Sin cotización disponible</p>
+            }
+          </div>
+          <div class="macro-card__footer">
+            <span class="macro-card__source-chip">dolarapi.com</span>
+          </div>
+        </div>
+
+        <!-- Dólar MEP -->
+        <div class="macro-card">
+          <div class="macro-card__header">
+            <div class="macro-card__title-group">
+              <div class="macro-card__icon macro-card__icon--primary">
+                <svg lucideTrendingUp [size]="14" [strokeWidth]="2" />
+              </div>
+              <span class="macro-card__label">Dólar MEP</span>
+            </div>
+            @if (mepRate()) {
+              <span class="macro-badge macro-badge--ok">Activo</span>
+            } @else {
+              <span class="macro-badge macro-badge--error">Sin datos</span>
+            }
+          </div>
+          <div class="macro-card__body">
+            @if (mepRate(); as r) {
+              <p class="macro-card__sell">$ {{ fmtRate(r.sell) }}</p>
+              <div class="macro-card__meta">
+                <span>Compra: $ {{ fmtRate(r.buy) }}</span>
+                <span>{{ fmtIsoDate(r.rateDate) }}</span>
+              </div>
+            } @else {
+              <p class="macro-card__empty">Sin cotización disponible</p>
+            }
+          </div>
+          <div class="macro-card__footer">
+            <span class="macro-card__source-chip">argentinadatos.com</span>
+          </div>
+        </div>
+
+        <!-- IPC -->
+        <div class="macro-card">
+          <div class="macro-card__header">
+            <div class="macro-card__title-group">
+              <div class="macro-card__icon macro-card__icon--secondary">
+                <svg lucideZap [size]="14" [strokeWidth]="2" />
+              </div>
+              <span class="macro-card__label">Inflación Mensual (IPC)</span>
+            </div>
+            @if (inflation()) {
+              <span class="macro-badge macro-badge--ok">Activo</span>
+            } @else {
+              <span class="macro-badge macro-badge--error">Sin datos</span>
+            }
+          </div>
+          <div class="macro-card__body">
+            @if (inflation(); as ipc) {
+              <p class="macro-card__sell">{{ fmtRate(ipc.monthlyRate) }}%</p>
+              <div class="macro-card__meta">
+                <span>Período: {{ fmtIsoDate(ipc.periodDate) }}</span>
+              </div>
+            } @else {
+              <p class="macro-card__empty">Sin dato disponible</p>
+            }
+          </div>
+          <div class="macro-card__footer">
+            <span class="macro-card__source-chip">argentinadatos.com</span>
+          </div>
+        </div>
+
+      </div>
+
+      <!-- Sección: Inversiones -->
+      <div class="api-section-head">
+        <div>
+          <h3 class="api-section-head__title">Mercado de inversiones</h3>
+          <p class="api-section-head__sub">Catálogos de fondos e instrumentos para auto-valuación</p>
+        </div>
+        <span class="api-source-chip">argentinadatos.com · PPI</span>
+      </div>
+
+      <div class="macro-grid macro-grid--two">
+
+        <!-- FCI -->
+        <div class="macro-card">
+          <div class="macro-card__header">
+            <div class="macro-card__title-group">
+              <div class="macro-card__icon macro-card__icon--primary">
+                <svg lucidePieChart [size]="14" [strokeWidth]="2" />
+              </div>
+              <span class="macro-card__label">FCI Cuotapartes</span>
+            </div>
+            @if (apiStatus()?.fciSnapshotsTotal) {
+              <span class="macro-badge macro-badge--ok">Activo</span>
+            } @else {
+              <span class="macro-badge macro-badge--warn">Sin datos</span>
+            }
+          </div>
+          <div class="macro-card__body">
+            @if (apiStatus(); as s) {
+              <p class="macro-card__sell">{{ s.fciSnapshotsTotal }} fondos</p>
+              <div class="macro-card__meta">
+                @if (s.fciLastSync) {
+                  <span>Último sync: {{ fmtIsoDate(s.fciLastSync) }}</span>
+                } @else {
+                  <span>Sin sincronizar aún</span>
+                }
+              </div>
+            } @else {
+              <p class="macro-card__empty">Cargando...</p>
+            }
+          </div>
+          <div class="macro-card__footer">
+            <span class="macro-card__source-chip">argentinadatos.com</span>
+          </div>
+        </div>
+
+        <!-- PPI Market Data -->
+        <div class="macro-card">
+          <div class="macro-card__header">
+            <div class="macro-card__title-group">
+              <div class="macro-card__icon macro-card__icon--secondary">
+                <svg lucideBriefcase [size]="14" [strokeWidth]="2" />
+              </div>
+              <span class="macro-card__label">Bonos &amp; Letras</span>
+            </div>
+            @if (apiStatus()?.ppiConfigured) {
+              <span class="macro-badge macro-badge--ok">Activo</span>
+            } @else {
+              <span class="macro-badge macro-badge--warn">No configurado</span>
+            }
+          </div>
+          <div class="macro-card__body">
+            @if (apiStatus(); as s) {
+              <p class="macro-card__sell">Precios de cierre</p>
+              <div class="macro-card__meta">
+                <span>LETRA · BONO · ON</span>
+              </div>
+            } @else {
+              <p class="macro-card__empty">Cargando...</p>
+            }
+          </div>
+          <div class="macro-card__footer">
+            <span class="macro-card__source-chip">portfoliopersonal.com</span>
+          </div>
+        </div>
+
+      </div>
+    </div>
   }
 
 </div>

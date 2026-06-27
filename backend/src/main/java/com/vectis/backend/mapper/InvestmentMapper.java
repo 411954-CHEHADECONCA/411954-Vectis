@@ -1,0 +1,65 @@
+package com.vectis.backend.mapper;
+
+import com.vectis.backend.domain.entity.InvestmentAsset;
+import com.vectis.backend.domain.entity.InvestmentMovement;
+import com.vectis.backend.domain.entity.InvestmentValuation;
+import com.vectis.backend.dto.InvestmentMovementResponse;
+import com.vectis.backend.dto.InvestmentResponse;
+import com.vectis.backend.dto.InvestmentValuationResponse;
+import org.springframework.stereotype.Component;
+
+import java.util.List;
+
+@Component
+public class InvestmentMapper {
+
+    public InvestmentResponse toResponse(InvestmentAsset asset) {
+        List<InvestmentMovementResponse> movements = asset.getMovements().stream()
+                .map(this::toMovementResponse)
+                .toList();
+
+        List<InvestmentValuationResponse> valuations = asset.getValuations().stream()
+                .map(this::toValuationResponse)
+                .toList();
+
+        return InvestmentResponse.builder()
+                .id(asset.getId())
+                .name(asset.getName())
+                .type(asset.getType().name())
+                .currency(asset.getCurrency())
+                .principal(asset.getPrincipal())
+                .purchaseDate(asset.getPurchaseDate())
+                .maturityDate(asset.getMaturityDate())
+                .tna(asset.getTna())
+                .accountId(asset.getAccount() != null ? asset.getAccount().getId() : null)
+                .accountName(asset.getAccount() != null ? asset.getAccount().getName() : null)
+                .createdAt(asset.getCreatedAt())
+                .updatedAt(asset.getUpdatedAt())
+                .autoTrack(asset.isAutoTrack())
+                .externalId(asset.getExternalId())
+                .movements(movements)
+                .valuations(valuations)
+                .build();
+    }
+
+    public InvestmentMovementResponse toMovementResponse(InvestmentMovement movement) {
+        return new InvestmentMovementResponse(
+                movement.getId(),
+                movement.getMovementDate(),
+                movement.getType().name(),
+                movement.getAmount(),
+                movement.getUnits(),
+                movement.getCreatedAt()
+        );
+    }
+
+    public InvestmentValuationResponse toValuationResponse(InvestmentValuation valuation) {
+        return new InvestmentValuationResponse(
+                valuation.getId(),
+                valuation.getValuationDate(),
+                valuation.getPricePerUnit(),
+                valuation.getSource(),
+                valuation.getCreatedAt()
+        );
+    }
+}

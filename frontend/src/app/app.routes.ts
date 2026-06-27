@@ -70,6 +70,13 @@ export const routes: Routes = [
           ),
       },
       {
+        path: 'inversiones',
+        loadComponent: () =>
+          import('./features/inversiones/inversiones.component').then(
+            m => m.InversionesComponent
+          ),
+      },
+      {
         path: 'config/categories',
         loadComponent: () =>
           import('./features/config/categories/categories.component').then(

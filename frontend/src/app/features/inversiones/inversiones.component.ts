@@ -1,0 +1,1546 @@
+import {
+  Component,
+  ChangeDetectionStrategy,
+  DestroyRef,
+  inject,
+  signal,
+  computed,
+  OnInit,
+} from '@angular/core';
+import {
+  AbstractControl,
+  FormControl,
+  FormGroup,
+  ReactiveFormsModule,
+  ValidationErrors,
+  Validators,
+} from '@angular/forms';
+import { HttpErrorResponse } from '@angular/common/http';
+import { DecimalPipe } from '@angular/common';
+import { toSignal, takeUntilDestroyed } from '@angular/core/rxjs-interop';
+import { catchError, distinctUntilChanged, forkJoin, of, switchMap } from 'rxjs';
+import {
+  LucideTrendingUp,
+  LucideTrendingDown,
+  LucideWallet,
+  LucideChartNoAxesColumn,
+  LucidePlus,
+  LucidePen,
+  LucideTrash2,
+  LucideChevronDown,
+  LucideX,
+  LucideChartLine,
+  LucideCoins,
+  LucideFileText,
+  LucideLink,
+  LucidePercent,
+} from '@lucide/angular';
+import { InvestmentService } from '../../core/services/investment.service';
+import { AccountService }    from '../../core/services/account.service';
+import { MacroService }      from '../../core/services/macro.service';
+import { CurrencyService }   from '../../core/services/currency.service';
+import {
+  FciFundOption,
+  InstrumentOption,
+  InvestmentResponse,
+  InvestmentRequest,
+  InvestmentAssetType,
+  InvestmentMovement,
+  InvestmentMovementRequest,
+  InvestmentMovementType,
+  InvestmentValuation,
+  InvestmentValuationRequest,
+  ASSET_TYPE_LABELS,
+  ASSET_TINTS,
+} from '../../core/models/investment.models';
+import { AccountResponse }   from '../../core/models/account.models';
+import { InflationResponse } from '../../core/models/macro.models';
+
+type ModalState = {
+  kind:       'type-select' | 'form-create' | 'form-edit' | 'delete';
+  assetType?: InvestmentAssetType;
+  id?:        string;
+  label?:     string;
+  asset?:     InvestmentResponse;
+};
+
+interface FCITramo {
+  mov:       InvestmentMovement | null;
+  saldo:     number;
+  dias:      number;
+  intereses: number;
+  enCurso:   boolean;
+}
+
+interface FCITramoCP {
+  startDate:    string;
+  endDate:      string;
+  startPrice:   number;
+  endPrice:     number;
+  units:        number;
+  dias:         number;
+  ganancia:     number;   // units × (endPrice − startPrice)
+  tna:          number;   // (ganancia/capitalInicio) × (365/dias) × 100
+  tea:          number;   // ((1 + ganancia/capitalInicio)^(365/dias) − 1) × 100
+  enCurso:      boolean;
+  valuacionId?:  string;
+  revaluoMovId?: string;
+}
+
+function maturityAfterPurchaseValidator(g: AbstractControl): ValidationErrors | null {
+  const purchase = g.get('purchaseDate')?.value as string | null;
+  const maturity  = g.get('maturityDate')?.value  as string | null;
+  if (!purchase || !maturity) return null;
+  return maturity > purchase ? null : { maturityBeforePurchase: true };
+}
+
+@Component({
+  selector: 'app-inversiones',
+  standalone: true,
+  changeDetection: ChangeDetectionStrategy.OnPush,
+  imports: [
+    ReactiveFormsModule,
+    DecimalPipe,
+    LucideTrendingUp,
+    LucideTrendingDown,
+    LucideWallet,
+    LucideChartNoAxesColumn,
+    LucidePlus,
+    LucidePen,
+    LucideTrash2,
+    LucideChevronDown,
+    LucideX,
+    LucideChartLine,
+    LucideCoins,
+    LucideFileText,
+    LucideLink,
+    LucidePercent,
+  ],
+  templateUrl: './inversiones.component.html',
+  styleUrl: './inversiones.component.scss',
+})
+export class InversionesComponent implements OnInit {
+  private readonly investmentService = inject(InvestmentService);
+  private readonly accountService    = inject(AccountService);
+  private readonly macroService      = inject(MacroService);
+  private readonly currencyService   = inject(CurrencyService);
+  private readonly destroyRef        = inject(DestroyRef);
+
+  // ── Expose to template ────────────────────────────────────────────────────
+  readonly ASSET_TYPE_LABELS = ASSET_TYPE_LABELS;
+  readonly ASSET_TINTS       = ASSET_TINTS;
+  protected readonly Math    = Math;
+
+  readonly typeCards: { value: InvestmentAssetType; label: string; color: string; comingSoon: boolean }[] = [
+    { value: 'PLAZO_FIJO',      label: 'Plazo fijo',          color: 'var(--color-primary)',           comingSoon: false },
+    { value: 'FCI',             label: 'Fondo Money Market',  color: 'var(--color-primary-fixed-dim)', comingSoon: false },
+    { value: 'FCI_CUOTAPARTES', label: 'Fondo Cuotapartes',   color: 'var(--color-secondary)',          comingSoon: false },
+    { value: 'LETRA',           label: 'Letra capitalizable',  color: 'var(--color-tertiary)',            comingSoon: false },
+    { value: 'BONO',            label: 'Bono soberano',        color: 'var(--color-primary)',             comingSoon: false },
+    { value: 'ON',              label: 'Obligación Negociable', color: 'var(--color-secondary)',           comingSoon: false },
+  ];
+
+  // ── State ─────────────────────────────────────────────────────────────────
+  assets           = signal<InvestmentResponse[]>([]);
+  accounts         = signal<AccountResponse[]>([]);
+  loading          = signal(true);
+  error            = signal<string | null>(null);
+  modal            = signal<ModalState | null>(null);
+  subModal         = signal<{ kind: 'add-movement' | 'add-valuation'; asset: InvestmentResponse } | null>(null);
+  submitting       = signal(false);
+  formError        = signal<string | null>(null);
+  expanded         = signal<Set<string>>(new Set());
+  editingAssetType = signal<InvestmentAssetType>('PLAZO_FIJO');
+
+  // ── Auto-tracking state ───────────────────────────────────────────────────
+  trackingMode     = signal<'auto' | 'manual'>('manual');
+  fciFunds         = signal<FciFundOption[]>([]);
+  instruments      = signal<InstrumentOption[]>([]);
+  fundSearchQuery  = signal('');
+  instrSearchQuery = signal('');
+  showFundDropdown  = signal(false);
+  showInstrDropdown = signal(false);
+
+  // ── Price pre-fill signals ────────────────────────────────────────────────
+  priceForMovement = signal<number | null>(null);  // precio pre-cargado en modal de movimientos
+  priceAtCreation  = signal<number | null>(null);  // precio pre-cargado en formulario de creación
+  priceSource      = signal<'fci' | 'ppi' | 'manual' | null>(null);
+
+  readonly filteredFunds = computed(() => {
+    const q = this.fundSearchQuery().toLowerCase();
+    return q.length < 2
+      ? this.fciFunds().slice(0, 50)
+      : this.fciFunds().filter(f => f.fondo.toLowerCase().includes(q)).slice(0, 50);
+  });
+
+  readonly filteredInstruments = computed(() => {
+    const q = this.instrSearchQuery().toLowerCase();
+    return q.length < 2
+      ? this.instruments().slice(0, 50)
+      : this.instruments().filter(i =>
+          i.ticker.toLowerCase().includes(q) || i.nombre.toLowerCase().includes(q)
+        ).slice(0, 50);
+  });
+
+  // ── FCI state ─────────────────────────────────────────────────────────────
+  pendingMovements  = signal<InvestmentMovementRequest[]>([]);
+  showAddMovement   = signal(false);
+  movFormError      = signal<string | null>(null);
+
+  // ── FCI_CUOTAPARTES state ─────────────────────────────────────────────────
+  pendingValuaciones  = signal<InvestmentValuationRequest[]>([]);
+  showAddValuation    = signal(false);
+  editingValuationId  = signal<string | null>(null);
+
+  // ── Macro data ────────────────────────────────────────────────────────────
+  readonly ipc = toSignal<InflationResponse | null>(
+    this.macroService.getLatestInflation().pipe(catchError(() => of(null))),
+    { initialValue: null },
+  );
+
+  // ── KPI computed ──────────────────────────────────────────────────────────
+  readonly capitalARS = computed(() =>
+    this.assets().filter(a => a.currency === 'ARS').reduce((s, a) => {
+      if (a.type === 'FCI') return s + this.calcSaldoFCI(a);
+      if (a.type === 'FCI_CUOTAPARTES' || a.type === 'LETRA' || a.type === 'BONO' || a.type === 'ON') return s + this.calcValorActualCP(a);
+      return s + a.principal;
+    }, 0)
+  );
+
+  readonly capitalUSD = computed(() =>
+    this.assets().filter(a => a.currency === 'USD').reduce((s, a) => {
+      if (a.type === 'FCI') return s + this.calcSaldoFCI(a);
+      if (a.type === 'FCI_CUOTAPARTES' || a.type === 'LETRA' || a.type === 'BONO' || a.type === 'ON') return s + this.calcValorActualCP(a);
+      return s + a.principal;
+    }, 0)
+  );
+
+  readonly variacionMes = computed(() =>
+    this.assets().filter(a => a.currency === 'ARS')
+      .reduce((s, a) => {
+        if (a.type === 'FCI_CUOTAPARTES' || a.type === 'LETRA' || a.type === 'BONO' || a.type === 'ON') {
+          const ganancia = this.calcGananciaCP(a);
+          const dias = this.diasPeriodoFCI(a);
+          return s + (dias > 0 ? ganancia / (dias / 30) : 0);
+        }
+        const base = a.type === 'FCI' ? this.calcSaldoFCI(a) : a.principal;
+        return s + base * (a.tna / 100 / 12);
+      }, 0)
+  );
+
+  readonly capitalTotal = computed(() => {
+    const rate = this.currencyService.currentRateARS();
+    return this.capitalARS() + this.capitalUSD() * (rate ? parseFloat(rate) : 0);
+  });
+
+  readonly variacionPct = computed(() => {
+    const total = this.capitalTotal();
+    return total > 0 ? (this.variacionMes() / total) * 100 : 0;
+  });
+
+  readonly teaPromedioARS = computed(() => {
+    const arsAssets = this.assets().filter(a =>
+      a.currency === 'ARS' && a.type !== 'FCI_CUOTAPARTES' &&
+      a.type !== 'LETRA' && a.type !== 'BONO' && a.type !== 'ON');
+    const total     = arsAssets.reduce((s, a) => {
+      const base = a.type === 'FCI' ? this.calcSaldoFCI(a) : a.principal;
+      return s + base;
+    }, 0);
+    if (total === 0) return 0;
+    const wTEM = arsAssets.reduce((s, a) => {
+      const base = a.type === 'FCI' ? this.calcSaldoFCI(a) : a.principal;
+      return s + (a.tna / 100 / 12) * base;
+    }, 0) / total;
+    return (Math.pow(1 + wTEM, 12) - 1) * 100;
+  });
+
+  readonly realRate = computed<number | null>(() => {
+    const ipc = this.ipc();
+    if (!ipc) return null;
+    const ipcMensual = parseFloat(ipc.monthlyRate);
+    if (!isFinite(ipcMensual)) return null;
+    const ipcAnual = (Math.pow(1 + ipcMensual / 100, 12) - 1) * 100;
+    return ((1 + this.teaPromedioARS() / 100) / (1 + ipcAnual / 100) - 1) * 100;
+  });
+
+  // ── Plazo Fijo Form ───────────────────────────────────────────────────────
+  readonly plazoFijoForm = new FormGroup({
+    name:         new FormControl('', {
+      nonNullable: true,
+      validators:  [Validators.required, Validators.maxLength(255)],
+    }),
+    currency:     new FormControl<'ARS' | 'USD'>('ARS', { nonNullable: true }),
+    principal:    new FormControl<number | null>(null, [Validators.required, Validators.min(0.01)]),
+    purchaseDate: new FormControl('', { nonNullable: true, validators: [Validators.required] }),
+    dias:         new FormControl<number | null>(null, [Validators.required, Validators.min(1)]),
+    tna:          new FormControl<number | null>(null, [Validators.required, Validators.min(0)]),
+    accountId:    new FormControl<string | null>(null),
+  });
+
+  private readonly _pfValues = toSignal(this.plazoFijoForm.valueChanges, {
+    initialValue: this.plazoFijoForm.getRawValue(),
+  });
+
+  readonly vencimientoPreview = computed(() => {
+    this._pfValues();
+    const { purchaseDate, dias } = this.plazoFijoForm.getRawValue();
+    if (!purchaseDate || !dias) return null;
+    const d = new Date(purchaseDate);
+    d.setDate(d.getDate() + Number(dias));
+    return d.toISOString().split('T')[0];
+  });
+
+  readonly interesesCalculados = computed(() => {
+    this._pfValues();
+    const { principal, tna, dias } = this.plazoFijoForm.getRawValue();
+    if (!principal || !tna || !dias) return 0;
+    return Number(principal) * (Number(tna) / 100) * (Number(dias) / 365);
+  });
+
+  readonly montoTotalPreview = computed(() => {
+    this._pfValues();
+    return Number(this.plazoFijoForm.getRawValue().principal ?? 0) + this.interesesCalculados();
+  });
+
+  // ── FCI Form ──────────────────────────────────────────────────────────────
+  readonly fciForm = new FormGroup({
+    name:      new FormControl('', {
+      nonNullable: true,
+      validators:  [Validators.required, Validators.maxLength(255)],
+    }),
+    currency:  new FormControl<'ARS' | 'USD'>('ARS', { nonNullable: true }),
+    tna:       new FormControl<number | null>(null, [Validators.required, Validators.min(0)]),
+    accountId: new FormControl<string | null>(null),
+  });
+
+  readonly addMovementForm = new FormGroup({
+    movementDate: new FormControl('', { nonNullable: true, validators: [Validators.required] }),
+    type:         new FormControl<InvestmentMovementType>('SUSCRIPCION', { nonNullable: true }),
+    amount:       new FormControl<number | null>(null, [Validators.required, Validators.min(0.01)]),
+    units:        new FormControl<number | null>(null),
+    pricePerUnit: new FormControl<number | null>(null),
+  });
+
+  // ── FCI Cuotapartes Form ─────────────────────────────────────────────────
+  readonly fciCPForm = new FormGroup({
+    name:       new FormControl('', { nonNullable: true, validators: [Validators.required, Validators.maxLength(255)] }),
+    currency:   new FormControl<'ARS' | 'USD'>('ARS', { nonNullable: true }),
+    accountId:  new FormControl<string | null>(null),
+    externalId: new FormControl<string | null>(null),
+  });
+
+  readonly addMovementCPForm = new FormGroup({
+    movementDate: new FormControl('', { nonNullable: true, validators: [Validators.required] }),
+    type:         new FormControl<InvestmentMovementType>('SUSCRIPCION', { nonNullable: true }),
+    amount:       new FormControl<number | null>(null, [Validators.required, Validators.min(0.01)]),
+    units:        new FormControl<number | null>(null, [Validators.required, Validators.min(0.000001)]),
+    pricePerUnit: new FormControl<number | null>(null, [Validators.required, Validators.min(0.000001)]),
+  });
+
+  readonly addValuationForm = new FormGroup({
+    valuationDate: new FormControl('', { nonNullable: true, validators: [Validators.required] }),
+    pricePerUnit:  new FormControl<number | null>(null, [Validators.required, Validators.min(0.01)]),
+  });
+
+  // ── Letra / Bono / ON Form ────────────────────────────────────────────────
+  readonly letraForm = new FormGroup({
+    name:         new FormControl('', { nonNullable: true, validators: [Validators.required, Validators.maxLength(255)] }),
+    currency:     new FormControl<'ARS' | 'USD'>('ARS', { nonNullable: true }),
+    purchaseDate: new FormControl('', { nonNullable: true, validators: [Validators.required] }),
+    maturityDate: new FormControl('', { nonNullable: true, validators: [Validators.required] }),
+    accountId:    new FormControl<string | null>(null),
+    externalId:   new FormControl<string | null>(null),
+  }, { validators: maturityAfterPurchaseValidator });
+
+  // Kept for backwards compat with existing tests
+  readonly pendingBalancePreview = computed(() => {
+    return this.pendingMovements().reduce((acc, m) => {
+      if (m.type === 'SUSCRIPCION' || m.type === 'REVALUO') return acc + +m.amount;
+      if (m.type === 'RESCATE') return acc - +m.amount;
+      return acc;
+    }, 0);
+  });
+
+  // True when no movement exists yet for the asset being edited in subModal
+  readonly isFirstMovement = computed(() => {
+    const sub = this.subModal();
+    if (sub) return !(sub.asset?.movements?.length);
+    const m = this.modal();
+    if (m?.kind === 'form-edit') return !(m.asset?.movements?.length);
+    return true;
+  });
+
+  // ISO date of the latest movement (lower bound for any new movement)
+  readonly minMovementDate = computed(() => {
+    const sub = this.subModal();
+    const movements = sub
+      ? (sub.asset?.movements ?? [])
+      : (this.modal()?.asset?.movements ?? []);
+    const dates = movements.map(mv => mv.movementDate);
+    return dates.length ? [...dates].sort().at(-1)! : '';
+  });
+
+  // Available balance used to validate rescate amounts
+  readonly currentBalanceForMovement = computed(() => {
+    const sub = this.subModal();
+    if (sub) return this.calcSaldoFCI(sub.asset);
+    const m = this.modal();
+    if (m?.asset) return this.calcSaldoFCI(m.asset);
+    return 0;
+  });
+
+  // ── Lifecycle ─────────────────────────────────────────────────────────────
+  ngOnInit(): void {
+    this.loadAssets();
+    this.accountService.getAccounts()
+      .pipe(takeUntilDestroyed(this.destroyRef))
+      .subscribe({ next: accs => this.accounts.set(accs) });
+
+    // Cargar catálogos para combobox (sin bloquear carga principal)
+    forkJoin({
+      mm:    this.investmentService.getFciFunds('mercadoDinero'),
+      rf:    this.investmentService.getFciFunds('rentaFija'),
+      rv:    this.investmentService.getFciFunds('rentaVariable'),
+      letra: this.investmentService.getInstruments('LETRA'),
+      bono:  this.investmentService.getInstruments('BONO'),
+      on:    this.investmentService.getInstruments('ON'),
+    }).pipe(
+      catchError(() => of({ mm: [], rf: [], rv: [], letra: [], bono: [], on: [] })),
+      takeUntilDestroyed(this.destroyRef),
+    ).subscribe(data => {
+        this.fciFunds.set([...data.mm, ...data.rf, ...data.rv]);
+        this.instruments.set([...data.letra, ...data.bono, ...data.on]);
+      });
+  }
+
+  loadAssets(): void {
+    this.loading.set(true);
+    this.error.set(null);
+    this.investmentService.getInvestments()
+      .pipe(takeUntilDestroyed(this.destroyRef))
+      .subscribe({
+        next:  assets => { this.assets.set(assets); this.loading.set(false); },
+        error: ()     => { this.error.set('No se pudieron cargar los activos'); this.loading.set(false); },
+      });
+  }
+
+  // ── Formatters ────────────────────────────────────────────────────────────
+  fmtARS(v: number): string {
+    return `$ ${Math.round(v).toLocaleString('es-AR')}`;
+  }
+
+  fmtUSD(v: number): string {
+    return `US$ ${v.toLocaleString('es-AR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
+  }
+
+  fmtPct(v: number): string {
+    return `${v.toLocaleString('es-AR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}%`;
+  }
+
+  fmtDate(iso: string): string {
+    const [y, m, d] = iso.split('-');
+    return `${d}/${m}/${y}`;
+  }
+
+  calcDias(purchaseDate: string): number {
+    return Math.floor((Date.now() - new Date(purchaseDate).getTime()) / 86400000);
+  }
+
+  tintFor(index: number): string {
+    return ASSET_TINTS[index % ASSET_TINTS.length];
+  }
+
+  toggleExpanded(id: string): void {
+    this.expanded.update(s => {
+      const n = new Set(s);
+      n.has(id) ? n.delete(id) : n.add(id);
+      return n;
+    });
+  }
+
+  // ── Per-row metrics (with FCI / FCI_CUOTAPARTES dispatch) ─────────────────
+  diasPeriodo(asset: InvestmentResponse): number {
+    if (asset.type === 'FCI' || asset.type === 'FCI_CUOTAPARTES') return this.diasPeriodoFCI(asset);
+    const end = asset.maturityDate
+      ? new Date(Math.min(new Date(asset.maturityDate).getTime(), Date.now()))
+      : new Date();
+    return Math.max(1, Math.floor((end.getTime() - new Date(asset.purchaseDate).getTime()) / 86400000));
+  }
+
+  calcIntereses(asset: InvestmentResponse): number {
+    if (asset.type === 'FCI') return this.calcInteresesFCI(asset);
+    if (asset.type === 'FCI_CUOTAPARTES' || asset.type === 'LETRA' || asset.type === 'BONO' || asset.type === 'ON') return this.calcGananciaCP(asset);
+    return asset.principal * (asset.tna / 100) * (this.diasPeriodo(asset) / 365);
+  }
+
+  calcTEPeriodo(asset: InvestmentResponse): number {
+    if (asset.type === 'FCI') {
+      const dias = this.diasPeriodoFCI(asset);
+      if (dias === 0) return 0;
+      return (asset.tna / 100) * (dias / 365) * 100;
+    }
+    if (asset.type === 'FCI_CUOTAPARTES' || asset.type === 'LETRA' || asset.type === 'BONO' || asset.type === 'ON') {
+      const cp = asset.principal;
+      if (cp === 0) return 0;
+      return (this.calcGananciaCP(asset) / cp) * 100;
+    }
+    return (asset.tna / 100) * (this.diasPeriodo(asset) / 365) * 100;
+  }
+
+  calcTEA(asset: InvestmentResponse): number {
+    if (asset.type === 'FCI') return this.calcTIRFCI(asset);
+    if (asset.type === 'FCI_CUOTAPARTES' || asset.type === 'LETRA' || asset.type === 'BONO' || asset.type === 'ON') return this.calcTIRCP(asset);
+    const d = this.diasPeriodo(asset);
+    const tasaPer = (asset.tna / 100) * (d / 365);
+    return (Math.pow(1 + tasaPer, 365 / d) - 1) * 100;
+  }
+
+  calcTIR(asset: InvestmentResponse): number {
+    if (asset.type === 'FCI') return this.calcTIRFCI(asset);
+    if (asset.type === 'FCI_CUOTAPARTES' || asset.type === 'LETRA' || asset.type === 'BONO' || asset.type === 'ON') return this.calcTIRCP(asset);
+    const d = this.diasPeriodo(asset);
+    return this.irr([
+      { days: 0, amount: -asset.principal },
+      { days: d, amount: asset.principal + this.calcIntereses(asset) },
+    ]);
+  }
+
+  isExpired(asset: InvestmentResponse): boolean {
+    if (!asset.maturityDate) return false;
+    return Date.now() >= new Date(asset.maturityDate).getTime();
+  }
+
+  // ── FCI saldo base para la tabla ──────────────────────────────────────────
+  saldoBase(asset: InvestmentResponse): number {
+    if (asset.type === 'FCI') return this.calcSaldoFCI(asset);
+    if (asset.type === 'FCI_CUOTAPARTES' || asset.type === 'LETRA' || asset.type === 'BONO' || asset.type === 'ON') return this.calcValorActualCP(asset);
+    return asset.principal;
+  }
+
+  // ── FCI helpers ───────────────────────────────────────────────────────────
+  private parseDateLocal(dateStr: string): Date {
+    const [y, m, d] = dateStr.split('-').map(Number);
+    return new Date(y, m - 1, d);
+  }
+
+  private todayIso(): string {
+    const t = this.todayMidnight();
+    return [
+      t.getFullYear(),
+      String(t.getMonth() + 1).padStart(2, '0'),
+      String(t.getDate()).padStart(2, '0'),
+    ].join('-');
+  }
+
+  private todayMidnight(): Date {
+    const t = new Date();
+    return new Date(t.getFullYear(), t.getMonth(), t.getDate());
+  }
+
+  calcTramosFCI(asset: InvestmentResponse): FCITramo[] {
+    if (!asset.movements?.length) {
+      return [{ mov: null, saldo: 0, dias: 0, intereses: 0, enCurso: true }];
+    }
+    const MOV_ORDER: Record<string, number> = { SUSCRIPCION: 0, REVALUO: 1, RESCATE: 2 };
+    const sorted = [...asset.movements].sort((a, b) => {
+      const d = a.movementDate.localeCompare(b.movementDate);
+      return d !== 0 ? d : (MOV_ORDER[a.type] ?? 1) - (MOV_ORDER[b.type] ?? 1);
+    });
+    let balance = 0;
+    let prevDate = this.parseDateLocal(sorted[0].movementDate);
+    const tramos: FCITramo[] = [];
+    for (const mov of sorted) {
+      const curDate   = this.parseDateLocal(mov.movementDate);
+      const dias      = Math.floor((curDate.getTime() - prevDate.getTime()) / 86400000);
+      const intereses = mov.type === 'REVALUO'
+        ? +mov.amount
+        : balance * ((asset.tna ?? 0) / 100) * (dias / 365);
+      tramos.push({ mov, saldo: balance, dias, intereses, enCurso: false });
+      if (mov.type === 'SUSCRIPCION' || mov.type === 'REVALUO') balance += +mov.amount;
+      else if (mov.type === 'RESCATE') balance -= +mov.amount;
+      prevDate = curDate;
+    }
+    const todayMs    = this.todayMidnight().getTime();
+    const diasActual    = Math.floor((todayMs - prevDate.getTime()) / 86400000);
+    const interesActual = balance * ((asset.tna ?? 0) / 100) * (diasActual / 365);
+    tramos.push({ mov: null, saldo: balance, dias: diasActual, intereses: interesActual, enCurso: true });
+    return tramos;
+  }
+
+  calcSaldoFCI(asset: InvestmentResponse): number {
+    return (asset.movements ?? []).reduce((acc, m) => {
+      if (m.type === 'SUSCRIPCION' || m.type === 'REVALUO') return acc + +m.amount;
+      if (m.type === 'RESCATE') return acc - +m.amount;
+      return acc;
+    }, 0);
+  }
+
+  // ── FCI Cuotapartes helpers ───────────────────────────────────────────────
+  calcCuotapartesHeld(asset: InvestmentResponse, upToDate?: string): number {
+    const movs = (asset.movements ?? []).filter(m => m.units != null);
+    const filtered = upToDate ? movs.filter(m => m.movementDate <= upToDate) : movs;
+    return filtered.reduce((acc, m) =>
+      acc + (m.type === 'SUSCRIPCION' ? +(m.units ?? 0) : -(m.units ?? 0)), 0);
+  }
+
+  calcValorActualCP(asset: InvestmentResponse): number {
+    const latest = this.latestValuacion(asset);
+    if (!latest) {
+      // LETRA capitalizable (zero-coupon): VN=1 por unidad → valor de rescate = nominales × 1
+      if (asset.type === 'LETRA') return this.calcCuotapartesHeld(asset);
+      return asset.principal;
+    }
+    return this.calcCuotapartesHeld(asset) * latest.pricePerUnit;
+  }
+
+  calcGananciaCP(asset: InvestmentResponse): number {
+    return this.calcValorActualCP(asset) - asset.principal;
+  }
+
+  calcTramosCP(asset: InvestmentResponse): FCITramoCP[] {
+    type CPEvent =
+      | { kind: 'valuation'; date: string; endPrice: number; valuacionId: string }
+      | { kind: 'revaluo';   date: string; ganancia: number; movId: string };
+
+    const events: CPEvent[] = [
+      ...(asset.valuations ?? []).map(v => ({
+        kind: 'valuation' as const, date: v.valuationDate,
+        endPrice: v.pricePerUnit, valuacionId: v.id,
+      })),
+      ...(asset.movements ?? []).filter(m => m.type === 'REVALUO').map(m => ({
+        kind: 'revaluo' as const, date: m.movementDate,
+        ganancia: +m.amount, movId: m.id,
+      })),
+    ].sort((a, b) => {
+      const d = a.date.localeCompare(b.date);
+      // Same date: revaluo before valuation (closing-price events after accrual)
+      if (d !== 0) return d;
+      return (a.kind === 'revaluo' ? 0 : 1) - (b.kind === 'revaluo' ? 0 : 1);
+    });
+
+    if (!events.length) return [];
+
+    // Precio implícito de partida: amount / units de la 1ra suscripción
+    const firstSusc = [...(asset.movements ?? [])]
+      .filter(m => m.type === 'SUSCRIPCION' && m.units)
+      .sort((a, b) => a.movementDate.localeCompare(b.movementDate))[0];
+    const impliedPrice = firstSusc && firstSusc.units
+      ? firstSusc.amount / firstSusc.units
+      : 0;
+
+    const tramos: FCITramoCP[] = [];
+    let prevDate  = firstSusc?.movementDate ?? asset.purchaseDate;
+    let prevPrice = impliedPrice;
+
+    for (const event of events) {
+      const units = this.calcCuotapartesHeld(asset, prevDate);
+      const dias  = Math.floor((this.parseDateLocal(event.date).getTime() - this.parseDateLocal(prevDate).getTime()) / 86400000);
+      const capitalInicio = units * prevPrice;
+
+      let ganancia: number;
+      let endPrice: number;
+      if (event.kind === 'valuation') {
+        ganancia = units * (event.endPrice - prevPrice);
+        endPrice = event.endPrice;
+      } else {
+        ganancia = event.ganancia;
+        endPrice = units > 0 ? prevPrice + (event.ganancia / units) : prevPrice;
+      }
+
+      const tna = capitalInicio > 0 && dias > 0
+        ? (ganancia / capitalInicio) * (365 / dias) * 100 : 0;
+      const tea = capitalInicio > 0 && dias > 0
+        ? (Math.pow(1 + ganancia / capitalInicio, 365 / dias) - 1) * 100 : 0;
+
+      tramos.push({
+        startDate:    prevDate,
+        endDate:      event.date,
+        startPrice:   prevPrice,
+        endPrice,
+        units,
+        dias,
+        ganancia,
+        tna,
+        tea,
+        enCurso:      false,
+        valuacionId:  event.kind === 'valuation' ? event.valuacionId : undefined,
+        revaluoMovId: event.kind === 'revaluo'   ? event.movId       : undefined,
+      });
+
+      prevDate  = event.date;
+      prevPrice = endPrice;
+    }
+
+    // Tramo en curso: desde último evento hasta hoy
+    const todayDate = this.todayMidnight();
+    const today = [
+      todayDate.getFullYear(),
+      String(todayDate.getMonth() + 1).padStart(2, '0'),
+      String(todayDate.getDate()).padStart(2, '0'),
+    ].join('-');
+    const unitsNow = this.calcCuotapartesHeld(asset);
+    const diasHoy  = Math.floor((todayDate.getTime() - this.parseDateLocal(prevDate).getTime()) / 86400000);
+    if (diasHoy > 0) {
+      tramos.push({
+        startDate:  prevDate,
+        endDate:    today,
+        startPrice: prevPrice,
+        endPrice:   prevPrice,
+        units:      unitsNow,
+        dias:       diasHoy,
+        ganancia:   0,
+        tna:        0,
+        tea:        0,
+        enCurso:    true,
+      });
+    }
+
+    return tramos;
+  }
+
+  // ── CRUD ─────────────────────────────────────────────────────────────────
+  openCreate(): void {
+    this.plazoFijoForm.reset({
+      name: '', currency: 'ARS', principal: null,
+      purchaseDate: this.todayIso(), dias: null, tna: null, accountId: null,
+    });
+    this.fciForm.reset({ name: '', currency: 'ARS', tna: null, accountId: null });
+    this.fciCPForm.reset({ name: '', currency: 'ARS', accountId: null });
+    this.letraForm.reset({ name: '', currency: 'ARS', purchaseDate: this.todayIso(), maturityDate: '', accountId: null });
+    this.formError.set(null);
+    this.movFormError.set(null);
+    this.modal.set({ kind: 'type-select' });
+  }
+
+  selectType(type: InvestmentAssetType): void {
+    const supportsAutoTracking = type === 'FCI_CUOTAPARTES' || type === 'LETRA' || type === 'BONO' || type === 'ON';
+    this.trackingMode.set(supportsAutoTracking ? 'auto' : 'manual');
+    this.fundSearchQuery.set('');
+    this.instrSearchQuery.set('');
+    this.showFundDropdown.set(false);
+    this.showInstrDropdown.set(false);
+    this.priceAtCreation.set(null);
+    this.priceSource.set(null);
+    this.editingAssetType.set(type);
+    if (type === 'FCI') {
+      this.fciForm.reset({ name: '', currency: 'ARS', tna: null, accountId: null });
+    }
+    if (type === 'FCI_CUOTAPARTES') {
+      this.fciCPForm.reset({ name: '', currency: 'ARS', accountId: null, externalId: null });
+      this.addMovementCPForm.reset({ movementDate: this.todayIso(), type: 'SUSCRIPCION', amount: null, units: null, pricePerUnit: null });
+    }
+    if (type === 'LETRA' || type === 'BONO' || type === 'ON') {
+      this.letraForm.reset({ name: '', currency: 'ARS', purchaseDate: this.todayIso(), maturityDate: '', accountId: null, externalId: null });
+      this.addMovementCPForm.reset({ movementDate: this.todayIso(), type: 'SUSCRIPCION', amount: null, units: null, pricePerUnit: null });
+    }
+    this.modal.update(m => m ? { ...m, kind: 'form-create', assetType: type } : null);
+  }
+
+  openEdit(asset: InvestmentResponse): void {
+    this.editingAssetType.set(asset.type);
+    this.formError.set(null);
+    this.movFormError.set(null);
+    this.editingValuationId.set(null);
+
+    if (asset.type === 'FCI') {
+      this.fciForm.reset({ name: '', currency: 'ARS', tna: null, accountId: null });
+      this.fciForm.patchValue({
+        name:      asset.name ?? '',
+        currency:  (asset.currency as 'ARS' | 'USD') ?? 'ARS',
+        tna:       asset.tna != null ? Number(asset.tna) : null,
+        accountId: asset.accountId ?? null,
+      });
+      this.modal.set({ kind: 'form-edit', assetType: asset.type, id: asset.id, asset });
+      return;
+    }
+
+    if (asset.type === 'FCI_CUOTAPARTES') {
+      this.fciCPForm.reset({ name: asset.name, currency: asset.currency, accountId: asset.accountId, externalId: asset.externalId ?? null });
+      this.trackingMode.set(asset.autoTrack ? 'auto' : 'manual');
+      if (asset.autoTrack && asset.externalId) {
+        this.fundSearchQuery.set(asset.externalId);
+      } else {
+        this.fundSearchQuery.set('');
+      }
+      this.showFundDropdown.set(false);
+      this.modal.set({ kind: 'form-edit', assetType: asset.type, id: asset.id, asset });
+      return;
+    }
+
+    if (asset.type === 'LETRA' || asset.type === 'BONO' || asset.type === 'ON') {
+      this.letraForm.reset({
+        name:         asset.name ?? '',
+        currency:     (asset.currency as 'ARS' | 'USD') ?? 'ARS',
+        purchaseDate: asset.purchaseDate ?? '',
+        maturityDate: asset.maturityDate ?? '',
+        accountId:    asset.accountId ?? null,
+        externalId:   asset.externalId ?? null,
+      });
+      this.trackingMode.set(asset.autoTrack ? 'auto' : 'manual');
+      if (asset.autoTrack && asset.externalId) {
+        this.instrSearchQuery.set(asset.externalId);
+      } else {
+        this.instrSearchQuery.set('');
+      }
+      this.showInstrDropdown.set(false);
+      this.modal.set({ kind: 'form-edit', assetType: asset.type, id: asset.id, asset });
+      return;
+    }
+
+    const dias = asset.maturityDate
+      ? Math.floor((new Date(asset.maturityDate).getTime() - new Date(asset.purchaseDate).getTime()) / 86400000)
+      : null;
+    this.plazoFijoForm.reset({
+      name:         asset.name,
+      currency:     asset.currency,
+      principal:    asset.principal,
+      purchaseDate: asset.purchaseDate,
+      dias,
+      tna:          asset.tna,
+      accountId:    asset.accountId,
+    });
+    this.modal.set({ kind: 'form-edit', assetType: asset.type, id: asset.id });
+  }
+
+  openDelete(asset: InvestmentResponse): void {
+    this.modal.set({ kind: 'delete', id: asset.id, label: asset.name });
+  }
+
+  closeModal(): void {
+    this.modal.set(null);
+    this.subModal.set(null);
+    this.submitting.set(false);
+    this.formError.set(null);
+    this.movFormError.set(null);
+    this.editingValuationId.set(null);
+  }
+
+  // ── subModal actions ──────────────────────────────────────────────────────
+  openAddMovementModal(asset: InvestmentResponse): void {
+    this.priceForMovement.set(null);
+    this.priceSource.set(null);
+    this.addMovementForm.reset({ movementDate: this.todayIso(), type: 'SUSCRIPCION', amount: null, units: null, pricePerUnit: null });
+    this.addMovementCPForm.reset({ movementDate: this.todayIso(), type: 'SUSCRIPCION', amount: null, units: null, pricePerUnit: null });
+    this.movFormError.set(null);
+    this.subModal.set({ kind: 'add-movement', asset });
+
+    if (asset.autoTrack && asset.externalId) {
+      if (asset.type === 'FCI_CUOTAPARTES') {
+        this._subscribeMovementDateFCI(asset);
+        this._loadPriceForDate(asset, this.todayIso());
+      } else if (asset.type === 'BONO' || asset.type === 'LETRA' || asset.type === 'ON') {
+        this._subscribeMovementDateInstrument(asset);
+        this._loadPriceForDate(asset, this.todayIso());
+      }
+    }
+  }
+
+  private _loadPriceForDate(asset: InvestmentResponse, fecha: string): void {
+    if (!asset.autoTrack || !asset.externalId) return;
+    if (asset.type === 'FCI_CUOTAPARTES') {
+      this.investmentService.getFciVcp(asset.externalId, fecha)
+        .pipe(takeUntilDestroyed(this.destroyRef))
+        .subscribe(res => {
+          if (res) {
+            const price = res.vcp;
+            this.priceForMovement.set(price);
+            this.priceSource.set('fci');
+            this.addMovementCPForm.controls.pricePerUnit.setValue(price, { emitEvent: false });
+          }
+        });
+    } else if (asset.type === 'BONO' || asset.type === 'LETRA' || asset.type === 'ON') {
+      this.investmentService.getInstrumentPrice(asset.externalId, asset.type, fecha)
+        .pipe(takeUntilDestroyed(this.destroyRef))
+        .subscribe(res => {
+          if (res) {
+            const price = res.pricePerUnit;
+            this.priceForMovement.set(price);
+            this.priceSource.set('ppi');
+            this.addMovementCPForm.controls.pricePerUnit.setValue(price, { emitEvent: false });
+          }
+        });
+    }
+  }
+
+  private _subscribeMovementDateFCI(asset: InvestmentResponse): void {
+    this.addMovementCPForm.controls.movementDate.valueChanges.pipe(
+      distinctUntilChanged(),
+      takeUntilDestroyed(this.destroyRef),
+      switchMap(date => {
+        if (!date || !asset.externalId) return of(null);
+        return this.investmentService.getFciVcp(asset.externalId, date);
+      }),
+    ).subscribe(res => {
+      if (res) {
+        const price = res.vcp;
+        this.priceForMovement.set(price);
+        this.priceSource.set('fci');
+        this.addMovementCPForm.controls.pricePerUnit.setValue(price, { emitEvent: false });
+      }
+    });
+  }
+
+  private _subscribeMovementDateInstrument(asset: InvestmentResponse): void {
+    this.addMovementCPForm.controls.movementDate.valueChanges.pipe(
+      distinctUntilChanged(),
+      takeUntilDestroyed(this.destroyRef),
+      switchMap(date => {
+        if (!date || !asset.externalId) return of(null);
+        return this.investmentService.getInstrumentPrice(asset.externalId, asset.type, date);
+      }),
+    ).subscribe(res => {
+      if (res) {
+        const price = res.pricePerUnit;
+        this.priceForMovement.set(price);
+        this.priceSource.set('ppi');
+        this.addMovementCPForm.controls.pricePerUnit.setValue(price, { emitEvent: false });
+      }
+    });
+  }
+
+  openAddValuationModal(asset: InvestmentResponse): void {
+    this.addValuationForm.reset({ valuationDate: this.todayIso(), pricePerUnit: null });
+    this.movFormError.set(null);
+    this.subModal.set({ kind: 'add-valuation', asset });
+  }
+
+  closeSubModal(): void {
+    this.subModal.set(null);
+    this.movFormError.set(null);
+    this.priceForMovement.set(null);
+    this.priceSource.set(null);
+  }
+
+  // ── FCI movement actions ──────────────────────────────────────────────────
+  addPendingMovement(): void {
+    if (this.addMovementForm.invalid) {
+      this.addMovementForm.markAllAsTouched();
+      return;
+    }
+    const raw = this.addMovementForm.getRawValue();
+    const sub = this.subModal();
+    if (!sub) return;
+
+    if (this.isFirstMovement() && raw.type !== 'SUSCRIPCION') {
+      this.movFormError.set('El primer movimiento debe ser una suscripción.');
+      return;
+    }
+    const minDate = this.minMovementDate();
+    if (minDate && raw.movementDate < minDate) {
+      this.movFormError.set(`La fecha no puede ser anterior a ${this.fmtDate(minDate)}.`);
+      return;
+    }
+    if (raw.type === 'RESCATE' && raw.amount! > this.currentBalanceForMovement()) {
+      const currency = sub.asset.currency;
+      const saldo = currency === 'ARS'
+        ? this.fmtARS(this.currentBalanceForMovement())
+        : this.fmtUSD(this.currentBalanceForMovement());
+      this.movFormError.set(`El rescate no puede superar el saldo disponible (${saldo}).`);
+      return;
+    }
+    this.movFormError.set(null);
+
+    this.investmentService.addMovement(sub.asset.id, {
+      movementDate: raw.movementDate,
+      type:         raw.type,
+      amount:       raw.amount!,
+    }).subscribe({
+      next: updated => {
+        this.assets.update(list => list.map(a => a.id === updated.id ? updated : a));
+        this.modal.update(s => s ? { ...s, asset: updated } : null);
+        this.subModal.set(null);
+        this.addMovementForm.reset({ movementDate: this.todayIso(), type: 'SUSCRIPCION', amount: null });
+      },
+      error: (err: HttpErrorResponse) => {
+        this.movFormError.set(err.error?.message ?? 'No se pudo agregar el movimiento');
+      },
+    });
+  }
+
+  deleteFCIMovement(asset: InvestmentResponse, movId: string): void {
+    this.investmentService.deleteMovement(asset.id, movId).subscribe({
+      next: updated => {
+        this.assets.update(list => list.map(a => a.id === asset.id ? updated : a));
+        this.modal.update(s => s ? { ...s, asset: updated } : null);
+      },
+      error: (err: HttpErrorResponse) => {
+        this.formError.set(err.error?.message ?? 'No se pudo eliminar el movimiento');
+      },
+    });
+  }
+
+  // ── FCI Cuotapartes movement actions ─────────────────────────────────────
+  addPendingMovementCP(): void {
+    const raw = this.addMovementCPForm.getRawValue();
+    const sub = this.subModal();
+    if (!sub) return;
+
+    // ── Rama SUSCRIPCION / RESCATE / REVALUO ─────────────────────────────────
+    if (this.addMovementCPForm.invalid) {
+      this.addMovementCPForm.markAllAsTouched();
+      return;
+    }
+
+    if (this.isFirstMovement() && raw.type !== 'SUSCRIPCION') {
+      this.movFormError.set('El primer movimiento debe ser una suscripción.');
+      return;
+    }
+    const minDate = this.minMovementDate();
+    if (minDate && raw.movementDate < minDate) {
+      this.movFormError.set(`La fecha no puede ser anterior a ${this.fmtDate(minDate)}.`);
+      return;
+    }
+    if (raw.type === 'RESCATE' && raw.amount! > this.currentBalanceForMovement()) {
+      const currency = sub.asset.currency;
+      const saldo = currency === 'ARS'
+        ? this.fmtARS(this.currentBalanceForMovement())
+        : this.fmtUSD(this.currentBalanceForMovement());
+      this.movFormError.set(`El rescate no puede superar el saldo disponible (${saldo}).`);
+      return;
+    }
+    this.movFormError.set(null);
+
+    this.investmentService.addMovement(sub.asset.id, {
+      movementDate: raw.movementDate,
+      type:         raw.type as InvestmentMovementType,
+      amount:       raw.amount!,
+      units:        raw.units ?? undefined,
+    }).subscribe({
+      next: updated => {
+        this.assets.update(list => list.map(a => a.id === updated.id ? updated : a));
+        this.modal.update(s => s ? { ...s, asset: updated } : null);
+        this.subModal.set(null);
+        this.addMovementCPForm.reset({ movementDate: this.todayIso(), type: 'SUSCRIPCION', amount: null, units: null, pricePerUnit: null });
+      },
+      error: (err: HttpErrorResponse) => {
+        this.movFormError.set(err.error?.message ?? 'No se pudo agregar el movimiento');
+      },
+    });
+  }
+
+  // ── Valuation actions ─────────────────────────────────────────────────────
+  addPendingValuacion(): void {
+    if (this.addValuationForm.invalid) {
+      this.addValuationForm.markAllAsTouched();
+      return;
+    }
+    const raw = this.addValuationForm.getRawValue();
+    const sub = this.subModal();
+    if (!sub) return;
+
+    this.investmentService.addValuation(sub.asset.id, {
+      valuationDate: raw.valuationDate,
+      pricePerUnit:  raw.pricePerUnit!,
+    }).subscribe({
+      next: updated => {
+        this.assets.update(list => list.map(a => a.id === updated.id ? updated : a));
+        this.modal.update(s => s ? { ...s, asset: updated } : null);
+        this.subModal.set(null);
+        this.addValuationForm.reset({ valuationDate: this.todayIso(), pricePerUnit: null });
+      },
+      error: (err: HttpErrorResponse) => {
+        this.movFormError.set(err.error?.message ?? 'No se pudo agregar la valuación');
+      },
+    });
+  }
+
+  deleteValuacion(asset: InvestmentResponse, valId: string): void {
+    this.investmentService.deleteValuation(asset.id, valId).subscribe({
+      next: updated => {
+        this.assets.update(list => list.map(a => a.id === asset.id ? updated : a));
+        this.modal.update(s => s ? { ...s, asset: updated } : null);
+      },
+      error: (err: HttpErrorResponse) => {
+        this.formError.set(err.error?.message ?? 'No se pudo eliminar la valuación');
+      },
+    });
+  }
+
+  startEditValuacion(val: InvestmentValuation): void {
+    this.editingValuationId.set(val.id);
+    this.addValuationForm.reset({ valuationDate: val.valuationDate, pricePerUnit: val.pricePerUnit });
+  }
+
+  cancelEditValuacion(): void {
+    this.editingValuationId.set(null);
+    this.addValuationForm.reset({ valuationDate: this.todayIso(), pricePerUnit: null });
+  }
+
+  confirmEditValuacion(asset: InvestmentResponse): void {
+    if (this.addValuationForm.invalid) {
+      this.addValuationForm.markAllAsTouched();
+      return;
+    }
+    const valId = this.editingValuationId();
+    if (!valId) return;
+    const raw = this.addValuationForm.getRawValue();
+    this.investmentService.updateValuation(asset.id, valId, {
+      valuationDate: raw.valuationDate,
+      pricePerUnit:  raw.pricePerUnit!,
+    }).subscribe({
+      next: updated => {
+        this.assets.update(list => list.map(a => a.id === asset.id ? updated : a));
+        this.modal.update(s => s ? { ...s, asset: updated } : null);
+        this.editingValuationId.set(null);
+        this.addValuationForm.reset({ valuationDate: this.todayIso(), pricePerUnit: null });
+      },
+      error: (err: HttpErrorResponse) => {
+        this.formError.set(err.error?.message ?? 'No se pudo actualizar la valuación');
+      },
+    });
+  }
+
+  // ── Auto-tracking helpers ─────────────────────────────────────────────────
+  setTrackingMode(mode: 'auto' | 'manual'): void {
+    this.trackingMode.set(mode);
+    if (mode === 'manual') {
+      this.fciCPForm.controls.externalId.setValue(null);
+      this.letraForm.controls.externalId.setValue(null);
+      this.fundSearchQuery.set('');
+      this.instrSearchQuery.set('');
+      this.showFundDropdown.set(false);
+      this.showInstrDropdown.set(false);
+      this.priceAtCreation.set(null);
+      this.priceSource.set(null);
+    }
+  }
+
+  movementTypesFor(_asset: InvestmentResponse): { value: string; label: string }[] {
+    return [
+      { value: 'SUSCRIPCION', label: 'Suscripción' },
+      { value: 'RESCATE',     label: 'Rescate'     },
+      { value: 'REVALUO',     label: 'Revalúo'     },
+    ];
+  }
+
+  selectFund(fund: FciFundOption): void {
+    this.fciCPForm.controls.name.setValue(fund.fondo);
+    this.fciCPForm.controls.externalId.setValue(fund.fondo);
+    this.fundSearchQuery.set(fund.fondo);
+    this.showFundDropdown.set(false);
+    this.priceAtCreation.set(fund.vcp);
+    this.priceSource.set('fci');
+    this.addMovementCPForm.controls.pricePerUnit.setValue(fund.vcp, { emitEvent: false });
+  }
+
+  selectInstrument(instr: InstrumentOption): void {
+    this.letraForm.controls.name.setValue(instr.ticker + ' — ' + instr.nombre);
+    this.letraForm.controls.externalId.setValue(instr.ticker);
+    this.instrSearchQuery.set(instr.ticker + ' — ' + instr.nombre);
+    this.showInstrDropdown.set(false);
+    // Pre-cargar precio de mercado del instrumento seleccionado
+    this.investmentService.getInstrumentPrice(instr.ticker, instr.tipo, this.todayIso())
+      .pipe(takeUntilDestroyed(this.destroyRef))
+      .subscribe(res => {
+        if (res) {
+          this.priceAtCreation.set(res.pricePerUnit);
+          this.priceSource.set('ppi');
+          this.addMovementCPForm.controls.pricePerUnit.setValue(res.pricePerUnit, { emitEvent: false });
+        }
+      });
+  }
+
+  // ── Triángulo monto/unidades/precio ──────────────────────────────────────
+  onAmountInput(form: FormGroup): void {
+    const amount = form.get('amount')?.value as number | null;
+    const price  = form.get('pricePerUnit')?.value as number | null;
+    const units  = form.get('units')?.value as number | null;
+    if (amount != null && price != null && price !== 0) {
+      form.get('units')?.setValue(parseFloat((amount / price).toFixed(6)), { emitEvent: false });
+    } else if (amount != null && units != null && units !== 0) {
+      form.get('pricePerUnit')?.setValue(parseFloat((amount / units).toFixed(6)), { emitEvent: false });
+    }
+  }
+
+  onUnitsInput(form: FormGroup): void {
+    const units  = form.get('units')?.value as number | null;
+    const price  = form.get('pricePerUnit')?.value as number | null;
+    if (units != null && price != null && price !== 0) {
+      form.get('amount')?.setValue(parseFloat((units * price).toFixed(2)), { emitEvent: false });
+    }
+  }
+
+  onPricePerUnitInput(form: FormGroup): void {
+    const price  = form.get('pricePerUnit')?.value as number | null;
+    const amount = form.get('amount')?.value as number | null;
+    const units  = form.get('units')?.value as number | null;
+    if (price != null && price !== 0) {
+      if (amount != null) {
+        form.get('units')?.setValue(parseFloat((amount / price).toFixed(6)), { emitEvent: false });
+      } else if (units != null) {
+        form.get('amount')?.setValue(parseFloat((units * price).toFixed(2)), { emitEvent: false });
+      }
+    }
+  }
+
+  // ── Submit ────────────────────────────────────────────────────────────────
+  submit(): void {
+    const m = this.modal();
+    if (!m || m.kind === 'delete' || m.kind === 'type-select' || this.submitting()) return;
+
+    if (m.assetType === 'FCI') {
+      this.submitFCI(m);
+      return;
+    }
+
+    if (m.assetType === 'FCI_CUOTAPARTES') {
+      this.submitFCICP(m);
+      return;
+    }
+
+    if (m.assetType === 'LETRA' || m.assetType === 'BONO' || m.assetType === 'ON') {
+      this.submitLetraBO(m);
+      return;
+    }
+
+    if (this.plazoFijoForm.invalid) return;
+    this.submitting.set(true);
+    this.formError.set(null);
+
+    const raw = this.plazoFijoForm.getRawValue();
+    const req: InvestmentRequest = {
+      name:         raw.name,
+      type:         this.editingAssetType(),
+      currency:     raw.currency,
+      principal:    raw.principal!,
+      purchaseDate: raw.purchaseDate,
+      maturityDate: this.vencimientoPreview(),
+      tna:          raw.tna!,
+      accountId:    raw.accountId || null,
+      autoTrack:    false,
+      externalId:   null,
+    };
+
+    const isEdit = m.kind === 'form-edit';
+    const op = isEdit
+      ? this.investmentService.updateInvestment(m.id!, req)
+      : this.investmentService.createInvestment(req);
+
+    op.subscribe({
+      next: saved => {
+        if (isEdit) {
+          this.assets.update(list => list.map(a => a.id === m.id ? saved : a));
+        } else {
+          this.assets.update(list => [...list, saved]);
+        }
+        this.submitting.set(false);
+        this.closeModal();
+      },
+      error: (err: HttpErrorResponse) => {
+        this.submitting.set(false);
+        this.formError.set(err.error?.message ?? 'Ocurrió un error al guardar');
+      },
+    });
+  }
+
+  private submitFCI(m: ModalState): void {
+    if (this.fciForm.invalid) {
+      this.fciForm.markAllAsTouched();
+      return;
+    }
+
+    this.submitting.set(true);
+    this.formError.set(null);
+    const raw = this.fciForm.getRawValue();
+    const req: InvestmentRequest = {
+      name:         raw.name,
+      type:         'FCI',
+      currency:     raw.currency,
+      principal:    0,
+      purchaseDate: m.asset?.purchaseDate ?? new Date().toISOString().split('T')[0],
+      maturityDate: null,
+      tna:          raw.tna!,
+      accountId:    raw.accountId || null,
+      autoTrack:    false,
+      externalId:   null,
+    };
+
+    const isEdit = m.kind === 'form-edit';
+    const op = isEdit
+      ? this.investmentService.updateInvestment(m.id!, req)
+      : this.investmentService.createInvestment(req);
+
+    op.subscribe({
+      next: saved => {
+        if (isEdit) {
+          this.assets.update(list => list.map(a => a.id === m.id ? saved : a));
+        } else {
+          this.assets.update(list => [...list, saved]);
+        }
+        this.submitting.set(false);
+        this.closeModal();
+      },
+      error: (err: HttpErrorResponse) => {
+        this.submitting.set(false);
+        this.formError.set(err.error?.message ?? 'Ocurrió un error al guardar');
+      },
+    });
+  }
+
+  private submitFCICP(m: ModalState): void {
+    // En modo auto, el nombre y externalId se populan por selectFund
+    if (this.trackingMode() === 'auto' && !this.fciCPForm.controls.externalId.value) {
+      this.fciCPForm.markAllAsTouched();
+      return;
+    }
+    if (this.fciCPForm.invalid) {
+      this.fciCPForm.markAllAsTouched();
+      return;
+    }
+
+    this.submitting.set(true);
+    this.formError.set(null);
+    const raw = this.fciCPForm.getRawValue();
+    const isAutoTrack = this.trackingMode() === 'auto';
+    const req: InvestmentRequest = {
+      name:         raw.name,
+      type:         'FCI_CUOTAPARTES',
+      currency:     raw.currency,
+      principal:    0,
+      purchaseDate: m.asset?.purchaseDate ?? new Date().toISOString().split('T')[0],
+      maturityDate: null,
+      tna:          0,
+      accountId:    raw.accountId || null,
+      autoTrack:    isAutoTrack,
+      externalId:   isAutoTrack ? (raw.externalId || null) : null,
+    };
+
+    const isEdit = m.kind === 'form-edit';
+    const op = isEdit
+      ? this.investmentService.updateInvestment(m.id!, req)
+      : this.investmentService.createInvestment(req);
+
+    op.subscribe({
+      next: saved => {
+        if (isEdit) {
+          this.assets.update(list => list.map(a => a.id === m.id ? saved : a));
+          this.submitting.set(false);
+          this.closeModal();
+        } else {
+          // En creación: si hay monto y unidades, crear primer movimiento de suscripción
+          this.assets.update(list => [...list, saved]);
+          const cpAmount = this.addMovementCPForm.controls.amount.value;
+          const cpUnits  = this.addMovementCPForm.controls.units.value;
+          const cpPrice  = this.addMovementCPForm.controls.pricePerUnit.value;
+          if (cpAmount && cpUnits) {
+            this.investmentService.addMovement(saved.id, {
+              movementDate: this.todayIso(),
+              type:         'SUSCRIPCION',
+              amount:       cpAmount,
+              units:        cpUnits,
+              pricePerUnit: cpPrice ?? undefined,
+            }).subscribe({
+              next: updated => {
+                this.assets.update(list => list.map(a => a.id === updated.id ? updated : a));
+                this.submitting.set(false);
+                this.closeModal();
+              },
+              error: () => {
+                this.submitting.set(false);
+                this.closeModal();
+              },
+            });
+          } else {
+            this.submitting.set(false);
+            this.closeModal();
+          }
+        }
+      },
+      error: (err: HttpErrorResponse) => {
+        this.submitting.set(false);
+        this.formError.set(err.error?.message ?? 'Ocurrió un error al guardar');
+      },
+    });
+  }
+
+  private submitLetraBO(m: ModalState): void {
+    // En modo auto, el nombre y externalId se populan por selectInstrument
+    if (this.trackingMode() === 'auto' && !this.letraForm.controls.externalId.value) {
+      this.letraForm.markAllAsTouched();
+      return;
+    }
+    if (this.letraForm.invalid) {
+      this.letraForm.markAllAsTouched();
+      return;
+    }
+
+    const raw  = this.letraForm.getRawValue();
+    const type = m.assetType as 'LETRA' | 'BONO' | 'ON';
+    const isAutoTrack = this.trackingMode() === 'auto';
+
+    this.submitting.set(true);
+    this.formError.set(null);
+    const req: InvestmentRequest = {
+      name:         raw.name,
+      type,
+      currency:     raw.currency,
+      principal:    0,
+      purchaseDate: raw.purchaseDate,
+      maturityDate: raw.maturityDate || null,
+      tna:          0,
+      accountId:    raw.accountId || null,
+      autoTrack:    isAutoTrack,
+      externalId:   isAutoTrack ? (raw.externalId || null) : null,
+    };
+
+    const isEdit = m.kind === 'form-edit';
+    const op = isEdit
+      ? this.investmentService.updateInvestment(m.id!, req)
+      : this.investmentService.createInvestment(req);
+
+    op.subscribe({
+      next: saved => {
+        if (isEdit) {
+          this.assets.update(list => list.map(a => a.id === m.id ? saved : a));
+          this.submitting.set(false);
+          this.closeModal();
+        } else {
+          this.assets.update(list => [...list, saved]);
+          const cpAmount = this.addMovementCPForm.controls.amount.value;
+          const cpUnits  = this.addMovementCPForm.controls.units.value;
+          const cpPrice  = this.addMovementCPForm.controls.pricePerUnit.value;
+          if (cpAmount && cpUnits) {
+            this.investmentService.addMovement(saved.id, {
+              movementDate: raw.purchaseDate || this.todayIso(),
+              type:         'SUSCRIPCION',
+              amount:       cpAmount,
+              units:        cpUnits,
+              pricePerUnit: cpPrice ?? undefined,
+            }).subscribe({
+              next: updated => {
+                this.assets.update(list => list.map(a => a.id === updated.id ? updated : a));
+                this.submitting.set(false);
+                this.closeModal();
+              },
+              error: () => {
+                this.submitting.set(false);
+                this.closeModal();
+              },
+            });
+          } else {
+            this.submitting.set(false);
+            this.closeModal();
+          }
+        }
+      },
+      error: (err: HttpErrorResponse) => {
+        this.submitting.set(false);
+        this.formError.set(err.error?.message ?? 'Ocurrió un error al guardar');
+      },
+    });
+  }
+
+  unidadLabel(type: InvestmentAssetType): string {
+    return type === 'FCI_CUOTAPARTES' ? 'Cuotapartes' : 'Nominales';
+  }
+
+  confirmDelete(): void {
+    const m = this.modal();
+    if (!m?.id || this.submitting()) return;
+    this.submitting.set(true);
+    this.investmentService.deleteInvestment(m.id).subscribe({
+      next: () => {
+        this.assets.update(list => list.filter(a => a.id !== m.id));
+        this.submitting.set(false);
+        this.closeModal();
+      },
+      error: (err: HttpErrorResponse) => {
+        this.submitting.set(false);
+        this.formError.set(err.error?.message ?? 'No se pudo eliminar el activo');
+      },
+    });
+  }
+
+  // ── Private helpers ───────────────────────────────────────────────────────
+  diasPeriodoFCI(asset: InvestmentResponse): number {
+    if (!asset.movements?.length) return 0;
+    const sorted = [...asset.movements].sort((a, b) => a.movementDate.localeCompare(b.movementDate));
+    const first = this.parseDateLocal(sorted[0].movementDate);
+    return Math.floor((this.todayMidnight().getTime() - first.getTime()) / 86400000);
+  }
+
+  private calcInteresesFCI(asset: InvestmentResponse): number {
+    return this.calcTramosFCI(asset)
+      .filter(t => t.mov?.type !== 'REVALUO')
+      .reduce((acc, t) => acc + t.intereses, 0);
+  }
+
+  private latestValuacion(asset: InvestmentResponse): InvestmentValuation | null {
+    if (!asset.valuations?.length) return null;
+    return [...asset.valuations].sort((a, b) => b.valuationDate.localeCompare(a.valuationDate))[0];
+  }
+
+  private calcTIRCP(asset: InvestmentResponse): number {
+    const MOV_ORDER_TIR: Record<string, number> = { SUSCRIPCION: 0, REVALUO: 1, RESCATE: 2 };
+    const movs = [...(asset.movements ?? [])].sort((a, b) => {
+      const d = a.movementDate.localeCompare(b.movementDate);
+      return d !== 0 ? d : (MOV_ORDER_TIR[a.type] ?? 1) - (MOV_ORDER_TIR[b.type] ?? 1);
+    });
+    if (!movs.length) return 0;
+    const firstDate = new Date(movs[0].movementDate + 'T00:00:00');
+    const totalDias = Math.floor((Date.now() - firstDate.getTime()) / 86400000);
+    if (totalDias === 0) return 0;
+
+    const cashflows: { days: number; amount: number }[] = movs.map(m => ({
+      days:   Math.floor((new Date(m.movementDate + 'T00:00:00').getTime() - firstDate.getTime()) / 86400000),
+      amount: m.type === 'SUSCRIPCION' ? -m.amount : +m.amount,
+    }));
+    cashflows.push({ days: totalDias, amount: this.calcValorActualCP(asset) });
+    return this.irr(cashflows);
+  }
+
+  private calcTIRFCI(asset: InvestmentResponse): number {
+    const tramos    = this.calcTramosFCI(asset);
+    const totalDias = this.diasPeriodoFCI(asset);
+    if (totalDias === 0) return 0;
+
+    const cashflows: { dias: number; amount: number }[] = [];
+    let diasAcum = 0;
+    for (const t of tramos) {
+      diasAcum += t.dias;
+      if (t.mov && t.mov.type !== 'REVALUO') {
+        cashflows.push({
+          dias:   diasAcum,
+          amount: t.mov.type === 'SUSCRIPCION' ? -t.mov.amount : +t.mov.amount,
+        });
+      }
+    }
+    const saldoFinal     = this.calcSaldoFCI(asset);
+    const interesesFinal = this.calcInteresesFCI(asset);
+    cashflows.push({ dias: totalDias, amount: saldoFinal + interesesFinal });
+
+    let tir = 0.5;
+    for (let i = 0; i < 100; i++) {
+      let f  = 0;
+      let df = 0;
+      for (const cf of cashflows) {
+        const t = cf.dias / 365;
+        f  += cf.amount / Math.pow(1 + tir, t);
+        df += -t * cf.amount / Math.pow(1 + tir, t + 1);
+      }
+      if (Math.abs(df) < 1e-12) break;
+      const delta = f / df;
+      tir -= delta;
+      if (Math.abs(delta) < 1e-8) break;
+    }
+    return isFinite(tir) ? tir * 100 : 0;
+  }
+
+  private irr(cashflows: { days: number; amount: number }[]): number {
+    let r = 0.1;
+    for (let i = 0; i < 100; i++) {
+      let npv = 0, dnpv = 0;
+      for (const cf of cashflows) {
+        const t        = cf.days / 365;
+        const discount = Math.pow(1 + r, t);
+        npv  += cf.amount / discount;
+        dnpv -= t * cf.amount / (discount * (1 + r));
+      }
+      if (Math.abs(dnpv) < 1e-10) break;
+      const delta = npv / dnpv;
+      r -= delta;
+      if (Math.abs(delta) < 0.00001) break;
+    }
+    return r * 100;
+  }
+}

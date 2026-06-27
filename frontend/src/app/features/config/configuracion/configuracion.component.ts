@@ -16,7 +16,7 @@ import { NgTemplateOutlet } from '@angular/common';
 import { HttpErrorResponse } from '@angular/common/http';
 import { toSignal } from '@angular/core/rxjs-interop';
 import { ActivatedRoute } from '@angular/router';
-import { take } from 'rxjs';
+import { take, catchError, of } from 'rxjs';
 import {
   LucidePlus,
   LucidePencil,
@@ -44,6 +44,7 @@ import {
   LucideDumbbell,
   LucideCircle,
   LucideDollarSign,
+  LucidePieChart,
 } from '@lucide/angular';
 import { CategoryService } from '../../../core/services/category.service';
 import { AccountService } from '../../../core/services/account.service';
@@ -71,10 +72,14 @@ import {
   RecurringMovementRequest,
   RecurringMovementResponse,
 } from '../../../core/models/recurring-movement.models';
+import { MacroService } from '../../../core/services/macro.service';
+import { InvestmentService } from '../../../core/services/investment.service';
+import { ExchangeRateResponse, InflationResponse } from '../../../core/models/macro.models';
+import { MarketApiStatus } from '../../../core/models/investment.models';
 
 // ── Local types ───────────────────────────────────────────────────────────────
 
-export type Tab = 'cuentas' | 'tarjetas' | 'categorias' | 'recurrentes';
+export type Tab = 'cuentas' | 'tarjetas' | 'categorias' | 'recurrentes' | 'api';
 
 export type ModalKind = 'account' | 'card' | 'category' | 'recurring';
 export type ModalMode = 'create' | 'edit' | 'delete';
@@ -135,7 +140,7 @@ export const CARD_PALETTE = [
     LucideUtensils, LucideCar, LucideZap, LucideRepeat, LucideMusic,
     LucideHeart, LucideBook, LucideShirt, LucideHome, LucideBriefcase,
     LucideMonitor, LucideTrendingUp, LucideArrowRightLeft, LucideDumbbell, LucideCircle,
-    LucideDollarSign,
+    LucideDollarSign, LucidePieChart,
   ],
 })
 export class ConfiguracionComponent implements OnInit {
@@ -144,6 +149,8 @@ export class ConfiguracionComponent implements OnInit {
   private readonly creditCardService        = inject(CreditCardService);
   private readonly recurringMovementService = inject(RecurringMovementService);
   private readonly route                    = inject(ActivatedRoute);
+  private readonly macroService             = inject(MacroService);
+  private readonly investmentService        = inject(InvestmentService);
 
   // ── Exposed constants ─────────────────────────────────────────────────────
   readonly categoryIcons = CATEGORY_ICONS;
@@ -187,12 +194,31 @@ export class ConfiguracionComponent implements OnInit {
   recurringLoading    = signal(false);
   recurringError      = signal<string | null>(null);
 
+  // ── Macro data (API Control tab) ──────────────────────────────────────────
+  readonly oficialRate = toSignal<ExchangeRateResponse | null>(
+    this.macroService.getLatestOficialRate().pipe(catchError(() => of(null))),
+    { initialValue: null },
+  );
+  readonly mepRate = toSignal<ExchangeRateResponse | null>(
+    this.macroService.getLatestMepRate().pipe(catchError(() => of(null))),
+    { initialValue: null },
+  );
+  readonly inflation = toSignal<InflationResponse | null>(
+    this.macroService.getLatestInflation().pipe(catchError(() => of(null))),
+    { initialValue: null },
+  );
+  readonly apiStatus = toSignal<MarketApiStatus | null>(
+    this.investmentService.getMarketApiStatus().pipe(catchError(() => of(null))),
+    { initialValue: null },
+  );
+
   // ── Tab defs (for template loop) ──────────────────────────────────────────
   tabDefs = computed(() => [
-    { id: 'cuentas'     as Tab, label: 'Cuentas bancarias',      count: this.accounts().length            },
-    { id: 'tarjetas'    as Tab, label: 'Tarjetas de crédito',    count: this.cards().length               },
-    { id: 'categorias'  as Tab, label: 'Categorías',             count: this.categories().length          },
-    { id: 'recurrentes' as Tab, label: 'Movimientos recurrentes', count: this.recurringMovements().length  },
+    { id: 'cuentas'     as Tab, label: 'Cuentas bancarias',       count: this.accounts().length           as number | null },
+    { id: 'tarjetas'    as Tab, label: 'Tarjetas de crédito',     count: this.cards().length              as number | null },
+    { id: 'categorias'  as Tab, label: 'Categorías',              count: this.categories().length         as number | null },
+    { id: 'recurrentes' as Tab, label: 'Movimientos recurrentes', count: this.recurringMovements().length as number | null },
+    { id: 'api'         as Tab, label: 'API Control',             count: null                             as number | null },
   ]);
 
   // ── Modal ─────────────────────────────────────────────────────────────────
@@ -686,6 +712,16 @@ export class ConfiguracionComponent implements OnInit {
 
   fmtARS(value: number): string {
     return `$ ${Math.round(value).toLocaleString('es-AR')}`;
+  }
+
+  fmtRate(s: string): string {
+    const n = parseFloat(s);
+    return isFinite(n) ? n.toLocaleString('es-AR', { minimumFractionDigits: 2, maximumFractionDigits: 2 }) : s;
+  }
+
+  fmtIsoDate(s: string): string {
+    const [y, m, d] = s.split('-');
+    return `${d}/${m}/${y}`;
   }
 
   cardGradient(accent: string): string {

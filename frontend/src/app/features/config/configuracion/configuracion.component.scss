@@ -959,3 +959,198 @@
     animation: none !important;
   }
 }
+
+// ── API Control tab ────────────────────────────────────────────────────────
+
+.api-panel {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-6);
+}
+
+.macro-grid + .api-section-head {
+  margin-top: 12px;
+}
+
+.api-section-head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px;
+  flex-wrap: wrap;
+  margin-bottom: 8px;
+
+  &__title {
+    font-size: var(--text-h3);
+    font-weight: var(--weight-semibold);
+    color: var(--color-on-surface);
+    letter-spacing: -0.01em;
+    margin: 0 0 4px;
+  }
+
+  &__sub {
+    font-size: var(--text-caption);
+    color: var(--color-text-muted);
+    margin: 0;
+  }
+}
+
+.api-source-chip {
+  display: inline-flex;
+  align-items: center;
+  padding: 4px 10px;
+  border-radius: var(--radius-full);
+  background: var(--color-surface-container-high);
+  border: 1px solid var(--color-outline-variant);
+  font-size: var(--text-caption);
+  color: var(--color-on-surface-variant);
+  white-space: nowrap;
+  flex-shrink: 0;
+}
+
+.macro-grid {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 16px;
+
+  &--two { grid-template-columns: repeat(2, 1fr); }
+
+  @media (max-width: 700px) {
+    grid-template-columns: 1fr;
+    &--two { grid-template-columns: 1fr; }
+  }
+}
+
+.macro-card {
+  background: var(--color-surface-container);
+  border: 1px solid var(--color-outline-variant);
+  border-radius: var(--radius-lg);
+  padding: 20px;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  transition: border-color var(--dur-fast);
+
+  &:hover { border-color: color-mix(in srgb, var(--color-primary) 30%, var(--color-outline-variant)); }
+
+  &__header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 8px;
+  }
+
+  &__title-group {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    min-width: 0;
+  }
+
+  &__icon {
+    width: 28px;
+    height: 28px;
+    border-radius: var(--radius);
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    flex-shrink: 0;
+
+    &--primary {
+      background: color-mix(in srgb, var(--color-primary) 14%, transparent);
+      color: var(--color-primary);
+    }
+
+    &--secondary {
+      background: color-mix(in srgb, var(--color-secondary, #9ed1c5) 18%, transparent);
+      color: var(--color-secondary, #9ed1c5);
+    }
+  }
+
+  &__label {
+    font-size: var(--text-sm);
+    font-weight: var(--weight-medium);
+    color: var(--color-on-surface);
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+
+  &__body {
+    flex: 1;
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+    min-height: 0;
+  }
+
+  &__sell {
+    font-size: var(--text-metric);
+    font-weight: var(--weight-bold);
+    color: var(--color-primary);
+    font-variant-numeric: tabular-nums;
+    line-height: 1.1;
+    margin: 0;
+  }
+
+  &__meta {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 4px 16px;
+    font-size: var(--text-caption);
+    color: var(--color-text-muted);
+    font-variant-numeric: tabular-nums;
+    margin-top: 2px;
+  }
+
+  &__footer {
+    padding-top: 10px;
+    border-top: 1px solid var(--color-outline-variant);
+  }
+
+  &__source-chip {
+    display: inline-flex;
+    align-items: center;
+    padding: 2px 8px;
+    border-radius: var(--radius-full);
+    background: var(--color-surface-container-high);
+    border: 1px solid var(--color-outline-variant);
+    font-size: 10px;
+    font-weight: var(--weight-medium);
+    color: var(--color-on-surface-variant);
+    letter-spacing: 0.02em;
+  }
+
+  &__empty {
+    font-size: var(--text-sm);
+    color: var(--color-text-muted);
+    font-style: italic;
+    margin: 0;
+  }
+}
+
+.macro-badge {
+  display: inline-flex;
+  align-items: center;
+  font-size: var(--text-caption);
+  font-weight: var(--weight-semibold);
+  padding: 2px 8px;
+  border-radius: var(--radius-full);
+  white-space: nowrap;
+  flex-shrink: 0;
+
+  &--ok {
+    background: color-mix(in srgb, var(--color-primary) 15%, transparent);
+    color: var(--color-primary);
+  }
+
+  &--error {
+    background: color-mix(in srgb, var(--color-error) 15%, transparent);
+    color: var(--color-error);
+  }
+
+  &--warn {
+    background: color-mix(in srgb, #e8c37a 18%, transparent);
+    color: #e8c37a;
+  }
+}
