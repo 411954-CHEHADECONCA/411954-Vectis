@@ -4,6 +4,7 @@ import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
+import org.mockito.ArgumentCaptor;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 import org.springframework.http.*;
@@ -182,6 +183,82 @@ class PpiMarketDataClientTest {
         Optional<BigDecimal> result = spyClient.getPriceForDate("AL30", "BONOS", LocalDate.of(2026, 6, 25));
 
         assertThat(result).isEmpty();
+    }
+
+    @Test
+    @DisplayName("MarketData/Search incluye headers AuthorizedClient y ClientKey además del Bearer")
+    void getPriceForDate_sendsAuthorizedClientAndClientKeyHeaders() {
+        doReturn("pre-seeded-token").when(spyClient).getToken();
+
+        // Body nulo: basta para que el request se ejecute y poder capturar los headers,
+        // sin depender del record privado MarketDataItem de la clase de producción.
+        given(restTemplate.exchange(
+                contains("/api/1/MarketData/Search"),
+                eq(HttpMethod.GET),
+                any(HttpEntity.class),
+                any(Class.class)))
+                .willAnswer(inv -> ResponseEntity.ok(null));
+
+        spyClient.getPriceForDate("AL30", "BONOS", LocalDate.of(2026, 6, 26));
+
+        ArgumentCaptor<HttpEntity> captor = ArgumentCaptor.forClass(HttpEntity.class);
+        verify(restTemplate).exchange(
+                contains("/api/1/MarketData/Search"),
+                eq(HttpMethod.GET),
+                captor.capture(),
+                any(Class.class));
+
+        HttpHeaders sent = captor.getValue().getHeaders();
+        assertThat(sent.getFirst("AuthorizedClient")).isEqualTo(AUTHORIZED_CLIENT);
+        assertThat(sent.getFirst("ClientKey")).isEqualTo(CLIENT_KEY);
+        assertThat(sent.getFirst(HttpHeaders.AUTHORIZATION)).isEqualTo("Bearer pre-seeded-token");
+    }
+
+    @Test
+    @DisplayName("fallback: ante una ventana de varios días elige el cierre más reciente ≤ fecha")
+    void getPriceForDate_picksMostRecentCloseOnOrBeforeRequestedDate() {
+        doReturn("pre-seeded-token").when(spyClient).getToken();
+
+        // Fecha pedida = sábado 2026-06-27 (sin mercado). La ventana trae el jueves y viernes;
+        // debe devolver el viernes 26 (963.0000), el cierre más reciente ≤ fecha.
+        PpiMarketDataClient.MarketDataItem[] body = {
+                new PpiMarketDataClient.MarketDataItem("2026-06-25T00:00:00-03:00", new BigDecimal("96590")),
+                new PpiMarketDataClient.MarketDataItem("2026-06-26T00:00:00-03:00", new BigDecimal("96300")),
+        };
+        given(restTemplate.exchange(
+                contains("/api/1/MarketData/Search"),
+                eq(HttpMethod.GET),
+                any(HttpEntity.class),
+                any(Class.class)))
+                .willReturn(ResponseEntity.ok(body));
+
+        Optional<BigDecimal> result =
+                spyClient.getPriceForDate("AL30", "BONOS", LocalDate.of(2026, 6, 27));
+
+        assertThat(result).contains(new BigDecimal("963.0000"));
+    }
+
+    @Test
+    @DisplayName("fallback: ignora cierres posteriores a la fecha pedida")
+    void getPriceForDate_ignoresClosesAfterRequestedDate() {
+        doReturn("pre-seeded-token").when(spyClient).getToken();
+
+        // Pedimos el 2026-06-25; aunque la respuesta incluya el 26, debe devolver el 25 (965.9000).
+        PpiMarketDataClient.MarketDataItem[] body = {
+                new PpiMarketDataClient.MarketDataItem("2026-06-25T00:00:00-03:00", new BigDecimal("96590")),
+                new PpiMarketDataClient.MarketDataItem("2026-06-26T00:00:00-03:00", new BigDecimal("96300")),
+        };
+        given(restTemplate.exchange(
+                contains("/api/1/MarketData/Search"),
+                eq(HttpMethod.GET),
+                any(HttpEntity.class),
+                any(Class.class)))
+                .willReturn(ResponseEntity.ok(body));
+
+        Optional<BigDecimal> result =
+                spyClient.getPriceForDate("AL30", "BONOS", LocalDate.of(2026, 6, 25));
+
+        assertThat(result).contains(new BigDecimal("965.9000"));
     }
 
     // ─── BigDecimal normalization (pure unit tests) ───────────────────────────

@@ -483,11 +483,11 @@ class InvestmentServiceTest {
         verify(investmentRepository, never()).save(any());
     }
 
-    // ─── FIX 1: validateMovementChronology ───────────────────────────────────
+    // ─── Movimientos backdateados: permitidos (el cálculo ordena por fecha) ───
 
     @Test
-    @DisplayName("addMovement rechaza movimiento backdateado (fecha anterior al último movimiento)")
-    void addMovement_backdatedMovement_throwsException() {
+    @DisplayName("addMovement permite un movimiento con fecha anterior a otro ya registrado")
+    void addMovement_backdatedMovement_isAllowed() {
         UUID assetId = UUID.randomUUID();
         InvestmentAsset asset = buildFciAsset(assetId, new BigDecimal("500000.00"));
 
@@ -501,22 +501,25 @@ class InvestmentServiceTest {
                 .build();
         asset.getMovements().add(existing);
 
-        // Request with a date BEFORE the last movement (Dec 1 2025)
+        // Request with a date BEFORE the existing movement (Dec 1 2025) — debe permitirse
         InvestmentMovementRequest req = new InvestmentMovementRequest(
                 LocalDate.of(2025, 12, 1),
                 InvestmentMovementType.SUSCRIPCION,
                 new BigDecimal("100000.00"),
                 null);
 
+        InvestmentResponse resp = buildResponse(assetId, null, null);
         given(investmentRepository.findWithMovementsByIdAndUser_Id(assetId, userId))
                 .willReturn(Optional.of(asset));
+        given(investmentRepository.save(any(InvestmentAsset.class)))
+                .willAnswer(inv -> inv.getArgument(0));
+        given(investmentMapper.toResponse(asset)).willReturn(resp);
 
-        assertThatThrownBy(() -> investmentService.addMovement(assetId, req, user))
-                .isInstanceOf(VectisException.class)
-                .satisfies(ex -> assertThat(((VectisException) ex).getStatus())
-                        .isEqualTo(HttpStatus.UNPROCESSABLE_ENTITY));
+        InvestmentResponse result = investmentService.addMovement(assetId, req, user);
 
-        verify(investmentRepository, never()).save(any());
+        assertThat(result).isNotNull();
+        assertThat(asset.getMovements()).hasSize(2);
+        verify(investmentRepository).save(asset);
     }
 
     // ─── FIX 2: validateValuationDateUniqueness ───────────────────────────────

@@ -113,7 +113,7 @@ public class PpiValuationSyncService {
 
         return cached.stream()
                 .map(c -> new InstrumentDto(c.getTicker(), c.getNombre(), c.getTipo(),
-                        c.getLastPrice(), c.getPriceDate()))
+                        c.getLastPrice(), c.getPriceDate(), c.getMaturityDate()))
                 .toList();
     }
 

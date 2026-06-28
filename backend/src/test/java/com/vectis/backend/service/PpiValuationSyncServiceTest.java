@@ -146,6 +146,7 @@ class PpiValuationSyncServiceTest {
                         .tipo("BONO")
                         .lastPrice(new BigDecimal("1450.5000"))
                         .priceDate(LocalDate.now())
+                        .maturityDate(LocalDate.of(2030, 7, 9))
                         .build();
 
         given(instrumentCacheRepository.findAllByTipoOrderByNombreAsc("BONO"))
@@ -156,6 +157,7 @@ class PpiValuationSyncServiceTest {
         assertThat(result).hasSize(1);
         assertThat(result.get(0).ticker()).isEqualTo("AL30");
         assertThat(result.get(0).lastPrice()).isEqualByComparingTo("1450.5000");
+        assertThat(result.get(0).maturityDate()).isEqualTo(LocalDate.of(2030, 7, 9));
     }
 
     // ─── Helpers ──────────────────────────────────────────────────────────────

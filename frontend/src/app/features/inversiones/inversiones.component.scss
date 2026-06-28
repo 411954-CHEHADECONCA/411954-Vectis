@@ -1037,11 +1037,12 @@
 .mov-badge {
   display: inline-flex;
   align-items: center;
-  border-radius: var(--radius-full);
-  padding: 2px 8px;
+  border-radius: var(--radius-sm);
+  padding: 2px 7px;
   font-size: var(--text-overline);
-  font-weight: var(--weight-bold);
-  letter-spacing: 0.04em;
+  font-weight: var(--weight-semibold);
+  letter-spacing: var(--tracking-wide);
+  line-height: 1.45;
   white-space: nowrap;
 }
 
@@ -1204,6 +1205,23 @@
   > * + * { margin-left: 6px; }
 }
 
+// Celda "Hasta": fecha de cierre del tramo + badge del tipo de operación en línea,
+// para informar la operación sin sumar una columna (evita scroll horizontal).
+.tramo-hasta {
+  display: inline-flex;
+  flex-direction: row;
+  align-items: center;
+  gap: 8px;
+
+  // La fecha ocupa un ancho fijo (con cifras tabulares) para que TODOS los badges
+  // arranquen exactamente en el mismo pixel, sin importar el largo del texto.
+  > :first-child {
+    flex: 0 0 72px;
+    width: 72px;
+    font-variant-numeric: tabular-nums;
+  }
+}
+
 .tramo-cell--highlight {
   color: var(--color-primary);
   font-weight: var(--weight-semibold);
@@ -1265,7 +1283,7 @@
 // ── Valuación badge ───────────────────────────────────────────────────────────
 
 .mov-badge--valuacion {
-  background: color-mix(in srgb, var(--color-secondary) 18%, transparent);
+  background: color-mix(in srgb, var(--color-secondary) 14%, transparent);
   color: var(--color-secondary);
 }
 
@@ -1405,23 +1423,13 @@
   }
 }
 
-// ── Auto badges ───────────────────────────────────────────────────────────────
-.auto-badge,
+// ── Source badge ──────────────────────────────────────────────────────────────
 .valuation-source-badge {
   display: inline-flex;
   align-items: center;
   border-radius: var(--radius-full);
   font-weight: var(--weight-semibold);
   vertical-align: middle;
-}
-
-.auto-badge {
-  padding: 1px 6px;
-  background: color-mix(in srgb, var(--color-primary) 18%, transparent);
-  color: var(--color-primary);
-  font-size: var(--text-overline);
-  letter-spacing: 0.04em;
-  margin-left: 6px;
 }
 
 .valuation-source-badge {

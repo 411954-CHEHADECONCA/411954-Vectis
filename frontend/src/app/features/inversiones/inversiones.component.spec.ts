@@ -67,8 +67,8 @@ const MOCK_FCI_FUNDS: FciFundOption[] = [
 ];
 
 const MOCK_INSTRUMENTS: InstrumentOption[] = [
-  { ticker: 'S31G5', nombre: 'LECAP 31/08/2025', tipo: 'LETRA', lastPrice: 1020.5, priceDate: '2026-06-24' },
-  { ticker: 'GD30',  nombre: 'Global 2030',       tipo: 'BONO',  lastPrice: 57.40,  priceDate: '2026-06-24' },
+  { ticker: 'S31G5', nombre: 'LECAP 31/08/2025', tipo: 'LETRA', lastPrice: 1020.5, priceDate: '2026-06-24', maturityDate: '2025-08-31' },
+  { ticker: 'GD30',  nombre: 'Global 2030',       tipo: 'BONO',  lastPrice: 57.40,  priceDate: '2026-06-24', maturityDate: '2030-07-09' },
 ];
 
 function buildSpies() {
@@ -546,7 +546,7 @@ describe('InversionesComponent', () => {
       expect(component.subModal()?.asset).toBe(asset);
     });
 
-    it('addPendingMovementCP con type=REVALUO llama addMovement con REVALUO y NO addValuation', () => {
+    it('addPendingMovementCP con type=REVALUO registra una valuación (corte de precio) y NO addMovement', () => {
       const cpAsset: InvestmentResponse = {
         ...MOCK_ASSETS[0],
         type: 'FCI_CUOTAPARTES',
@@ -557,18 +557,44 @@ describe('InversionesComponent', () => {
         ],
         valuations: [],
       };
-      investSpy.addMovement.and.returnValue(of({ ...cpAsset }));
+      investSpy.addValuation.and.returnValue(of({ ...cpAsset }));
 
       component.openAddMovementModal(cpAsset);
-      component.addMovementCPForm.patchValue({ movementDate: '2026-07-01', type: 'REVALUO', amount: 5000, units: 200, pricePerUnit: 525 });
+      component.addMovementCPForm.patchValue({ movementDate: '2026-07-01', type: 'REVALUO', amount: null, units: null, pricePerUnit: 525 });
       component.addPendingMovementCP();
 
-      expect(investSpy.addMovement).toHaveBeenCalledWith(
+      expect(investSpy.addValuation).toHaveBeenCalledWith(
         cpAsset.id,
-        jasmine.objectContaining({ type: 'REVALUO', amount: 5000 }),
+        jasmine.objectContaining({ valuationDate: '2026-07-01', pricePerUnit: 525 }),
+      );
+      expect(investSpy.addMovement).not.toHaveBeenCalled();
+      expect(component.subModal()).toBeNull();
+    });
+
+    it('addPendingMovementCP con REVALUO en fecha ya valuada actualiza la valuación (upsert)', () => {
+      const cpAsset: InvestmentResponse = {
+        ...MOCK_ASSETS[0],
+        type: 'FCI_CUOTAPARTES',
+        autoTrack: false,
+        externalId: null,
+        movements: [
+          { id: 'm1', movementDate: '2026-01-01', type: 'SUSCRIPCION', amount: 100000, units: 200, createdAt: '' },
+        ],
+        valuations: [
+          { id: 'v1', valuationDate: '2026-07-01', pricePerUnit: 500, source: 'MANUAL', createdAt: '' },
+        ],
+      };
+      investSpy.updateValuation.and.returnValue(of({ ...cpAsset }));
+
+      component.openAddMovementModal(cpAsset);
+      component.addMovementCPForm.patchValue({ movementDate: '2026-07-01', type: 'REVALUO', amount: null, units: null, pricePerUnit: 525 });
+      component.addPendingMovementCP();
+
+      expect(investSpy.updateValuation).toHaveBeenCalledWith(
+        cpAsset.id, 'v1',
+        jasmine.objectContaining({ valuationDate: '2026-07-01', pricePerUnit: 525 }),
       );
       expect(investSpy.addValuation).not.toHaveBeenCalled();
-      expect(component.subModal()).toBeNull();
     });
 
     it('closeSubModal limpia subModal y movFormError', () => {
@@ -693,7 +719,7 @@ describe('InversionesComponent', () => {
     });
 
     it('selectInstrument() setea name y externalId del letraForm y oculta el dropdown', () => {
-      const instr: InstrumentOption = { ticker: 'S31G5', nombre: 'LECAP 31/08/2025', tipo: 'LETRA', lastPrice: 1020.5, priceDate: '2026-06-24' };
+      const instr: InstrumentOption = { ticker: 'S31G5', nombre: 'LECAP 31/08/2025', tipo: 'LETRA', lastPrice: 1020.5, priceDate: '2026-06-24', maturityDate: '2025-08-31' };
       component.selectInstrument(instr);
       expect(component.letraForm.controls.name.value).toBe('S31G5 — LECAP 31/08/2025');
       expect(component.letraForm.controls.externalId.value).toBe('S31G5');

@@ -172,9 +172,6 @@
                     <span class="asset-info">
                       <span class="asset-name">
                         {{ asset.name }}
-                        @if (asset.autoTrack) {
-                          <span class="auto-badge">Auto</span>
-                        }
                       </span>
                       <span class="asset-type">{{ ASSET_TYPE_LABELS[asset.type] }}</span>
                     </span>
@@ -392,11 +389,20 @@
                                       <tr [class.tramo-row--current]="tramo.enCurso">
                                         <td class="tramo-cell">{{ fmtDate(tramo.startDate) }}</td>
                                         <td class="tramo-cell">
-                                          @if (tramo.enCurso) {
-                                            <span class="tramo-current-label">Hoy</span>
-                                          } @else {
-                                            {{ fmtDate(tramo.endDate) }}
-                                          }
+                                          <div class="tramo-hasta">
+                                            @if (tramo.enCurso) {
+                                              <span class="tramo-current-label">Hoy</span>
+                                              <span class="mov-badge mov-badge--encurso">En curso</span>
+                                            } @else {
+                                              <span>{{ fmtDate(tramo.endDate) }}</span>
+                                              @switch (tramo.endEvent) {
+                                                @case ('SUSCRIPCION') { <span class="mov-badge mov-badge--suscripcion">Suscripción</span> }
+                                                @case ('RESCATE')     { <span class="mov-badge mov-badge--rescate">Rescate</span> }
+                                                @case ('REVALUO')     { <span class="mov-badge mov-badge--revaluo">Revalúo</span> }
+                                                @case ('VALUACION')   { <span class="mov-badge mov-badge--valuacion">Valuación</span> }
+                                              }
+                                            }
+                                          </div>
                                         </td>
                                         <td class="tramo-cell tramo-cell--num">{{ tramo.units | number:'1.4-6':'es-AR' }}</td>
                                         <td class="tramo-cell tramo-cell--num">{{ asset.currency === 'ARS' ? fmtARS(tramo.startPrice) : fmtUSD(tramo.startPrice) }}</td>
@@ -418,17 +424,14 @@
                                           @else { {{ fmtPct(tramo.tea) }} }
                                         </td>
                                         <td class="tramo-cell tramo-cell--actions">
-                                          @if (tramo.revaluoMovId) {
-                                            <span class="mov-badge mov-badge--revaluo">Revalúo</span>
-                                            @if (modal()?.id) {
-                                              <button
-                                                type="button"
-                                                class="icon-btn icon-btn--danger"
-                                                title="Eliminar revalúo"
-                                                (click)="deleteFCIMovement(asset, tramo.revaluoMovId!)"
-                                                aria-label="Eliminar revalúo"
-                                              >✕</button>
-                                            }
+                                          @if (tramo.revaluoMovId && modal()?.id) {
+                                            <button
+                                              type="button"
+                                              class="icon-btn icon-btn--danger"
+                                              title="Eliminar revalúo"
+                                              (click)="deleteFCIMovement(asset, tramo.revaluoMovId!)"
+                                              aria-label="Eliminar revalúo"
+                                            >✕</button>
                                           }
                                         </td>
                                       </tr>
@@ -519,7 +522,6 @@
                                       <th class="th--right">Ganancia tramo</th>
                                       <th class="th--right">TNA tramo</th>
                                       <th class="th--right">TEA tramo</th>
-                                      <th></th>
                                     </tr>
                                   </thead>
                                   <tbody>
@@ -527,11 +529,20 @@
                                       <tr [class.tramo-row--current]="tramo.enCurso">
                                         <td class="tramo-cell">{{ fmtDate(tramo.startDate) }}</td>
                                         <td class="tramo-cell">
-                                          @if (tramo.enCurso) {
-                                            <span class="tramo-current-label">Hoy</span>
-                                          } @else {
-                                            {{ fmtDate(tramo.endDate) }}
-                                          }
+                                          <div class="tramo-hasta">
+                                            @if (tramo.enCurso) {
+                                              <span class="tramo-current-label">Hoy</span>
+                                              <span class="mov-badge mov-badge--encurso">En curso</span>
+                                            } @else {
+                                              <span>{{ fmtDate(tramo.endDate) }}</span>
+                                              @switch (tramo.endEvent) {
+                                                @case ('SUSCRIPCION') { <span class="mov-badge mov-badge--suscripcion">Suscripción</span> }
+                                                @case ('RESCATE')     { <span class="mov-badge mov-badge--rescate">Rescate</span> }
+                                                @case ('REVALUO')     { <span class="mov-badge mov-badge--revaluo">Revalúo</span> }
+                                                @case ('VALUACION')   { <span class="mov-badge mov-badge--valuacion">Valuación</span> }
+                                              }
+                                            }
+                                          </div>
                                         </td>
                                         <td class="tramo-cell tramo-cell--num">{{ tramo.units | number:'1.4-6':'es-AR' }}</td>
                                         <td class="tramo-cell tramo-cell--num">{{ asset.currency === 'ARS' ? fmtARS(tramo.startPrice) : fmtUSD(tramo.startPrice) }}</td>
@@ -552,11 +563,6 @@
                                           @if (tramo.enCurso || tramo.dias === 0) { — }
                                           @else { {{ fmtPct(tramo.tea) }} }
                                         </td>
-                                        <td class="tramo-cell tramo-cell--actions">
-                                          @if (tramo.revaluoMovId) {
-                                            <span class="mov-badge mov-badge--revaluo">Revalúo</span>
-                                          }
-                                        </td>
                                       </tr>
                                     }
                                   </tbody>
@@ -571,7 +577,6 @@
                                       </td>
                                       <td class="tramo-cell tramo-cell--num tramo-cell--highlight">{{ fmtPct(calcTEA(asset)) }}</td>
                                       <td class="tramo-cell tramo-cell--num tramo-cell--highlight">{{ fmtPct(calcTIR(asset)) }}</td>
-                                      <td class="tramo-cell"></td>
                                     </tr>
                                   </tfoot>
                                 </table>
@@ -582,6 +587,12 @@
                                   <span class="detail-label">Nominales en cartera</span>
                                   <span class="detail-value">{{ calcCuotapartesHeld(asset) | number:'1.4-6':'es-AR' }}</span>
                                 </div>
+                                @if (asset.maturityDate) {
+                                  <div class="cp-summary__item">
+                                    <span class="detail-label">Vencimiento</span>
+                                    <span class="detail-value">{{ fmtDate(asset.maturityDate) }}</span>
+                                  </div>
+                                }
                                 <div class="cp-summary__item">
                                   <span class="detail-label">Valor de mercado</span>
                                   <span class="detail-value detail-value--primary">
@@ -1812,7 +1823,6 @@
                       class="text-input"
                       formControlName="movementDate"
                       type="date"
-                      [min]="minMovementDate()"
                     />
                   </div>
                   <div class="cfg-field">
@@ -1863,7 +1873,6 @@
                       class="text-input"
                       formControlName="movementDate"
                       type="date"
-                      [min]="minMovementDate()"
                     />
                   </div>
                   <div class="cfg-field">

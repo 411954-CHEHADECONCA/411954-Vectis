@@ -87,11 +87,12 @@ export interface FciFundOption {
 }
 
 export interface InstrumentOption {
-  ticker:    string;
-  nombre:    string;
-  tipo:      string;
-  lastPrice: number | null;
-  priceDate: string | null;
+  ticker:       string;
+  nombre:       string;
+  tipo:         string;
+  lastPrice:    number | null;
+  priceDate:    string | null;
+  maturityDate: string | null;
 }
 
 export const ASSET_TINTS = [

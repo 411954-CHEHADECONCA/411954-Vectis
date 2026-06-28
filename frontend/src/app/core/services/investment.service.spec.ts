@@ -199,7 +199,7 @@ describe('InvestmentService', () => {
 
   it('getInstruments() hace GET a /market/instruments con el parámetro tipo correcto', () => {
     const mockInstruments: InstrumentOption[] = [
-      { ticker: 'S31G5', nombre: 'LECAP 31/08/2025', tipo: 'LETRA', lastPrice: 1020.5, priceDate: '2026-06-24' },
+      { ticker: 'S31G5', nombre: 'LECAP 31/08/2025', tipo: 'LETRA', lastPrice: 1020.5, priceDate: '2026-06-24', maturityDate: '2025-08-31' },
     ];
 
     service.getInstruments('LETRA').subscribe(instruments => {

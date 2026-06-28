@@ -27,7 +27,6 @@ import org.springframework.transaction.annotation.Transactional;
 
 import java.math.BigDecimal;
 import java.time.LocalDate;
-import java.util.Comparator;
 import java.util.List;
 import java.util.UUID;
 
@@ -118,8 +117,8 @@ public class InvestmentService {
         InvestmentAsset asset = investmentRepository.findWithMovementsByIdAndUser_Id(investmentId, user.getId())
                 .orElseThrow(() -> new InvestmentNotFoundException(investmentId));
 
-        // FIX 1: validate movement is not backdated relative to the last recorded movement
-        validateMovementChronology(asset, request);
+        // Los movimientos pueden registrarse en cualquier fecha (incluso anterior a otros):
+        // los tramos y el saldo se recalculan ordenando por fecha. Sólo validamos el rescate.
         validateRescate(asset, request);
 
         InvestmentMovement movement = InvestmentMovement.builder()
@@ -220,25 +219,6 @@ public class InvestmentService {
                 })
                 .reduce(BigDecimal.ZERO, BigDecimal::add);
         asset.setPrincipal(balance);
-    }
-
-    /**
-     * FIX 1: Ensures the new movement date is not earlier than the last recorded movement date.
-     * This prevents out-of-order entries that would corrupt the movement timeline.
-     */
-    private void validateMovementChronology(InvestmentAsset asset, InvestmentMovementRequest request) {
-        asset.getMovements().stream()
-                .map(InvestmentMovement::getMovementDate)
-                .max(Comparator.naturalOrder())
-                .ifPresent(lastDate -> {
-                    if (request.movementDate().isBefore(lastDate)) {
-                        throw new VectisException(
-                                "La fecha del movimiento (" + request.movementDate()
-                                + ") debe ser igual o posterior al último movimiento registrado ("
-                                + lastDate + ")",
-                                HttpStatus.UNPROCESSABLE_ENTITY);
-                    }
-                });
     }
 
     /**

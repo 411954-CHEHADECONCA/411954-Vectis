@@ -18,7 +18,7 @@ import {
 import { HttpErrorResponse } from '@angular/common/http';
 import { DecimalPipe } from '@angular/common';
 import { toSignal, takeUntilDestroyed } from '@angular/core/rxjs-interop';
-import { catchError, distinctUntilChanged, forkJoin, of, switchMap } from 'rxjs';
+import { catchError, distinctUntilChanged, forkJoin, map, Observable, of, switchMap } from 'rxjs';
 import {
   LucideTrendingUp,
   LucideTrendingDown,
@@ -85,6 +85,8 @@ interface FCITramoCP {
   enCurso:      boolean;
   valuacionId?:  string;
   revaluoMovId?: string;
+  // Tipo de operación que cierra el tramo (para mostrar en la tabla de tramos).
+  endEvent?:     'SUSCRIPCION' | 'RESCATE' | 'REVALUO' | 'VALUACION';
 }
 
 function maturityAfterPurchaseValidator(g: AbstractControl): ValidationErrors | null {
@@ -411,6 +413,13 @@ export class InversionesComponent implements OnInit {
         this.fciFunds.set([...data.mm, ...data.rf, ...data.rv]);
         this.instruments.set([...data.letra, ...data.bono, ...data.on]);
       });
+
+    // Bug 1a: al cambiar la fecha de compra de una Letra/Bono/ON con seguimiento automático,
+    // recargar el precio histórico de esa fecha para la compra inicial.
+    this.letraForm.controls.purchaseDate.valueChanges.pipe(
+      distinctUntilChanged(),
+      takeUntilDestroyed(this.destroyRef),
+    ).subscribe(date => this._loadCreationInstrumentPrice(date || this.todayIso()));
   }
 
   loadAssets(): void {
@@ -599,33 +608,46 @@ export class InversionesComponent implements OnInit {
 
   calcTramosCP(asset: InvestmentResponse): FCITramoCP[] {
     type CPEvent =
-      | { kind: 'valuation'; date: string; endPrice: number; valuacionId: string }
+      | { kind: 'valuation'; date: string; price: number; valuacionId: string }
+      | { kind: 'movement';  date: string; price: number | null; movId: string; movType: 'SUSCRIPCION' | 'RESCATE' }
       | { kind: 'revaluo';   date: string; ganancia: number; movId: string };
 
+    const movs = asset.movements ?? [];
+
+    // Cada valuación, suscripción, rescate y revalúo define un límite de tramo. El precio de
+    // mercado de una suscripción/rescate es su precio implícito (monto / nominales) en esa fecha.
     const events: CPEvent[] = [
       ...(asset.valuations ?? []).map(v => ({
-        kind: 'valuation' as const, date: v.valuationDate,
-        endPrice: v.pricePerUnit, valuacionId: v.id,
+        kind: 'valuation' as const, date: v.valuationDate, price: v.pricePerUnit, valuacionId: v.id,
       })),
-      ...(asset.movements ?? []).filter(m => m.type === 'REVALUO').map(m => ({
-        kind: 'revaluo' as const, date: m.movementDate,
-        ganancia: +m.amount, movId: m.id,
+      ...movs.filter(m => m.type === 'REVALUO').map(m => ({
+        kind: 'revaluo' as const, date: m.movementDate, ganancia: +m.amount, movId: m.id,
+      })),
+      ...movs.filter(m => m.type === 'SUSCRIPCION' || m.type === 'RESCATE').map(m => ({
+        kind: 'movement' as const, date: m.movementDate,
+        price: m.units ? +m.amount / +m.units : null,
+        movId: m.id, movType: m.type as 'SUSCRIPCION' | 'RESCATE',
       })),
     ].sort((a, b) => {
       const d = a.date.localeCompare(b.date);
-      // Same date: revaluo before valuation (closing-price events after accrual)
       if (d !== 0) return d;
-      return (a.kind === 'revaluo' ? 0 : 1) - (b.kind === 'revaluo' ? 0 : 1);
+      // Mismo día: suscripción (entra capital) → revalúo → valuación → rescate (sale capital).
+      const rank = (e: CPEvent) =>
+        e.kind === 'movement'  && e.movType === 'SUSCRIPCION' ? 0
+        : e.kind === 'revaluo'   ? 1
+        : e.kind === 'valuation' ? 2
+        : 3;
+      return rank(a) - rank(b);
     });
 
     if (!events.length) return [];
 
-    // Precio implícito de partida: amount / units de la 1ra suscripción
-    const firstSusc = [...(asset.movements ?? [])]
+    // Precio implícito de partida: amount / units de la 1ra suscripción (costo base).
+    const firstSusc = [...movs]
       .filter(m => m.type === 'SUSCRIPCION' && m.units)
       .sort((a, b) => a.movementDate.localeCompare(b.movementDate))[0];
     const impliedPrice = firstSusc && firstSusc.units
-      ? firstSusc.amount / firstSusc.units
+      ? +firstSusc.amount / +firstSusc.units
       : 0;
 
     const tramos: FCITramoCP[] = [];
@@ -633,6 +655,7 @@ export class InversionesComponent implements OnInit {
     let prevPrice = impliedPrice;
 
     for (const event of events) {
+      // Nominales mantenidos durante el intervalo = los tenidos hasta (e incluyendo) prevDate.
       const units = this.calcCuotapartesHeld(asset, prevDate);
       const dias  = Math.floor((this.parseDateLocal(event.date).getTime() - this.parseDateLocal(prevDate).getTime()) / 86400000);
       const capitalInicio = units * prevPrice;
@@ -640,11 +663,15 @@ export class InversionesComponent implements OnInit {
       let ganancia: number;
       let endPrice: number;
       if (event.kind === 'valuation') {
-        ganancia = units * (event.endPrice - prevPrice);
-        endPrice = event.endPrice;
-      } else {
+        endPrice = event.price;
+        ganancia = units * (endPrice - prevPrice);
+      } else if (event.kind === 'revaluo') {
         ganancia = event.ganancia;
         endPrice = units > 0 ? prevPrice + (event.ganancia / units) : prevPrice;
+      } else {
+        // Suscripción / rescate: su precio implícito es el precio de mercado a esa fecha.
+        endPrice = event.price ?? prevPrice;
+        ganancia = units * (endPrice - prevPrice);
       }
 
       const tna = capitalInicio > 0 && dias > 0
@@ -652,20 +679,26 @@ export class InversionesComponent implements OnInit {
       const tea = capitalInicio > 0 && dias > 0
         ? (Math.pow(1 + ganancia / capitalInicio, 365 / dias) - 1) * 100 : 0;
 
-      tramos.push({
-        startDate:    prevDate,
-        endDate:      event.date,
-        startPrice:   prevPrice,
-        endPrice,
-        units,
-        dias,
-        ganancia,
-        tna,
-        tea,
-        enCurso:      false,
-        valuacionId:  event.kind === 'valuation' ? event.valuacionId : undefined,
-        revaluoMovId: event.kind === 'revaluo'   ? event.movId       : undefined,
-      });
+      // Evita tramos de 0 días (p. ej. el evento de partida en la fecha de la 1ra suscripción).
+      if (dias > 0) {
+        tramos.push({
+          startDate:    prevDate,
+          endDate:      event.date,
+          startPrice:   prevPrice,
+          endPrice,
+          units,
+          dias,
+          ganancia,
+          tna,
+          tea,
+          enCurso:      false,
+          valuacionId:  event.kind === 'valuation' ? event.valuacionId : undefined,
+          revaluoMovId: event.kind === 'revaluo'   ? event.movId       : undefined,
+          endEvent:     event.kind === 'valuation' ? 'VALUACION'
+                        : event.kind === 'revaluo' ? 'REVALUO'
+                        : event.movType, // 'SUSCRIPCION' | 'RESCATE'
+        });
+      }
 
       prevDate  = event.date;
       prevPrice = endPrice;
@@ -901,7 +934,60 @@ export class InversionesComponent implements OnInit {
   openAddValuationModal(asset: InvestmentResponse): void {
     this.addValuationForm.reset({ valuationDate: this.todayIso(), pricePerUnit: null });
     this.movFormError.set(null);
+    this.priceForMovement.set(null);
+    this.priceSource.set(null);
     this.subModal.set({ kind: 'add-valuation', asset });
+
+    // En activos con seguimiento automático, precargar el precio del día (hoy o el último
+    // disponible que devuelva la API) y recargarlo cuando cambie la fecha de valuación.
+    if (asset.autoTrack && asset.externalId) {
+      this._loadValuationPriceForDate(asset, this.todayIso());
+      this._subscribeValuationDate(asset);
+    }
+  }
+
+  /** Precio auto-trackeado del activo para una fecha (VCP de FCI o precio PPI de renta fija). */
+  private _autoTrackedPrice$(
+    asset: InvestmentResponse,
+    fecha: string,
+  ): Observable<{ price: number; source: 'fci' | 'ppi' } | null> {
+    if (!asset.externalId) return of(null);
+    return asset.type === 'FCI_CUOTAPARTES'
+      ? this.investmentService.getFciVcp(asset.externalId, fecha)
+          .pipe(map(res => (res ? { price: res.vcp, source: 'fci' } : null)))
+      : this.investmentService.getInstrumentPrice(asset.externalId, asset.type, fecha)
+          .pipe(map(res => (res ? { price: res.pricePerUnit, source: 'ppi' } : null)));
+  }
+
+  private _applyValuationPrice(res: { price: number; source: 'fci' | 'ppi' } | null): void {
+    if (res) {
+      this.priceForMovement.set(res.price);
+      this.priceSource.set(res.source);
+      this.addValuationForm.controls.pricePerUnit.setValue(res.price, { emitEvent: false });
+      this.movFormError.set(null);
+    } else {
+      // Sin cotización para esa fecha (feriado, fin de semana sin cierre previo, fecha futura).
+      // Limpiamos el precio para no enviar uno desactualizado y avisamos que puede cargarse a mano.
+      this.priceForMovement.set(null);
+      this.priceSource.set(null);
+      this.addValuationForm.controls.pricePerUnit.setValue(null, { emitEvent: false });
+      this.movFormError.set('No hay precio de mercado para esa fecha. Ingresalo manualmente.');
+    }
+  }
+
+  private _loadValuationPriceForDate(asset: InvestmentResponse, fecha: string): void {
+    if (!asset.autoTrack || !asset.externalId) return;
+    this._autoTrackedPrice$(asset, fecha)
+      .pipe(takeUntilDestroyed(this.destroyRef))
+      .subscribe(res => this._applyValuationPrice(res));
+  }
+
+  private _subscribeValuationDate(asset: InvestmentResponse): void {
+    this.addValuationForm.controls.valuationDate.valueChanges.pipe(
+      distinctUntilChanged(),
+      takeUntilDestroyed(this.destroyRef),
+      switchMap(date => (date ? this._autoTrackedPrice$(asset, date) : of(null))),
+    ).subscribe(res => this._applyValuationPrice(res));
   }
 
   closeSubModal(): void {
@@ -925,11 +1011,8 @@ export class InversionesComponent implements OnInit {
       this.movFormError.set('El primer movimiento debe ser una suscripción.');
       return;
     }
-    const minDate = this.minMovementDate();
-    if (minDate && raw.movementDate < minDate) {
-      this.movFormError.set(`La fecha no puede ser anterior a ${this.fmtDate(minDate)}.`);
-      return;
-    }
+    // Los movimientos pueden registrarse en cualquier fecha (incluso anterior a otras): los
+    // tramos se recalculan ordenando por fecha. No se valida la cronología.
     if (raw.type === 'RESCATE' && raw.amount! > this.currentBalanceForMovement()) {
       const currency = sub.asset.currency;
       const saldo = currency === 'ARS'
@@ -975,7 +1058,38 @@ export class InversionesComponent implements OnInit {
     const sub = this.subModal();
     if (!sub) return;
 
-    // ── Rama SUSCRIPCION / RESCATE / REVALUO ─────────────────────────────────
+    // ── Rama REVALUO: en cuotapartes/instrumentos es una marca de precio (corte) a esa fecha.
+    // Se registra como valuación (upsert), lo que genera el tramo correspondiente. Sólo requiere
+    // fecha y precio (no monto/nominales), por eso se maneja antes del chequeo de validez general.
+    if (raw.type === 'REVALUO') {
+      if (!raw.movementDate || raw.pricePerUnit == null || raw.pricePerUnit <= 0) {
+        this.movFormError.set('Ingresá una fecha y un precio válido (mayor a cero).');
+        return;
+      }
+      this.movFormError.set(null);
+      const existing = sub.asset.valuations?.find(v => v.valuationDate === raw.movementDate);
+      const op = existing
+        ? this.investmentService.updateValuation(sub.asset.id, existing.id, {
+            valuationDate: raw.movementDate, pricePerUnit: raw.pricePerUnit,
+          })
+        : this.investmentService.addValuation(sub.asset.id, {
+            valuationDate: raw.movementDate, pricePerUnit: raw.pricePerUnit,
+          });
+      op.subscribe({
+        next: updated => {
+          this.assets.update(list => list.map(a => a.id === updated.id ? updated : a));
+          this.modal.update(s => s ? { ...s, asset: updated } : null);
+          this.subModal.set(null);
+          this.addMovementCPForm.reset({ movementDate: this.todayIso(), type: 'SUSCRIPCION', amount: null, units: null, pricePerUnit: null });
+        },
+        error: (err: HttpErrorResponse) => {
+          this.movFormError.set(err.error?.message ?? 'No se pudo registrar el revalúo');
+        },
+      });
+      return;
+    }
+
+    // ── Rama SUSCRIPCION / RESCATE ───────────────────────────────────────────
     if (this.addMovementCPForm.invalid) {
       this.addMovementCPForm.markAllAsTouched();
       return;
@@ -985,11 +1099,8 @@ export class InversionesComponent implements OnInit {
       this.movFormError.set('El primer movimiento debe ser una suscripción.');
       return;
     }
-    const minDate = this.minMovementDate();
-    if (minDate && raw.movementDate < minDate) {
-      this.movFormError.set(`La fecha no puede ser anterior a ${this.fmtDate(minDate)}.`);
-      return;
-    }
+    // Los movimientos pueden registrarse en cualquier fecha (incluso anterior a otras): los
+    // tramos se recalculan ordenando por fecha. No se valida la cronología.
     if (raw.type === 'RESCATE' && raw.amount! > this.currentBalanceForMovement()) {
       const currency = sub.asset.currency;
       const saldo = currency === 'ARS'
@@ -1022,20 +1133,32 @@ export class InversionesComponent implements OnInit {
   addPendingValuacion(): void {
     if (this.addValuationForm.invalid) {
       this.addValuationForm.markAllAsTouched();
+      this.movFormError.set('Ingresá una fecha y un precio válido (mayor a cero).');
       return;
     }
     const raw = this.addValuationForm.getRawValue();
     const sub = this.subModal();
     if (!sub) return;
 
-    this.investmentService.addValuation(sub.asset.id, {
-      valuationDate: raw.valuationDate,
-      pricePerUnit:  raw.pricePerUnit!,
-    }).subscribe({
+    // Upsert: si ya existe una valuación para esa fecha (p. ej. la sembrada al crear el activo),
+    // la actualizamos en vez de fallar con un conflicto.
+    const existing = sub.asset.valuations?.find(v => v.valuationDate === raw.valuationDate);
+    const op = existing
+      ? this.investmentService.updateValuation(sub.asset.id, existing.id, {
+          valuationDate: raw.valuationDate,
+          pricePerUnit:  raw.pricePerUnit!,
+        })
+      : this.investmentService.addValuation(sub.asset.id, {
+          valuationDate: raw.valuationDate,
+          pricePerUnit:  raw.pricePerUnit!,
+        });
+
+    op.subscribe({
       next: updated => {
         this.assets.update(list => list.map(a => a.id === updated.id ? updated : a));
         this.modal.update(s => s ? { ...s, asset: updated } : null);
         this.subModal.set(null);
+        this.movFormError.set(null);
         this.addValuationForm.reset({ valuationDate: this.todayIso(), pricePerUnit: null });
       },
       error: (err: HttpErrorResponse) => {
@@ -1128,16 +1251,62 @@ export class InversionesComponent implements OnInit {
     this.letraForm.controls.externalId.setValue(instr.ticker);
     this.instrSearchQuery.set(instr.ticker + ' — ' + instr.nombre);
     this.showInstrDropdown.set(false);
-    // Pre-cargar precio de mercado del instrumento seleccionado
-    this.investmentService.getInstrumentPrice(instr.ticker, instr.tipo, this.todayIso())
+    // Autocompletar la fecha de vencimiento conocida del instrumento (viene del catálogo/API).
+    if (instr.maturityDate) {
+      this.letraForm.controls.maturityDate.setValue(instr.maturityDate);
+    }
+    // Pre-cargar el precio de mercado a la FECHA DE COMPRA (precio histórico si es una compra
+    // vieja), no necesariamente el de hoy.
+    this._loadCreationInstrumentPrice(this.letraForm.controls.purchaseDate.value || this.todayIso());
+  }
+
+  /**
+   * Carga, en modo auto, el precio del instrumento de renta fija seleccionado para la fecha
+   * indicada y lo aplica como precio de la compra inicial, recalculando los nominales.
+   */
+  private _loadCreationInstrumentPrice(fecha: string): void {
+    const extId = this.letraForm.controls.externalId.value;
+    const type  = this.modal()?.assetType;
+    if (this.trackingMode() !== 'auto' || !extId || !fecha) return;
+    if (type !== 'LETRA' && type !== 'BONO' && type !== 'ON') return;
+    this.investmentService.getInstrumentPrice(extId, type, fecha)
       .pipe(takeUntilDestroyed(this.destroyRef))
       .subscribe(res => {
         if (res) {
           this.priceAtCreation.set(res.pricePerUnit);
           this.priceSource.set('ppi');
           this.addMovementCPForm.controls.pricePerUnit.setValue(res.pricePerUnit, { emitEvent: false });
+          // Recalcular nominales a partir del monto ya ingresado, si lo hubiera.
+          this.onPricePerUnitInput(this.addMovementCPForm);
         }
       });
+  }
+
+  /**
+   * Bug 1: al crear un activo con seguimiento automático, siembra una valuación a la fecha de hoy
+   * (o el último cierre disponible que devuelva la API) para que el activo muestre su valor actual
+   * inmediatamente, sin esperar a la sincronización nocturna.
+   */
+  private _seedTodayValuation(asset: InvestmentResponse): void {
+    if (!asset.autoTrack || !asset.externalId) return;
+    const today = this.todayIso();
+    if (asset.valuations?.some(v => v.valuationDate === today)) return;
+
+    const price$ = asset.type === 'FCI_CUOTAPARTES'
+      ? this.investmentService.getFciVcp(asset.externalId, today).pipe(map(r => r?.vcp ?? null))
+      : this.investmentService.getInstrumentPrice(asset.externalId, asset.type, today)
+          .pipe(map(r => r?.pricePerUnit ?? null));
+
+    price$.pipe(
+      switchMap(price => price != null
+        ? this.investmentService.addValuation(asset.id, { valuationDate: today, pricePerUnit: price })
+        : of(null)),
+      takeUntilDestroyed(this.destroyRef),
+    ).subscribe(updated => {
+      if (updated) {
+        this.assets.update(list => list.map(a => a.id === updated.id ? updated : a));
+      }
+    });
   }
 
   // ── Triángulo monto/unidades/precio ──────────────────────────────────────
@@ -1332,6 +1501,7 @@ export class InversionesComponent implements OnInit {
             }).subscribe({
               next: updated => {
                 this.assets.update(list => list.map(a => a.id === updated.id ? updated : a));
+                this._seedTodayValuation(updated);
                 this.submitting.set(false);
                 this.closeModal();
               },
@@ -1341,6 +1511,7 @@ export class InversionesComponent implements OnInit {
               },
             });
           } else {
+            this._seedTodayValuation(saved);
             this.submitting.set(false);
             this.closeModal();
           }
@@ -1409,6 +1580,7 @@ export class InversionesComponent implements OnInit {
             }).subscribe({
               next: updated => {
                 this.assets.update(list => list.map(a => a.id === updated.id ? updated : a));
+                this._seedTodayValuation(updated);
                 this.submitting.set(false);
                 this.closeModal();
               },
@@ -1418,6 +1590,7 @@ export class InversionesComponent implements OnInit {
               },
             });
           } else {
+            this._seedTodayValuation(saved);
             this.submitting.set(false);
             this.closeModal();
           }

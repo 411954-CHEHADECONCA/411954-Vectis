@@ -37,6 +37,9 @@ public class DoctaInstrumentCache {
     @Column(name = "price_date")
     private LocalDate priceDate;
 
+    @Column(name = "maturity_date")
+    private LocalDate maturityDate;
+
     @Column(name = "updated_at", nullable = false)
     private OffsetDateTime updatedAt;
 
