@@ -38,7 +38,7 @@ public record InvestmentRequest(
     @Schema(description = "Fecha de vencimiento (null si no aplica)", example = "2026-08-31")
     LocalDate maturityDate,
 
-    @Schema(description = "TNA en porcentaje (obligatorio para Plazo Fijo y FCI Money Market)", example = "65.00")
+    @Schema(description = "TNA en porcentaje (obligatorio para Plazo Fijo y Cuenta Remunerada)", example = "65.00")
     @DecimalMin(value = "0", message = "La TNA no puede ser negativa")
     BigDecimal tna,
 
@@ -72,7 +72,7 @@ public record InvestmentRequest(
         return principal.compareTo(new BigDecimal("0.01")) >= 0;
     }
 
-    @AssertTrue(message = "La TNA es obligatoria para Plazo Fijo y FCI Money Market")
+    @AssertTrue(message = "La TNA es obligatoria para Plazo Fijo y Cuenta Remunerada")
     public boolean isTnaRequiredForType() {
         if (type == null) return true;
         if (type == InvestmentAssetType.PLAZO_FIJO || type == InvestmentAssetType.FCI) {

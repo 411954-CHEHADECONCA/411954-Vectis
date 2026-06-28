@@ -72,8 +72,43 @@ class FciValuationSyncServiceTest {
 
         service.fetchFciVcp();
 
-        // 3 categories × 1 DTO each = 3 save calls
-        verify(fciVcpSnapshotRepository, times(3)).save(any(FciVcpSnapshot.class));
+        // 4 categories × 1 DTO each = 4 save calls
+        verify(fciVcpSnapshotRepository, times(4)).save(any(FciVcpSnapshot.class));
+    }
+
+    @Test
+    @DisplayName("fetchFciVcp consulta la categoría rentaMixta")
+    void fetchFciVcp_queriesRentaMixtaCategory() {
+        given(macroRestTemplate.getForObject(anyString(), eq(ArgentinadatosFciDto[].class)))
+                .willReturn(new ArgentinadatosFciDto[]{});
+
+        service.fetchFciVcp();
+
+        verify(macroRestTemplate).getForObject(
+                eq(MACRO_BASE_URL + "/finanzas/fci/rentaMixta/ultimo"),
+                eq(ArgentinadatosFciDto[].class));
+    }
+
+    @Test
+    @DisplayName("getLatestFciFunds retorna los fondos de la categoría rentaMixta")
+    void getLatestFciFunds_returnsRentaMixtaFunds() {
+        LocalDate snapshotDate = LocalDate.of(2026, 6, 26);
+        FciVcpSnapshot snapshot = FciVcpSnapshot.builder()
+                .fondo("Pionero Multiestrategia Mix - Clase B")
+                .categoria("rentaMixta")
+                .vcp(new BigDecimal("1694.2850"))
+                .fecha(snapshotDate)
+                .build();
+
+        given(fciVcpSnapshotRepository.findLatestSnapshotDate()).willReturn(Optional.of(snapshotDate));
+        given(fciVcpSnapshotRepository.findByCategoriaAndFecha("rentaMixta", snapshotDate))
+                .willReturn(List.of(snapshot));
+
+        List<FciFundDto> result = service.getLatestFciFunds("rentaMixta");
+
+        assertThat(result).hasSize(1);
+        assertThat(result.get(0).categoria()).isEqualTo("rentaMixta");
+        assertThat(result.get(0).fondo()).isEqualTo("Pionero Multiestrategia Mix - Clase B");
     }
 
     @Test

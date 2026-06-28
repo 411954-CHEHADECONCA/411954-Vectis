@@ -21,7 +21,7 @@ export class DashboardViewComponent {
 
   readonly investments = [
     { name: 'Plazo fijo UVA',   tea: 91.4 },
-    { name: 'FCI Money Market', tea: 88.2 },
+    { name: 'Cuenta Remunerada', tea: 88.2 },
     { name: 'Letra LECAP',      tea: 79.6 },
   ];
 

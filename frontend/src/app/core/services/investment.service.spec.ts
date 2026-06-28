@@ -197,6 +197,24 @@ describe('InvestmentService', () => {
     req.flush(mockFunds);
   });
 
+  it('getFciFunds() soporta la categoría rentaMixta', () => {
+    const mockFunds: FciFundOption[] = [
+      { fondo: 'Pionero Multiestrategia Mix - Clase B', categoria: 'rentaMixta', vcp: 1694.285, fecha: '2026-06-26' },
+    ];
+
+    service.getFciFunds('rentaMixta').subscribe(funds => {
+      expect(funds.length).toBe(1);
+      expect(funds[0].categoria).toBe('rentaMixta');
+    });
+
+    const req = httpMock.expectOne(r =>
+      r.url === `${baseUrl}/market/fci-funds` &&
+      r.method === 'GET' &&
+      r.params.get('categoria') === 'rentaMixta',
+    );
+    req.flush(mockFunds);
+  });
+
   it('getInstruments() hace GET a /market/instruments con el parámetro tipo correcto', () => {
     const mockInstruments: InstrumentOption[] = [
       { ticker: 'S31G5', nombre: 'LECAP 31/08/2025', tipo: 'LETRA', lastPrice: 1020.5, priceDate: '2026-06-24', maturityDate: '2025-08-31' },

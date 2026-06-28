@@ -50,7 +50,7 @@ public class FciValuationSyncService {
         this.valuationRepository     = valuationRepository;
     }
 
-    private static final String[] FCI_CATEGORIAS = {"mercadoDinero", "rentaFija", "rentaVariable"};
+    private static final String[] FCI_CATEGORIAS = {"mercadoDinero", "rentaFija", "rentaVariable", "rentaMixta"};
 
     // ─── Startup sync ─────────────────────────────────────────────────────────
 

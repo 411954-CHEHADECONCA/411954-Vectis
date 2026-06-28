@@ -64,6 +64,9 @@ type ModalState = {
   asset?:     InvestmentResponse;
 };
 
+/** Categorías de FCI publicadas por argentinadatos (combobox de Fondo Cuotaparte). */
+type FciCategoria = 'mercadoDinero' | 'rentaFija' | 'rentaVariable' | 'rentaMixta';
+
 interface FCITramo {
   mov:       InvestmentMovement | null;
   saldo:     number;
@@ -135,11 +138,18 @@ export class InversionesComponent implements OnInit {
 
   readonly typeCards: { value: InvestmentAssetType; label: string; color: string; comingSoon: boolean }[] = [
     { value: 'PLAZO_FIJO',      label: 'Plazo fijo',          color: 'var(--color-primary)',           comingSoon: false },
-    { value: 'FCI',             label: 'Fondo Money Market',  color: 'var(--color-primary-fixed-dim)', comingSoon: false },
+    { value: 'FCI',             label: 'Cuenta Remunerada',   color: 'var(--color-primary-fixed-dim)', comingSoon: false },
     { value: 'FCI_CUOTAPARTES', label: 'Fondo Cuotapartes',   color: 'var(--color-secondary)',          comingSoon: false },
     { value: 'LETRA',           label: 'Letra capitalizable',  color: 'var(--color-tertiary)',            comingSoon: false },
     { value: 'BONO',            label: 'Bono soberano',        color: 'var(--color-primary)',             comingSoon: false },
     { value: 'ON',              label: 'Obligación Negociable', color: 'var(--color-secondary)',           comingSoon: false },
+  ];
+
+  readonly fciCategories: { value: FciCategoria; label: string }[] = [
+    { value: 'mercadoDinero',  label: 'Money Market'    },
+    { value: 'rentaFija',      label: 'Renta Fija'      },
+    { value: 'rentaVariable',  label: 'Renta Variable'  },
+    { value: 'rentaMixta',     label: 'Renta Mixta'     },
   ];
 
   // ── State ─────────────────────────────────────────────────────────────────
@@ -156,6 +166,7 @@ export class InversionesComponent implements OnInit {
 
   // ── Auto-tracking state ───────────────────────────────────────────────────
   trackingMode     = signal<'auto' | 'manual'>('manual');
+  selectedFciCategory = signal<FciCategoria>('mercadoDinero');
   fciFunds         = signal<FciFundOption[]>([]);
   instruments      = signal<InstrumentOption[]>([]);
   fundSearchQuery  = signal('');
@@ -170,16 +181,26 @@ export class InversionesComponent implements OnInit {
 
   readonly filteredFunds = computed(() => {
     const q = this.fundSearchQuery().toLowerCase();
+    // Sólo los fondos de la categoría seleccionada (Money Market / Renta Fija /
+    // Renta Variable / Renta Mixta); `fciFunds` combina las cuatro.
+    const cat  = this.selectedFciCategory();
+    const pool = this.fciFunds().filter(f => f.categoria === cat);
     return q.length < 2
-      ? this.fciFunds().slice(0, 50)
-      : this.fciFunds().filter(f => f.fondo.toLowerCase().includes(q)).slice(0, 50);
+      ? pool.slice(0, 50)
+      : pool.filter(f => f.fondo.toLowerCase().includes(q)).slice(0, 50);
   });
 
   readonly filteredInstruments = computed(() => {
     const q = this.instrSearchQuery().toLowerCase();
+    // Sólo los instrumentos del tipo seleccionado en el modal (LETRA / BONO / ON);
+    // el catálogo `instruments` combina los tres, por eso se filtra acá.
+    const tipo = this.modal()?.assetType;
+    const pool = tipo
+      ? this.instruments().filter(i => i.tipo === tipo)
+      : this.instruments();
     return q.length < 2
-      ? this.instruments().slice(0, 50)
-      : this.instruments().filter(i =>
+      ? pool.slice(0, 50)
+      : pool.filter(i =>
           i.ticker.toLowerCase().includes(q) || i.nombre.toLowerCase().includes(q)
         ).slice(0, 50);
   });
@@ -403,14 +424,15 @@ export class InversionesComponent implements OnInit {
       mm:    this.investmentService.getFciFunds('mercadoDinero'),
       rf:    this.investmentService.getFciFunds('rentaFija'),
       rv:    this.investmentService.getFciFunds('rentaVariable'),
+      rmix:  this.investmentService.getFciFunds('rentaMixta'),
       letra: this.investmentService.getInstruments('LETRA'),
       bono:  this.investmentService.getInstruments('BONO'),
       on:    this.investmentService.getInstruments('ON'),
     }).pipe(
-      catchError(() => of({ mm: [], rf: [], rv: [], letra: [], bono: [], on: [] })),
+      catchError(() => of({ mm: [], rf: [], rv: [], rmix: [], letra: [], bono: [], on: [] })),
       takeUntilDestroyed(this.destroyRef),
     ).subscribe(data => {
-        this.fciFunds.set([...data.mm, ...data.rf, ...data.rv]);
+        this.fciFunds.set([...data.mm, ...data.rf, ...data.rv, ...data.rmix]);
         this.instruments.set([...data.letra, ...data.bono, ...data.on]);
       });
 
@@ -759,6 +781,7 @@ export class InversionesComponent implements OnInit {
       this.fciForm.reset({ name: '', currency: 'ARS', tna: null, accountId: null });
     }
     if (type === 'FCI_CUOTAPARTES') {
+      this.selectedFciCategory.set('mercadoDinero');
       this.fciCPForm.reset({ name: '', currency: 'ARS', accountId: null, externalId: null });
       this.addMovementCPForm.reset({ movementDate: this.todayIso(), type: 'SUSCRIPCION', amount: null, units: null, pricePerUnit: null });
     }
@@ -790,6 +813,9 @@ export class InversionesComponent implements OnInit {
     if (asset.type === 'FCI_CUOTAPARTES') {
       this.fciCPForm.reset({ name: asset.name, currency: asset.currency, accountId: asset.accountId, externalId: asset.externalId ?? null });
       this.trackingMode.set(asset.autoTrack ? 'auto' : 'manual');
+      // Preseleccionar la categoría del fondo (si está en el catálogo) para que las pills sean coherentes.
+      const fund = this.fciFunds().find(f => f.fondo === asset.externalId);
+      this.selectedFciCategory.set((fund?.categoria as FciCategoria) ?? 'mercadoDinero');
       if (asset.autoTrack && asset.externalId) {
         this.fundSearchQuery.set(asset.externalId);
       } else {
@@ -1234,6 +1260,21 @@ export class InversionesComponent implements OnInit {
       { value: 'RESCATE',     label: 'Rescate'     },
       { value: 'REVALUO',     label: 'Revalúo'     },
     ];
+  }
+
+  /**
+   * Cambia la categoría de FCI del combobox de Fondo Cuotaparte y limpia la
+   * selección de fondo previa para no arrastrar un fondo de otra categoría.
+   */
+  setFciCategory(cat: FciCategoria): void {
+    if (this.selectedFciCategory() === cat) return;
+    this.selectedFciCategory.set(cat);
+    this.fundSearchQuery.set('');
+    this.fciCPForm.controls.name.setValue('');
+    this.fciCPForm.controls.externalId.setValue(null);
+    this.priceAtCreation.set(null);
+    this.priceSource.set(null);
+    this.showFundDropdown.set(true);
   }
 
   selectFund(fund: FciFundOption): void {

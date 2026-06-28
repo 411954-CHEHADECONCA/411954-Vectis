@@ -172,6 +172,38 @@ describe('InversionesComponent', () => {
     expect(component.formError()).toBeNull();
   });
 
+  // ── 3b. Selector de categoría FCI Cuotaparte ───────────────────────────────
+
+  it('el tipo FCI se rotula "Cuenta Remunerada"', () => {
+    const fci = component.typeCards.find(c => c.value === 'FCI');
+    expect(fci?.label).toBe('Cuenta Remunerada');
+  });
+
+  it('filteredFunds devuelve sólo los fondos de la categoría seleccionada', () => {
+    component.selectedFciCategory.set('mercadoDinero');
+    expect(component.filteredFunds().length).toBeGreaterThan(0);
+    expect(component.filteredFunds().every(f => f.categoria === 'mercadoDinero')).toBeTrue();
+
+    component.selectedFciCategory.set('rentaFija');
+    expect(component.filteredFunds().every(f => f.categoria === 'rentaFija')).toBeTrue();
+  });
+
+  it('setFciCategory limpia la selección de fondo previa', () => {
+    component.selectFund({ fondo: 'FCI Galileo Growth', categoria: 'mercadoDinero', vcp: 1523.456, fecha: '2026-06-24' });
+    expect(component.fciCPForm.controls.externalId.value).toBe('FCI Galileo Growth');
+
+    component.setFciCategory('rentaFija');
+    expect(component.selectedFciCategory()).toBe('rentaFija');
+    expect(component.fciCPForm.controls.externalId.value).toBeNull();
+    expect(component.fundSearchQuery()).toBe('');
+  });
+
+  it('selectType(FCI_CUOTAPARTES) preselecciona la categoría Money Market', () => {
+    component.selectedFciCategory.set('rentaVariable');
+    component.selectType('FCI_CUOTAPARTES');
+    expect(component.selectedFciCategory()).toBe('mercadoDinero');
+  });
+
   // ── 4. openEdit ────────────────────────────────────────────────────────────
 
   it('openEdit precarga letraForm con datos del activo LETRA', () => {
@@ -666,9 +698,9 @@ describe('InversionesComponent', () => {
       expect(investSpy.getInstruments).toHaveBeenCalledWith('ON');
     });
 
-    it('ngOnInit popula fciFunds con la concatenación de los tres catálogos', () => {
-      // getFciFunds devuelve MOCK_FCI_FUNDS (2 items) para cada llamada → 6 total
-      expect(component.fciFunds().length).toBe(6);
+    it('ngOnInit popula fciFunds con la concatenación de los cuatro catálogos', () => {
+      // getFciFunds devuelve MOCK_FCI_FUNDS (2 items) para cada categoría (mm/rf/rv/rmix) → 8 total
+      expect(component.fciFunds().length).toBe(8);
     });
 
     it('ngOnInit popula instruments con la concatenación de los tres catálogos', () => {
@@ -727,10 +759,12 @@ describe('InversionesComponent', () => {
       expect(component.showInstrDropdown()).toBeFalse();
     });
 
-    it('filteredFunds() con query < 2 chars devuelve hasta 50 resultados sin filtrar', () => {
-      // ngOnInit cargó 6 fondos (2 × 3 calls)
+    it('filteredFunds() con query < 2 chars devuelve los fondos de la categoría activa (default Money Market)', () => {
+      // ngOnInit cargó 8 fondos (2 × 4 categorías): 4 mercadoDinero + 4 rentaFija.
+      // La categoría por defecto es mercadoDinero → 4 resultados.
       const result = component.filteredFunds();
-      expect(result.length).toBe(6);
+      expect(result.length).toBe(4);
+      expect(result.every(f => f.categoria === 'mercadoDinero')).toBeTrue();
     });
 
     it('filteredFunds() con query >= 2 chars filtra por nombre (case-insensitive)', () => {

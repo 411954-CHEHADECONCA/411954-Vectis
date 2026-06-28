@@ -1131,6 +1131,25 @@
               </div>
             </div>
 
+            <!-- Tipo de fondo (sólo con seguimiento automático) -->
+            @if (trackingMode() === 'auto') {
+              <div class="cfg-field">
+                <label class="cfg-label">Tipo de fondo</label>
+                <div class="tracking-toggle tracking-toggle--grid">
+                  @for (cat of fciCategories; track cat.value) {
+                    <button
+                      type="button"
+                      class="tracking-toggle__btn"
+                      [class.tracking-toggle__btn--active]="selectedFciCategory() === cat.value"
+                      (click)="setFciCategory(cat.value)"
+                    >
+                      {{ cat.label }}
+                    </button>
+                  }
+                </div>
+              </div>
+            }
+
             <!-- Nombre / Combobox -->
             <div class="cfg-field">
               <label class="cfg-label" for="cp-name">

@@ -65,7 +65,7 @@ export interface InvestmentRequest {
 }
 
 export const ASSET_TYPE_LABELS: Record<InvestmentAssetType, string> = {
-  FCI:             'Fondo Money Market',
+  FCI:             'Cuenta Remunerada',
   FCI_CUOTAPARTES: 'Fondo Cuotapartes',
   PLAZO_FIJO:      'Plazo fijo',
   LETRA:           'Letra capitalizable',
