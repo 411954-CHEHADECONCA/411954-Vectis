@@ -7,6 +7,7 @@ import {
   FciFundOption,
   InstrumentOption,
   InvestmentMovementRequest,
+  InvestmentMovementUpdateRequest,
   InvestmentRequest,
   InvestmentResponse,
   InvestmentValuationRequest,
@@ -36,6 +37,10 @@ export class InvestmentService {
 
   addMovement(investmentId: string, req: InvestmentMovementRequest): Observable<InvestmentResponse> {
     return this.http.post<InvestmentResponse>(`${this.baseUrl}/${investmentId}/movements`, req);
+  }
+
+  updateMovement(investmentId: string, movId: string, req: InvestmentMovementUpdateRequest): Observable<InvestmentResponse> {
+    return this.http.put<InvestmentResponse>(`${this.baseUrl}/${investmentId}/movements/${movId}`, req);
   }
 
   deleteMovement(investmentId: string, movId: string): Observable<InvestmentResponse> {

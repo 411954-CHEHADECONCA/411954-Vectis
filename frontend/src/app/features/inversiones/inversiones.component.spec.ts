@@ -74,7 +74,7 @@ const MOCK_INSTRUMENTS: InstrumentOption[] = [
 function buildSpies() {
   const investSpy = jasmine.createSpyObj<InvestmentService>('InvestmentService', [
     'getInvestments', 'createInvestment', 'updateInvestment', 'deleteInvestment',
-    'addMovement', 'deleteMovement', 'addValuation', 'updateValuation', 'deleteValuation',
+    'addMovement', 'updateMovement', 'deleteMovement', 'addValuation', 'updateValuation', 'deleteValuation',
     'getFciFunds', 'getInstruments', 'getFciVcp', 'getInstrumentPrice',
   ]);
   investSpy.getInvestments.and.returnValue(of([...MOCK_ASSETS]));
@@ -82,6 +82,7 @@ function buildSpies() {
   investSpy.updateInvestment.and.returnValue(of({ ...MOCK_ASSETS[1], name: 'LECAP Actualizada' }));
   investSpy.deleteInvestment.and.returnValue(of(undefined));
   investSpy.addMovement.and.returnValue(of({ ...MOCK_ASSETS[0] }));
+  investSpy.updateMovement.and.returnValue(of({ ...MOCK_ASSETS[0] }));
   investSpy.deleteMovement.and.returnValue(of({ ...MOCK_ASSETS[0], movements: [] }));
   investSpy.addValuation.and.returnValue(of({ ...MOCK_ASSETS[0] }));
   investSpy.updateValuation.and.returnValue(of({ ...MOCK_ASSETS[0] }));
@@ -308,25 +309,142 @@ describe('InversionesComponent', () => {
 
   // ── 13. calcTramosFCI ─────────────────────────────────────────────────────
 
-  it('calcTramosFCI con 2 movimientos produce 3 tramos: inicial vacío, mov1, mov2 y en-curso', () => {
-    const asset = MOCK_ASSETS[0]; // FCI con 2 movimientos
+  it('calcTramosFCI con 2 movimientos produce 2 tramos (atribución hacia adelante, sin fantasma)', () => {
+    const asset = MOCK_ASSETS[0]; // FCI con 2 suscripciones (500k + 100k)
     const tramos = component.calcTramosFCI(asset);
-    // El primer tramo tiene el movimiento mov-1 (con saldo 0 antes de él)
-    // El segundo tramo tiene movimiento mov-2 (con saldo 500k)
-    // El tercer tramo es "en curso" (sin movimiento)
-    expect(tramos.length).toBe(3);
-    // Primer tramo: saldo previo al primer mov = 0
+    // Un tramo por movimiento; cada uno con el saldo RESULTANTE de aplicar ese movimiento.
+    expect(tramos.length).toBe(2);
+    // Primer tramo: abre con la suscripción mov-1, saldo tras aplicarla = 500k
     expect(tramos[0].mov?.id).toBe('mov-1');
-    expect(tramos[0].saldo).toBe(0);
+    expect(tramos[0].saldo).toBe(500000);
     expect(tramos[0].enCurso).toBeFalse();
-    // Segundo tramo: saldo después de primera suscripción = 500k
+    // Segundo tramo: mov-2, saldo final = 600k, en curso (último movimiento)
     expect(tramos[1].mov?.id).toBe('mov-2');
+    expect(tramos[1].saldo).toBe(600000);
+    expect(tramos[1].enCurso).toBeTrue();
+    // Ya no existe el tramo fantasma con mov null
+    expect(tramos.some(t => t.mov === null)).toBeFalse();
+  });
+
+  it('calcTramosFCI atribuye el interés del período a la fila del movimiento que lo abre', () => {
+    // Caso del usuario: suscripción y luego rescate. El interés del período en que se
+    // mantuvo el saldo debe verse en la fila de la suscripción, no en la del rescate.
+    const asset: InvestmentResponse = {
+      ...MOCK_ASSETS[0],
+      tna: 19,
+      movements: [
+        { id: 's1', movementDate: '2026-05-01', type: 'SUSCRIPCION', amount: 1000000, units: null, createdAt: '' },
+        { id: 'r1', movementDate: '2026-06-29', type: 'RESCATE',     amount: 500000,  units: null, createdAt: '' },
+      ],
+    };
+    const tramos = component.calcTramosFCI(asset);
+    expect(tramos.length).toBe(2);
+    // Tramo de la suscripción: saldo 1.000.000, 59 días, interés ~30.726
+    expect(tramos[0].mov?.type).toBe('SUSCRIPCION');
+    expect(tramos[0].saldo).toBe(1000000);
+    expect(tramos[0].dias).toBe(59);
+    expect(tramos[0].intereses).toBeCloseTo(1000000 * 0.19 * 59 / 365, 2);
+    expect(tramos[0].enCurso).toBeFalse();
+    // Tramo del rescate: saldo 500.000, en curso, sin arrastrar el resultado anterior
+    expect(tramos[1].mov?.type).toBe('RESCATE');
     expect(tramos[1].saldo).toBe(500000);
-    expect(tramos[1].enCurso).toBeFalse();
-    // Tercer tramo: en curso, saldo = 500k + 100k = 600k
-    expect(tramos[2].mov).toBeNull();
-    expect(tramos[2].saldo).toBe(600000);
-    expect(tramos[2].enCurso).toBeTrue();
+    expect(tramos[1].enCurso).toBeTrue();
+    // El total de intereses no cambia respecto del modelo anterior
+    const totalInt = tramos.filter(t => t.mov?.type !== 'REVALUO').reduce((a, t) => a + t.intereses, 0);
+    expect(component['calcInteresesFCI'](asset)).toBeCloseTo(totalInt, 6);
+  });
+
+  // ── Cuenta Remunerada: override de interés y crear tramo ─────────────────
+
+  it('calcTramosFCI usa el interestOverride de un tramo SUSCRIPCION en lugar de la proyección por TNA', () => {
+    const asset: InvestmentResponse = {
+      ...MOCK_ASSETS[0],
+      tna: 19,
+      movements: [
+        { id: 's1', movementDate: '2026-05-01', type: 'SUSCRIPCION', amount: 1000000, units: null, interestOverride: 8000, createdAt: '' },
+        { id: 'r1', movementDate: '2026-06-29', type: 'RESCATE',     amount: 500000,  units: null, createdAt: '' },
+      ],
+    };
+    const tramos = component.calcTramosFCI(asset);
+    // El tramo de la suscripción muestra el override, no la proyección por TNA
+    expect(tramos[0].mov?.type).toBe('SUSCRIPCION');
+    expect(tramos[0].intereses).toBe(8000);
+    // El otro tramo (rescate) no se ve afectado por el override
+    expect(tramos[1].mov?.type).toBe('RESCATE');
+    expect(tramos[1].intereses).toBe(0);
+    // El total de intereses refleja el override
+    expect(component['calcInteresesFCI'](asset)).toBeCloseTo(8000, 6);
+  });
+
+  it('submitCreateTramo crea un REVALUO con el interés autocalculado por TNA para la fecha elegida', () => {
+    const asset: InvestmentResponse = {
+      ...MOCK_ASSETS[0],
+      tna: 19,
+      movements: [
+        { id: 's1', movementDate: '2026-05-01', type: 'SUSCRIPCION', amount: 1000000, units: null, createdAt: '' },
+      ],
+    };
+    component.assets.set([asset]);
+    investSpy.addMovement.and.returnValue(of(asset));
+
+    component.openCreateTramoModal(asset);
+    component.createTramoForm.setValue({ movementDate: '2026-06-29' });
+    component.submitCreateTramo();
+
+    // 59 días entre 01/05 y 29/06; interés = 1.000.000 × 19% × 59/365 ≈ 30.712,33
+    const esperado = Math.round(1000000 * 0.19 * 59 / 365 * 100) / 100;
+    expect(investSpy.addMovement).toHaveBeenCalledWith('inv-1', jasmine.objectContaining({
+      movementDate: '2026-06-29',
+      type:         'REVALUO',
+      amount:       esperado,
+    }));
+  });
+
+  it('submitEditTramo en un tramo SUSCRIPCION guarda interestOverride (no amount)', () => {
+    const asset: InvestmentResponse = {
+      ...MOCK_ASSETS[0],
+      tna: 19,
+      movements: [
+        { id: 's1', movementDate: '2026-05-01', type: 'SUSCRIPCION', amount: 1000000, units: null, createdAt: '' },
+      ],
+    };
+    component.assets.set([asset]);
+    investSpy.updateMovement.and.returnValue(of(asset));
+
+    const tramo = component.calcTramosFCI(asset)[0];
+    component.openEditTramoModal(asset, tramo);
+    component.editTramoForm.setValue({ intereses: 5000 });
+    component.submitEditTramo();
+
+    expect(investSpy.updateMovement).toHaveBeenCalledWith('inv-1', 's1', { interestOverride: 5000 });
+  });
+
+  it('restoreTramoTNA limpia el override (interestOverride null)', () => {
+    const asset: InvestmentResponse = {
+      ...MOCK_ASSETS[0],
+      movements: [
+        { id: 's1', movementDate: '2026-05-01', type: 'SUSCRIPCION', amount: 1000000, units: null, interestOverride: 5000, createdAt: '' },
+      ],
+    };
+    component.assets.set([asset]);
+    investSpy.updateMovement.and.returnValue(of(asset));
+
+    const tramo = component.calcTramosFCI(asset)[0];
+    component.openEditTramoModal(asset, tramo);
+    component.restoreTramoTNA();
+
+    expect(investSpy.updateMovement).toHaveBeenCalledWith('inv-1', 's1', { interestOverride: null });
+  });
+
+  it('un interestOverride en un movimiento LETRA no afecta los tramos CP (aislamiento)', () => {
+    const base: InvestmentResponse = { ...MOCK_ASSETS[1] };
+    const conOverride: InvestmentResponse = {
+      ...base,
+      movements: base.movements.map(m => ({ ...m, interestOverride: 99999 })),
+    };
+    // La ganancia CP y los tramos CP son idénticos con o sin el campo override
+    expect(component.calcGananciaCP(conOverride)).toBeCloseTo(component.calcGananciaCP(base), 6);
+    expect(component.calcTramosCP(conOverride).length).toBe(component.calcTramosCP(base).length);
   });
 
   // ── 14. calcSaldoFCI ─────────────────────────────────────────────────────
@@ -489,16 +607,16 @@ describe('InversionesComponent', () => {
       expect(tramoRevaluo!.intereses).toBeCloseTo(15000, 0);
     });
 
-    it('calcTramosFCI excluye REVALUO del cálculo estimado del tramo en curso', () => {
+    it('calcInteresesFCI excluye el monto del REVALUO del estimado de intereses', () => {
       const tramos = component.calcTramosFCI(assetConRevaluo);
-      // El tramo en curso no debe ser REVALUO
+      // Con atribución hacia adelante, el último movimiento (el REVALUO) es el tramo en curso.
       const encurso = tramos.find(t => t.enCurso);
       expect(encurso).toBeDefined();
-      expect(encurso!.mov).toBeNull();
-      // Solo los tramos con mov no-REVALUO aportan estimado
+      expect(encurso!.mov?.type).toBe('REVALUO');
+      // El monto del REVALUO no se cuenta como interés estimado (queda en el saldo/NAV).
       const tramosNoRevaluo = tramos.filter(t => t.mov?.type !== 'REVALUO');
       const interesesEstimados = tramosNoRevaluo.reduce((acc, t) => acc + t.intereses, 0);
-      // Con saldo 515k y TNA 65.5%, los intereses estimados en curso deben ser > 0
+      expect(component['calcInteresesFCI'](assetConRevaluo)).toBeCloseTo(interesesEstimados, 6);
       expect(interesesEstimados).toBeGreaterThanOrEqual(0);
     });
   });
@@ -672,10 +790,67 @@ describe('InversionesComponent', () => {
       investSpy.createInvestment.and.returnValue(of({ ...MOCK_ASSETS[0], id: 'new-fci' }));
       component.openCreate();
       component.selectType('FCI');
-      component.fciForm.setValue({ name: 'FCI Test', currency: 'ARS', tna: 65.0, accountId: null });
+      component.fciForm.setValue({ name: 'FCI Test', currency: 'ARS', tna: 65.0, purchaseDate: component['todayIso'](), initialAmount: null, accountId: null });
       component.submit();
       expect(investSpy.createInvestment).toHaveBeenCalled();
       expect(component.modal()).toBeNull();
+    });
+
+  });
+
+  // ── Cuenta Remunerada (FCI) — fecha de apertura + depósito inicial ──────────
+
+  describe('Cuenta Remunerada — backdating', () => {
+
+    it('selectType(FCI) deja la fecha de apertura en hoy e initialAmount en null', () => {
+      component.openCreate();
+      component.selectType('FCI');
+      expect(component.fciForm.controls.purchaseDate.value).toBe(component['todayIso']());
+      expect(component.fciForm.controls.initialAmount.value).toBeNull();
+    });
+
+    it('fciForm es inválido sin fecha de apertura', () => {
+      component.openCreate();
+      component.selectType('FCI');
+      component.fciForm.patchValue({ name: 'FCI X', tna: 60, purchaseDate: '' });
+      expect(component.fciForm.controls.purchaseDate.invalid).toBeTrue();
+      expect(component.fciForm.invalid).toBeTrue();
+    });
+
+    it('submit FCI envía la fecha de apertura elegida al createInvestment', () => {
+      investSpy.createInvestment.and.returnValue(of({ ...MOCK_ASSETS[0], id: 'new-fci' }));
+      component.openCreate();
+      component.selectType('FCI');
+      component.fciForm.patchValue({ name: 'FCI Pasada', currency: 'ARS', tna: 65, purchaseDate: '2026-02-15' });
+      component.submit();
+      const req = investSpy.createInvestment.calls.mostRecent().args[0];
+      expect(req.purchaseDate).toBe('2026-02-15');
+      expect(req.type).toBe('FCI');
+    });
+
+    it('con monto inicial, submit crea la suscripción inicial en la fecha de apertura', () => {
+      investSpy.createInvestment.and.returnValue(of({ ...MOCK_ASSETS[0], id: 'new-fci' }));
+      investSpy.addMovement.and.returnValue(of({ ...MOCK_ASSETS[0], id: 'new-fci' }));
+      component.openCreate();
+      component.selectType('FCI');
+      component.fciForm.patchValue({ name: 'FCI Pasada', currency: 'ARS', tna: 65, purchaseDate: '2026-02-15', initialAmount: 300000 });
+      component.submit();
+      expect(investSpy.addMovement).toHaveBeenCalled();
+      const [id, mov] = investSpy.addMovement.calls.mostRecent().args;
+      expect(id).toBe('new-fci');
+      expect(mov.movementDate).toBe('2026-02-15');
+      expect(mov.type).toBe('SUSCRIPCION');
+      expect(mov.amount).toBe(300000);
+    });
+
+    it('sin monto inicial, submit NO crea movimiento', () => {
+      investSpy.createInvestment.and.returnValue(of({ ...MOCK_ASSETS[0], id: 'new-fci' }));
+      investSpy.addMovement.calls.reset();
+      component.openCreate();
+      component.selectType('FCI');
+      component.fciForm.patchValue({ name: 'FCI Vacía', currency: 'ARS', tna: 65, purchaseDate: '2026-02-15' });
+      component.submit();
+      expect(investSpy.addMovement).not.toHaveBeenCalled();
     });
 
   });
@@ -748,6 +923,41 @@ describe('InversionesComponent', () => {
       expect(component.showFundDropdown()).toBeFalse();
       expect(component.addMovementCPForm.controls.pricePerUnit.value).toBe(fund.vcp);
       expect(investSpy.getFciVcp).not.toHaveBeenCalled();
+    });
+
+    it('selectType(FCI_CUOTAPARTES) deja la fecha de compra en hoy por defecto', () => {
+      component.openCreate();
+      component.selectType('FCI_CUOTAPARTES');
+      expect(component.fciCPForm.controls.purchaseDate.value).toBe(component['todayIso']());
+    });
+
+    it('cambiar la fecha de compra a una fecha pasada recarga el VCP histórico (auto)', () => {
+      component.openCreate();
+      component.selectType('FCI_CUOTAPARTES');           // auto + purchaseDate hoy
+      component.fciCPForm.controls.externalId.setValue('FCI Galileo Growth');
+      investSpy.getFciVcp.calls.reset();
+      investSpy.getFciVcp.and.returnValue(of({ fondo: 'FCI Galileo Growth', vcp: 1200, fecha: '2026-03-01' }));
+
+      component.fciCPForm.controls.purchaseDate.setValue('2026-03-01');
+
+      expect(investSpy.getFciVcp).toHaveBeenCalledWith('FCI Galileo Growth', '2026-03-01');
+      expect(component.priceAtCreation()).toBe(1200);
+      expect(component.addMovementCPForm.controls.pricePerUnit.value).toBe(1200);
+    });
+
+    it('submit de creación usa la fecha de compra para el activo y el movimiento inicial', () => {
+      component.openCreate();
+      component.selectType('FCI_CUOTAPARTES');
+      component.setTrackingMode('manual');
+      component.fciCPForm.patchValue({ name: 'FCI Backdated', currency: 'ARS', purchaseDate: '2026-02-15' });
+      component.addMovementCPForm.patchValue({ amount: 100000, units: 100, pricePerUnit: 1000 });
+
+      component.submit();
+
+      const req = investSpy.createInvestment.calls.mostRecent().args[0];
+      expect(req.purchaseDate).toBe('2026-02-15');
+      const movArgs = investSpy.addMovement.calls.mostRecent().args;
+      expect(movArgs[1].movementDate).toBe('2026-02-15');
     });
 
     it('selectInstrument() setea name y externalId del letraForm y oculta el dropdown', () => {

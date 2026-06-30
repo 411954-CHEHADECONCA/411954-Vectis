@@ -7,6 +7,7 @@ import com.vectis.backend.dto.InstrumentDto;
 import com.vectis.backend.dto.InstrumentPriceResponse;
 import com.vectis.backend.dto.MarketApiStatusDto;
 import com.vectis.backend.dto.InvestmentMovementRequest;
+import com.vectis.backend.dto.InvestmentMovementUpdateRequest;
 import com.vectis.backend.dto.InvestmentRequest;
 import com.vectis.backend.dto.InvestmentResponse;
 import com.vectis.backend.dto.InvestmentValuationRequest;
@@ -151,6 +152,32 @@ public class InvestmentController {
             @Valid @RequestBody InvestmentMovementRequest request,
             @AuthenticationPrincipal User user) {
         return investmentService.addMovement(id, request, user);
+    }
+
+    @PutMapping("/{id}/movements/{movId}")
+    @Operation(summary = "Editar un movimiento de una Cuenta Remunerada (FCI)",
+               description = "Ajusta el monto del movimiento (tramo REVALUO, capitaliza) y/o fija el override "
+                       + "de interés del tramo (SUSCRIPCION/RESCATE, no capitaliza). Solo aplica a activos FCI.")
+    @ApiResponses({
+        @ApiResponse(responseCode = "200", description = "Movimiento actualizado — retorna el activo actualizado",
+            content = @Content(schema = @Schema(implementation = InvestmentResponse.class))),
+        @ApiResponse(responseCode = "400", description = "Datos de entrada inválidos",
+            content = @Content(schema = @Schema(implementation = ErrorResponse.class))),
+        @ApiResponse(responseCode = "401", description = "Token JWT ausente o inválido",
+            content = @Content(schema = @Schema(implementation = ErrorResponse.class))),
+        @ApiResponse(responseCode = "404", description = "Activo o movimiento no encontrado",
+            content = @Content(schema = @Schema(implementation = ErrorResponse.class))),
+        @ApiResponse(responseCode = "409", description = "El activo no es una Cuenta Remunerada (FCI)",
+            content = @Content(schema = @Schema(implementation = ErrorResponse.class))),
+        @ApiResponse(responseCode = "500", description = "Error interno del servidor",
+            content = @Content(schema = @Schema(implementation = ErrorResponse.class)))
+    })
+    public InvestmentResponse updateMovement(
+            @PathVariable UUID id,
+            @PathVariable UUID movId,
+            @Valid @RequestBody InvestmentMovementUpdateRequest request,
+            @AuthenticationPrincipal User user) {
+        return investmentService.updateMovement(id, movId, request, user);
     }
 
     @DeleteMapping("/{id}/movements/{movId}")

@@ -6,6 +6,7 @@ import com.vectis.backend.domain.entity.InvestmentAssetType;
 import com.vectis.backend.domain.entity.InvestmentValuation;
 import com.vectis.backend.dto.FciFundDto;
 import com.vectis.backend.dto.macro.ArgentinadatosFciDto;
+import com.vectis.backend.dto.macro.ArgentinadatosFciHistoricoDto;
 import com.vectis.backend.repository.FciVcpSnapshotRepository;
 import com.vectis.backend.repository.InvestmentRepository;
 import com.vectis.backend.repository.InvestmentValuationRepository;
@@ -22,10 +23,14 @@ import org.springframework.web.client.RestTemplate;
 
 import java.math.BigDecimal;
 import java.math.RoundingMode;
+import java.text.Normalizer;
 import java.time.LocalDate;
 import java.time.ZoneOffset;
 import java.util.List;
+import java.util.Locale;
 import java.util.Optional;
+import java.util.Set;
+import java.util.stream.Collectors;
 
 @Slf4j
 @Service
@@ -173,6 +178,81 @@ public class FciValuationSyncService {
         } else {
             log.debug("Valuacion ya existe para activo {} en {}", asset.getId(), date);
         }
+    }
+
+    // ─── Backfill histórico de valuaciones ──────────────────────────────────────
+
+    /**
+     * Rellena las valuaciones faltantes de un activo FCI_CUOTAPARTES con seguimiento automático,
+     * trayendo la serie histórica de VCP del fondo desde argentinadatos
+     * ({@code /finanzas/fci/fondos/{slug}/historico}) y creando una valuación por cada día disponible
+     * entre la fecha de compra y hoy que aún no exista.
+     *
+     * <p>Muta la colección {@code asset.getValuations()} (no persiste): el llamador debe guardar el
+     * activo dentro de su transacción para que el cascade persista las valuaciones nuevas.
+     * Degrada con elegancia: si la API falla o no hay datos, no lanza y retorna 0.
+     *
+     * @return cantidad de valuaciones nuevas agregadas a la colección del activo.
+     */
+    public int backfillValuations(InvestmentAsset asset) {
+        if (asset.getType() != InvestmentAssetType.FCI_CUOTAPARTES || !asset.isAutoTrack()) return 0;
+        String fondo = asset.getExternalId();
+        if (fondo == null || fondo.isBlank() || asset.getPurchaseDate() == null) return 0;
+
+        LocalDate from = asset.getPurchaseDate();
+        LocalDate to   = LocalDate.now(ZoneOffset.UTC);
+        if (from.isAfter(to)) return 0;
+
+        ArgentinadatosFciHistoricoDto[] historico;
+        try {
+            historico = macroRestTemplate.getForObject(
+                    macroBaseUrl + "/finanzas/fci/fondos/" + slugify(fondo) + "/historico",
+                    ArgentinadatosFciHistoricoDto[].class);
+        } catch (Exception e) {
+            log.warn("No se pudo obtener histórico FCI para backfill de '{}': {}", fondo, e.getMessage());
+            return 0;
+        }
+        if (historico == null || historico.length == 0) return 0;
+
+        Set<LocalDate> existing = asset.getValuations().stream()
+                .map(InvestmentValuation::getValuationDate)
+                .collect(Collectors.toCollection(java.util.HashSet::new));
+
+        int created = 0;
+        for (ArgentinadatosFciHistoricoDto dto : historico) {
+            if (dto.fecha() == null || dto.valorCuotaparte() == null) continue;
+            LocalDate fecha;
+            try {
+                fecha = LocalDate.parse(dto.fecha());
+            } catch (Exception ex) {
+                continue;
+            }
+            if (fecha.isBefore(from) || fecha.isAfter(to)) continue;
+            if (!existing.add(fecha)) continue; // evita duplicados (existentes o repetidos en la serie)
+
+            asset.getValuations().add(InvestmentValuation.builder()
+                    .investmentAsset(asset)
+                    .valuationDate(fecha)
+                    .pricePerUnit(dto.valorCuotaparte().setScale(4, RoundingMode.HALF_EVEN))
+                    .source("ARGENTINADATOS")
+                    .build());
+            created++;
+        }
+        log.info("Backfill FCI '{}': {} valuaciones nuevas entre {} y {}", fondo, created, from, to);
+        return created;
+    }
+
+    /**
+     * Normaliza el nombre de un fondo al slug que usa argentinadatos en la ruta del histórico:
+     * minúsculas, sin acentos, y cualquier secuencia no alfanumérica reemplazada por un guión.
+     * Ej.: "Alpha Pesos - Clase A" → "alpha-pesos-clase-a".
+     */
+    static String slugify(String name) {
+        String sinAcentos = Normalizer.normalize(name, Normalizer.Form.NFD)
+                .replaceAll("\\p{M}+", "");
+        return sinAcentos.toLowerCase(Locale.ROOT)
+                .replaceAll("[^a-z0-9]+", "-")
+                .replaceAll("(^-|-$)", "");
     }
 
     // ─── Public status ────────────────────────────────────────────────────────

@@ -249,6 +249,17 @@
                               @if (asset.accountName) {
                                 <span class="detail-account">Cuenta: {{ asset.accountName }}</span>
                               }
+                              @if (asset.movements?.length) {
+                                <button
+                                  type="button"
+                                  class="btn-add-mov btn-add-mov--inline"
+                                  (click)="openCreateTramoModal(asset)"
+                                  title="Crear tramo a una fecha"
+                                >
+                                  <svg lucidePlus [size]="14"></svg>
+                                  Crear tramo
+                                </button>
+                              }
                             </div>
                             <div class="tramos-scroll">
                               <table class="tramos-table">
@@ -311,7 +322,22 @@
                                           {{ fmtPct((tramo.intereses / tramo.saldo) * (365 / tramo.dias) * 100) }}
                                         } @else { — }
                                       </td>
-                                      <td class="tramo-cell"></td>
+                                      <td class="tramo-cell tramo-cell--actions">
+                                        @if (tramo.mov) {
+                                          <button
+                                            type="button"
+                                            class="icon-btn"
+                                            (click)="openEditTramoModal(asset, tramo)"
+                                            title="Editar interés del tramo"
+                                            aria-label="Editar interés del tramo"
+                                          >
+                                            <svg lucidePen [size]="14"></svg>
+                                          </button>
+                                          @if (tramo.mov.interestOverride != null) {
+                                            <span class="tramo-override-tag" title="Interés editado manualmente">editado</span>
+                                          }
+                                        }
+                                      </td>
                                     </tr>
                                   }
                                 </tbody>
@@ -916,11 +942,11 @@
 
         <div class="modal-head">
           <div>
-            <h3>{{ modal()?.kind === 'form-edit' ? 'Editar fondo' : 'Nuevo fondo money market' }}</h3>
+            <h3>{{ modal()?.kind === 'form-edit' ? 'Editar Cuenta Remunerada' : 'Nueva Cuenta Remunerada' }}</h3>
             <p class="modal-sub">
               {{ modal()?.kind === 'form-edit'
-                ? 'Modificá los datos del fondo y gestioná sus movimientos.'
-                : 'Completá los datos del fondo.' }}
+                ? 'Modificá los datos de la cuenta y gestioná sus movimientos.'
+                : 'Completá los datos de la cuenta.' }}
             </p>
           </div>
           <button class="close-btn" (click)="closeModal()" type="button" aria-label="Cerrar modal">
@@ -988,6 +1014,23 @@
               </div>
             </div>
 
+            <!-- Fecha de apertura -->
+            <div class="cfg-field">
+              <label class="cfg-label" for="fci-purchase-date">
+                Fecha de apertura <span class="field-required">*</span>
+              </label>
+              <input
+                id="fci-purchase-date"
+                class="text-input"
+                formControlName="purchaseDate"
+                type="date"
+                [max]="todayIso()"
+              />
+              @if (fciForm.controls.purchaseDate.invalid && fciForm.controls.purchaseDate.touched) {
+                <span class="field-error" role="alert">La fecha de apertura es obligatoria.</span>
+              }
+            </div>
+
             <!-- Cuenta asociada -->
             <div class="cfg-field">
               <label class="cfg-label" for="fci-account">Cuenta asociada (opcional)</label>
@@ -998,6 +1041,28 @@
                 }
               </select>
             </div>
+
+            <!-- Apertura inicial (solo en creación) -->
+            @if (modal()?.kind === 'form-create') {
+              <div class="movements-section">
+                <div class="movements-header">
+                  <span class="cfg-label">Apertura inicial (opcional)</span>
+                </div>
+                <div class="cfg-field">
+                  <label class="cfg-label" for="fci-initial-amount">Monto ($)</label>
+                  <input
+                    id="fci-initial-amount"
+                    class="text-input text-input--mono"
+                    formControlName="initialAmount"
+                    type="number"
+                    min="0.01"
+                    step="0.01"
+                    placeholder="0"
+                  />
+                  <span class="field-hint">Si lo cargás, se registra la suscripción en la fecha de apertura.</span>
+                </div>
+              </div>
+            }
 
             <!-- Movimientos (solo en modo edición) -->
             @if (modal()?.kind === 'form-edit') {
@@ -1022,8 +1087,11 @@
                           class="mov-badge"
                           [class.mov-badge--suscripcion]="mov.type === 'SUSCRIPCION'"
                           [class.mov-badge--rescate]="mov.type === 'RESCATE'"
+                          [class.mov-badge--revaluo]="mov.type === 'REVALUO'"
                         >
-                          {{ mov.type === 'SUSCRIPCION' ? 'Suscripción' : 'Rescate' }}
+                          {{ mov.type === 'SUSCRIPCION' ? 'Suscripción'
+                             : mov.type === 'REVALUO' ? 'Revalúo'
+                             : 'Rescate' }}
                         </span>
                         <span class="movements-list__amount">
                           {{ fciForm.controls.currency.value === 'ARS'
@@ -1227,6 +1295,26 @@
                   (click)="fciCPForm.controls.currency.setValue('USD')"
                 >USD</button>
               </div>
+            </div>
+
+            <!-- Fecha de compra -->
+            <div class="cfg-field">
+              <label class="cfg-label" for="cp-purchase-date">
+                Fecha de compra <span class="field-required">*</span>
+              </label>
+              <input
+                id="cp-purchase-date"
+                class="text-input"
+                formControlName="purchaseDate"
+                type="date"
+                [max]="todayIso()"
+              />
+              @if (fciCPForm.controls.purchaseDate.invalid && fciCPForm.controls.purchaseDate.touched) {
+                <span class="field-error" role="alert">La fecha de compra es obligatoria.</span>
+              }
+              @if (trackingMode() === 'auto') {
+                <span class="field-hint">Podés elegir una fecha pasada: se usa el VCP de ese día.</span>
+              }
             </div>
 
             <!-- Cuenta asociada -->
@@ -2049,6 +2137,124 @@
             <button type="button" class="btn-ghost" (click)="closeSubModal()">Cancelar</button>
             <button type="button" class="btn-confirm" [disabled]="addValuationForm.invalid" (click)="addPendingValuacion()">
               Confirmar
+            </button>
+          </div>
+        }
+
+        @if (subModal()?.kind === 'create-tramo') {
+          @let subTramoAsset = subModal()!.asset;
+          @let preview = createTramoPreview();
+
+          <div class="modal-head">
+            <div>
+              <h3>Crear tramo</h3>
+              <p class="modal-sub">{{ subTramoAsset.name }}</p>
+            </div>
+            <button class="close-btn" (click)="closeSubModal()" type="button" aria-label="Cerrar">
+              <svg lucideX [size]="18"></svg>
+            </button>
+          </div>
+
+          <div class="modal-body">
+            <p class="modal-hint">
+              Generá un tramo a la fecha elegida. El interés del período se calcula automáticamente
+              con la T.N.A. ({{ fmtPct(subTramoAsset.tna) }}) y se capitaliza al saldo.
+            </p>
+            <div [formGroup]="createTramoForm">
+              <div class="cfg-field">
+                <label class="cfg-label" for="sub-tramo-date">Fecha del tramo</label>
+                <input
+                  id="sub-tramo-date"
+                  class="text-input"
+                  formControlName="movementDate"
+                  type="date"
+                  [min]="minMovementDate()"
+                  [max]="todayIso()"
+                />
+              </div>
+            </div>
+
+            @if (preview) {
+              <div class="tramo-preview">
+                <div class="tramo-preview__item">
+                  <span class="detail-label">Días</span>
+                  <span class="detail-value">{{ preview.dias }}</span>
+                </div>
+                <div class="tramo-preview__item">
+                  <span class="detail-label">Interés a capitalizar</span>
+                  <span class="detail-value tramo-cell--highlight">
+                    {{ subTramoAsset.currency === 'ARS' ? fmtARS(preview.interes) : fmtUSD(preview.interes) }}
+                  </span>
+                </div>
+              </div>
+            }
+            @if (movFormError()) {
+              <p class="form-error" role="alert">{{ movFormError() }}</p>
+            }
+          </div>
+
+          <div class="modal-footer">
+            <button type="button" class="btn-ghost" (click)="closeSubModal()">Cancelar</button>
+            <button
+              type="button"
+              class="btn-confirm"
+              [disabled]="createTramoForm.invalid || !preview || preview.dias <= 0"
+              (click)="submitCreateTramo()"
+            >
+              Crear tramo
+            </button>
+          </div>
+        }
+
+        @if (subModal()?.kind === 'edit-tramo-interest') {
+          @let subEditAsset = subModal()!.asset;
+          @let editMov = subModal()!.mov!;
+
+          <div class="modal-head">
+            <div>
+              <h3>Editar interés del tramo</h3>
+              <p class="modal-sub">{{ subEditAsset.name }} · {{ fmtDate(editMov.movementDate) }}</p>
+            </div>
+            <button class="close-btn" (click)="closeSubModal()" type="button" aria-label="Cerrar">
+              <svg lucideX [size]="18"></svg>
+            </button>
+          </div>
+
+          <div class="modal-body">
+            <p class="modal-hint">
+              @if (editMov.type === 'REVALUO') {
+                Ajustá el interés realizado de este tramo (se capitaliza al saldo).
+              } @else {
+                Ajustá el interés efectivamente generado en este tramo. No afecta a los demás tramos
+                ni a la T.N.A. de la cuenta.
+              }
+            </p>
+            <div [formGroup]="editTramoForm">
+              <div class="cfg-field">
+                <label class="cfg-label" for="sub-edit-interes">Intereses del tramo</label>
+                <input
+                  id="sub-edit-interes"
+                  class="text-input text-input--mono"
+                  formControlName="intereses"
+                  type="number"
+                  min="0"
+                  step="0.01"
+                  placeholder="0,00"
+                />
+              </div>
+            </div>
+            @if (movFormError()) {
+              <p class="form-error" role="alert">{{ movFormError() }}</p>
+            }
+          </div>
+
+          <div class="modal-footer">
+            @if (editMov.type !== 'REVALUO' && editMov.interestOverride != null) {
+              <button type="button" class="btn-ghost" (click)="restoreTramoTNA()">Restaurar T.N.A.</button>
+            }
+            <button type="button" class="btn-ghost" (click)="closeSubModal()">Cancelar</button>
+            <button type="button" class="btn-confirm" [disabled]="editTramoForm.invalid" (click)="submitEditTramo()">
+              Guardar
             </button>
           </div>
         }

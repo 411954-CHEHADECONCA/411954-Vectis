@@ -30,6 +30,7 @@ import java.util.UUID;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyString;
+import static org.mockito.ArgumentMatchers.contains;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.BDDMockito.given;
 import static org.mockito.Mockito.*;
@@ -302,6 +303,99 @@ class FciValuationSyncServiceTest {
         assertThat(result).hasSize(1);
         assertThat(result.get(0).fondo()).isEqualTo(FONDO_NAME);
         assertThat(result.get(0).vcp()).isEqualByComparingTo("1099.3320");
+    }
+
+    // ─── backfillValuations ─────────────────────────────────────────────────────
+
+    @Test
+    @DisplayName("backfillValuations agrega una valuación por cada día del histórico dentro del rango")
+    void backfillValuations_addsValuationsInRange() {
+        InvestmentAsset asset = buildFciCuotapartesAsset(UUID.randomUUID(), FONDO_NAME); // purchaseDate 2026-01-01
+
+        com.vectis.backend.dto.macro.ArgentinadatosFciHistoricoDto[] serie = {
+            histo("2025-12-01", "1000.0000"),  // antes de la compra → excluida
+            histo("2026-01-05", "1010.5000"),
+            histo("2026-01-06", "1020.0000"),
+            histo("2999-01-01", "9999.0000"),  // futura → excluida
+        };
+        given(macroRestTemplate.getForObject(contains("/finanzas/fci/fondos/"),
+                eq(com.vectis.backend.dto.macro.ArgentinadatosFciHistoricoDto[].class)))
+                .willReturn(serie);
+
+        int created = service.backfillValuations(asset);
+
+        assertThat(created).isEqualTo(2);
+        assertThat(asset.getValuations()).hasSize(2);
+        assertThat(asset.getValuations()).allMatch(v -> "ARGENTINADATOS".equals(v.getSource()));
+        assertThat(asset.getValuations()).anyMatch(v ->
+                v.getValuationDate().equals(LocalDate.of(2026, 1, 5))
+                        && v.getPricePerUnit().compareTo(new BigDecimal("1010.5000")) == 0);
+    }
+
+    @Test
+    @DisplayName("backfillValuations no duplica valuaciones de fechas ya existentes")
+    void backfillValuations_skipsExistingDates() {
+        InvestmentAsset asset = buildFciCuotapartesAsset(UUID.randomUUID(), FONDO_NAME);
+        asset.getValuations().add(InvestmentValuation.builder()
+                .investmentAsset(asset)
+                .valuationDate(LocalDate.of(2026, 1, 5))
+                .pricePerUnit(new BigDecimal("999.0000"))
+                .source("MANUAL")
+                .build());
+
+        com.vectis.backend.dto.macro.ArgentinadatosFciHistoricoDto[] serie = {
+            histo("2026-01-05", "1010.5000"),  // ya existe → no se duplica
+            histo("2026-01-06", "1020.0000"),
+        };
+        given(macroRestTemplate.getForObject(anyString(),
+                eq(com.vectis.backend.dto.macro.ArgentinadatosFciHistoricoDto[].class)))
+                .willReturn(serie);
+
+        int created = service.backfillValuations(asset);
+
+        assertThat(created).isEqualTo(1);
+        assertThat(asset.getValuations()).hasSize(2);
+        // la valuación existente sigue siendo MANUAL (no se sobrescribe)
+        assertThat(asset.getValuations()).anyMatch(v ->
+                v.getValuationDate().equals(LocalDate.of(2026, 1, 5)) && "MANUAL".equals(v.getSource()));
+    }
+
+    @Test
+    @DisplayName("backfillValuations retorna 0 y no llama a la API si el activo no es FCI auto-trackeado")
+    void backfillValuations_returnsZero_whenNotAutoTrackedFci() {
+        InvestmentAsset asset = buildFciCuotapartesAsset(UUID.randomUUID(), "  "); // externalId en blanco
+
+        int created = service.backfillValuations(asset);
+
+        assertThat(created).isZero();
+        verify(macroRestTemplate, never()).getForObject(anyString(),
+                eq(com.vectis.backend.dto.macro.ArgentinadatosFciHistoricoDto[].class));
+    }
+
+    @Test
+    @DisplayName("backfillValuations no lanza y retorna 0 cuando la API falla")
+    void backfillValuations_handlesApiFailure_gracefully() {
+        InvestmentAsset asset = buildFciCuotapartesAsset(UUID.randomUUID(), FONDO_NAME);
+        given(macroRestTemplate.getForObject(anyString(),
+                eq(com.vectis.backend.dto.macro.ArgentinadatosFciHistoricoDto[].class)))
+                .willThrow(new RuntimeException("timeout"));
+
+        int created = service.backfillValuations(asset);
+
+        assertThat(created).isZero();
+        assertThat(asset.getValuations()).isEmpty();
+    }
+
+    @Test
+    @DisplayName("slugify normaliza nombre de fondo a minúsculas con guiones y sin acentos")
+    void slugify_normalizesFundName() {
+        assertThat(FciValuationSyncService.slugify("Alpha Pesos - Clase A")).isEqualTo("alpha-pesos-clase-a");
+        assertThat(FciValuationSyncService.slugify("Ñandú Capital  Mix")).isEqualTo("nandu-capital-mix");
+    }
+
+    private static com.vectis.backend.dto.macro.ArgentinadatosFciHistoricoDto histo(String fecha, String vcp) {
+        return new com.vectis.backend.dto.macro.ArgentinadatosFciHistoricoDto(
+                FONDO_NAME, fecha, new BigDecimal(vcp), "mercadoDinero");
     }
 
     // ─── Helpers ──────────────────────────────────────────────────────────────

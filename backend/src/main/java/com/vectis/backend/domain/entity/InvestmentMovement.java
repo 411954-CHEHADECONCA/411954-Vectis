@@ -40,6 +40,13 @@ public class InvestmentMovement {
     @Column(nullable = true, precision = 19, scale = 6)
     private BigDecimal units;
 
+    /**
+     * Override manual del interés del tramo que abre este movimiento (solo FCI / Cuenta Remunerada).
+     * Cuando no es null, reemplaza la proyección por TNA del tramo. No capitaliza al saldo.
+     */
+    @Column(name = "interest_override", nullable = true, precision = 19, scale = 4)
+    private BigDecimal interestOverride;
+
     @Column(name = "created_at", nullable = false, updatable = false)
     private OffsetDateTime createdAt;
 

@@ -3,12 +3,13 @@ export type InvestmentAssetType = 'FCI' | 'FCI_CUOTAPARTES' | 'PLAZO_FIJO' | 'LE
 export type InvestmentMovementType = 'SUSCRIPCION' | 'RESCATE' | 'REVALUO';
 
 export interface InvestmentMovement {
-  id:           string;
-  movementDate: string;   // yyyy-MM-dd
-  type:         InvestmentMovementType;
-  amount:       number;
-  units:        number | null;   // cuotapartes; presente solo en FCI_CUOTAPARTES
-  createdAt:    string;
+  id:               string;
+  movementDate:     string;   // yyyy-MM-dd
+  type:             InvestmentMovementType;
+  amount:           number;
+  units:            number | null;   // cuotapartes; presente solo en FCI_CUOTAPARTES
+  interestOverride?: number | null;  // override manual del interés del tramo (solo FCI; null/ausente = TNA)
+  createdAt:        string;
 }
 
 export interface InvestmentMovementRequest {
@@ -17,6 +18,11 @@ export interface InvestmentMovementRequest {
   amount:        number;
   units?:        number;         // requerido para FCI_CUOTAPARTES
   pricePerUnit?: number;         // precio por cuotaparte/nominal al momento del movimiento
+}
+
+export interface InvestmentMovementUpdateRequest {
+  amount?:           number;          // ajusta el monto del movimiento (tramo REVALUO; capitaliza)
+  interestOverride?: number | null;   // override del interés del tramo (SUSC/RESC; no capitaliza). null = restaurar TNA
 }
 
 export interface InvestmentValuation {

@@ -49,6 +49,7 @@ public class InvestmentMapper {
                 movement.getType().name(),
                 movement.getAmount(),
                 movement.getUnits(),
+                movement.getInterestOverride(),
                 movement.getCreatedAt()
         );
     }

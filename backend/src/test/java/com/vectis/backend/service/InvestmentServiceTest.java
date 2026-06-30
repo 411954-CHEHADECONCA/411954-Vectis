@@ -7,6 +7,7 @@ import com.vectis.backend.domain.entity.InvestmentMovement;
 import com.vectis.backend.domain.entity.InvestmentMovementType;
 import com.vectis.backend.domain.entity.User;
 import com.vectis.backend.dto.InvestmentMovementRequest;
+import com.vectis.backend.dto.InvestmentMovementUpdateRequest;
 import com.vectis.backend.dto.InvestmentRequest;
 import com.vectis.backend.dto.InvestmentResponse;
 import com.vectis.backend.dto.InvestmentValuationRequest;
@@ -55,6 +56,7 @@ class InvestmentServiceTest {
     @Mock private InvestmentValuationRepository  valuationRepository;
     @Mock private AccountRepository              accountRepository;
     @Mock private InvestmentMapper               investmentMapper;
+    @Mock private FciValuationSyncService        fciValuationSyncService;
 
     private User    user;
     private UUID    userId;
@@ -478,6 +480,148 @@ class InvestmentServiceTest {
         given(movementRepository.findByIdAndInvestmentAsset_Id(movId, assetId)).willReturn(Optional.empty());
 
         assertThatThrownBy(() -> investmentService.deleteMovement(assetId, movId, user))
+                .isInstanceOf(InvestmentMovementNotFoundException.class);
+
+        verify(investmentRepository, never()).save(any());
+    }
+
+    // ─── updateMovement (FCI) ─────────────────────────────────────────────────
+
+    @Test
+    @DisplayName("updateMovement fija el interestOverride de un tramo SUSCRIPCION sin tocar el amount")
+    void updateMovement_setsInterestOverride_onSuscripcion() {
+        UUID assetId = UUID.randomUUID();
+        UUID movId   = UUID.randomUUID();
+
+        InvestmentMovement movement = InvestmentMovement.builder()
+                .id(movId)
+                .investmentAsset(null)
+                .movementDate(LocalDate.of(2026, 6, 1))
+                .type(InvestmentMovementType.SUSCRIPCION)
+                .amount(new BigDecimal("1000000.00"))
+                .build();
+
+        InvestmentAsset asset = buildFciAsset(assetId, new BigDecimal("1000000.00"));
+        asset.getMovements().add(movement);
+
+        InvestmentMovementUpdateRequest req =
+                new InvestmentMovementUpdateRequest(null, new BigDecimal("12500.00"));
+
+        given(investmentRepository.findWithMovementsByIdAndUser_Id(assetId, userId)).willReturn(Optional.of(asset));
+        given(movementRepository.findByIdAndInvestmentAsset_Id(movId, assetId)).willReturn(Optional.of(movement));
+        given(investmentRepository.save(asset)).willReturn(asset);
+        given(investmentMapper.toResponse(asset)).willReturn(buildResponse(assetId, null, null));
+
+        investmentService.updateMovement(assetId, movId, req, user);
+
+        assertThat(movement.getInterestOverride()).isEqualByComparingTo("12500.00");
+        assertThat(movement.getAmount()).isEqualByComparingTo("1000000.00");
+        // override no capitaliza: el principal se mantiene en el monto de la suscripción
+        assertThat(asset.getPrincipal()).isEqualByComparingTo("1000000.00");
+    }
+
+    @Test
+    @DisplayName("updateMovement ajusta el amount de un tramo REVALUO y recalcula el principal (capitaliza)")
+    void updateMovement_updatesRevaluoAmount_recapitalizes() {
+        UUID assetId = UUID.randomUUID();
+        UUID movId   = UUID.randomUUID();
+
+        InvestmentMovement suscripcion = InvestmentMovement.builder()
+                .id(UUID.randomUUID())
+                .movementDate(LocalDate.of(2026, 5, 1))
+                .type(InvestmentMovementType.SUSCRIPCION)
+                .amount(new BigDecimal("1000000.00"))
+                .build();
+        InvestmentMovement revaluo = InvestmentMovement.builder()
+                .id(movId)
+                .movementDate(LocalDate.of(2026, 6, 1))
+                .type(InvestmentMovementType.REVALUO)
+                .amount(new BigDecimal("30000.00"))
+                .build();
+
+        InvestmentAsset asset = buildFciAsset(assetId, new BigDecimal("1030000.00"));
+        asset.getMovements().add(suscripcion);
+        asset.getMovements().add(revaluo);
+
+        InvestmentMovementUpdateRequest req =
+                new InvestmentMovementUpdateRequest(new BigDecimal("20000.00"), null);
+
+        given(investmentRepository.findWithMovementsByIdAndUser_Id(assetId, userId)).willReturn(Optional.of(asset));
+        given(movementRepository.findByIdAndInvestmentAsset_Id(movId, assetId)).willReturn(Optional.of(revaluo));
+        given(investmentRepository.save(asset)).willReturn(asset);
+        given(investmentMapper.toResponse(asset)).willReturn(buildResponse(assetId, null, null));
+
+        investmentService.updateMovement(assetId, movId, req, user);
+
+        assertThat(revaluo.getAmount()).isEqualByComparingTo("20000.00");
+        // REVALUO capitaliza: principal = 1.000.000 + 20.000
+        assertThat(asset.getPrincipal()).isEqualByComparingTo("1020000.00");
+    }
+
+    @Test
+    @DisplayName("updateMovement con interestOverride null restaura el cálculo por TNA")
+    void updateMovement_nullOverride_clearsIt() {
+        UUID assetId = UUID.randomUUID();
+        UUID movId   = UUID.randomUUID();
+
+        InvestmentMovement movement = InvestmentMovement.builder()
+                .id(movId)
+                .movementDate(LocalDate.of(2026, 6, 1))
+                .type(InvestmentMovementType.SUSCRIPCION)
+                .amount(new BigDecimal("1000000.00"))
+                .interestOverride(new BigDecimal("9999.00"))
+                .build();
+
+        InvestmentAsset asset = buildFciAsset(assetId, new BigDecimal("1000000.00"));
+        asset.getMovements().add(movement);
+
+        InvestmentMovementUpdateRequest req =
+                new InvestmentMovementUpdateRequest(null, null);
+
+        given(investmentRepository.findWithMovementsByIdAndUser_Id(assetId, userId)).willReturn(Optional.of(asset));
+        given(movementRepository.findByIdAndInvestmentAsset_Id(movId, assetId)).willReturn(Optional.of(movement));
+        given(investmentRepository.save(asset)).willReturn(asset);
+        given(investmentMapper.toResponse(asset)).willReturn(buildResponse(assetId, null, null));
+
+        investmentService.updateMovement(assetId, movId, req, user);
+
+        assertThat(movement.getInterestOverride()).isNull();
+    }
+
+    @Test
+    @DisplayName("updateMovement rechaza activos que no son FCI con 409 (aislamiento de otras inversiones)")
+    void updateMovement_nonFci_throws409() {
+        UUID assetId = UUID.randomUUID();
+        UUID movId   = UUID.randomUUID();
+
+        InvestmentAsset asset = buildFciCuotapartesAsset(assetId, new BigDecimal("1000000.00"));
+
+        InvestmentMovementUpdateRequest req =
+                new InvestmentMovementUpdateRequest(null, new BigDecimal("100.00"));
+
+        given(investmentRepository.findWithMovementsByIdAndUser_Id(assetId, userId)).willReturn(Optional.of(asset));
+
+        assertThatThrownBy(() -> investmentService.updateMovement(assetId, movId, req, user))
+                .isInstanceOf(VectisException.class)
+                .hasMessageContaining("Cuenta Remunerada");
+
+        verify(investmentRepository, never()).save(any());
+    }
+
+    @Test
+    @DisplayName("updateMovement lanza InvestmentMovementNotFoundException cuando el movimiento no existe")
+    void updateMovement_movementNotFound_throws404() {
+        UUID assetId = UUID.randomUUID();
+        UUID movId   = UUID.randomUUID();
+        InvestmentAsset asset = buildFciAsset(assetId, BigDecimal.ZERO);
+
+        InvestmentMovementUpdateRequest req =
+                new InvestmentMovementUpdateRequest(null, new BigDecimal("100.00"));
+
+        given(investmentRepository.findWithMovementsByIdAndUser_Id(assetId, userId)).willReturn(Optional.of(asset));
+        given(movementRepository.findByIdAndInvestmentAsset_Id(movId, assetId)).willReturn(Optional.empty());
+
+        assertThatThrownBy(() -> investmentService.updateMovement(assetId, movId, req, user))
                 .isInstanceOf(InvestmentMovementNotFoundException.class);
 
         verify(investmentRepository, never()).save(any());
@@ -924,5 +1068,59 @@ class InvestmentServiceTest {
         assertThat(asset.getMovements()).hasSize(1);
         // REVALUO en FCI_CP no aporta al principal (costo base no cambia)
         assertThat(asset.getPrincipal()).isEqualByComparingTo(BigDecimal.ZERO);
+    }
+
+    // ─── Backfill histórico de valuaciones al crear ──────────────────────────
+
+    @Test
+    @DisplayName("createInvestment dispara el backfill histórico para FCI_CUOTAPARTES con seguimiento automático")
+    void createInvestment_triggersBackfill_forAutoTrackedFci() {
+        InvestmentRequest req = new InvestmentRequest(
+                "Alpha Pesos - Clase A", InvestmentAssetType.FCI_CUOTAPARTES, "ARS",
+                BigDecimal.ZERO, LocalDate.of(2026, 1, 10), null, BigDecimal.ZERO,
+                null, true, "Alpha Pesos - Clase A");
+
+        given(investmentRepository.save(any(InvestmentAsset.class))).willAnswer(inv -> inv.getArgument(0));
+        given(investmentMapper.toResponse(any(InvestmentAsset.class)))
+                .willReturn(buildFciCuotapartesResponse(UUID.randomUUID()));
+        given(fciValuationSyncService.backfillValuations(any(InvestmentAsset.class))).willReturn(120);
+
+        investmentService.createInvestment(req, user);
+
+        verify(fciValuationSyncService).backfillValuations(any(InvestmentAsset.class));
+    }
+
+    @Test
+    @DisplayName("createInvestment NO dispara el backfill para un Plazo Fijo")
+    void createInvestment_noBackfill_forPlazoFijo() {
+        InvestmentRequest req = new InvestmentRequest(
+                "PF 30 días", InvestmentAssetType.PLAZO_FIJO, "ARS",
+                new BigDecimal("500000.00"), LocalDate.of(2026, 1, 10), null, new BigDecimal("60.00"),
+                null, false, null);
+
+        given(investmentRepository.save(any(InvestmentAsset.class))).willAnswer(inv -> inv.getArgument(0));
+        given(investmentMapper.toResponse(any(InvestmentAsset.class)))
+                .willReturn(buildResponse(UUID.randomUUID(), null, null));
+
+        investmentService.createInvestment(req, user);
+
+        verify(fciValuationSyncService, never()).backfillValuations(any(InvestmentAsset.class));
+    }
+
+    @Test
+    @DisplayName("createInvestment NO dispara el backfill para FCI Cuotaparte sin seguimiento automático")
+    void createInvestment_noBackfill_forManualFci() {
+        InvestmentRequest req = new InvestmentRequest(
+                "FCI Manual", InvestmentAssetType.FCI_CUOTAPARTES, "ARS",
+                BigDecimal.ZERO, LocalDate.of(2026, 1, 10), null, BigDecimal.ZERO,
+                null, false, null);
+
+        given(investmentRepository.save(any(InvestmentAsset.class))).willAnswer(inv -> inv.getArgument(0));
+        given(investmentMapper.toResponse(any(InvestmentAsset.class)))
+                .willReturn(buildFciCuotapartesResponse(UUID.randomUUID()));
+
+        investmentService.createInvestment(req, user);
+
+        verify(fciValuationSyncService, never()).backfillValuations(any(InvestmentAsset.class));
     }
 }

@@ -7,6 +7,7 @@ import com.vectis.backend.domain.entity.InvestmentMovementType;
 import com.vectis.backend.domain.entity.User;
 import com.vectis.backend.domain.entity.InvestmentAssetType;
 import com.vectis.backend.dto.InvestmentMovementRequest;
+import com.vectis.backend.dto.InvestmentMovementUpdateRequest;
 import com.vectis.backend.dto.InvestmentRequest;
 import com.vectis.backend.dto.InvestmentResponse;
 import com.vectis.backend.dto.InvestmentValuationRequest;
@@ -401,6 +402,83 @@ class InvestmentControllerTest {
 
         mockMvc.perform(delete("/api/investments/" + id + "/movements/" + movId)
                         .header(HttpHeaders.AUTHORIZATION, AUTH_HEADER))
+                .andExpect(status().isNotFound());
+    }
+
+    // ─── PUT /api/investments/{id}/movements/{movId} ──────────────────────────
+
+    @Test
+    @DisplayName("PUT /{id}/movements/{movId} sin token retorna 401")
+    void updateMovement_withoutToken_returns401() throws Exception {
+        UUID id    = UUID.randomUUID();
+        UUID movId = UUID.randomUUID();
+        InvestmentMovementUpdateRequest req =
+                new InvestmentMovementUpdateRequest(null, new BigDecimal("12500.00"));
+
+        mockMvc.perform(put("/api/investments/" + id + "/movements/" + movId)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(objectMapper.writeValueAsString(req)))
+                .andExpect(status().isUnauthorized());
+    }
+
+    @Test
+    @DisplayName("PUT /{id}/movements/{movId} con body válido retorna 200 y el activo actualizado")
+    void updateMovement_validRequest_returns200() throws Exception {
+        UUID               id       = UUID.randomUUID();
+        UUID               movId    = UUID.randomUUID();
+        InvestmentResponse response = buildFciResponse(id);
+        InvestmentMovementUpdateRequest req =
+                new InvestmentMovementUpdateRequest(null, new BigDecimal("12500.00"));
+
+        given(investmentService.updateMovement(eq(id), eq(movId),
+                any(InvestmentMovementUpdateRequest.class), any(User.class)))
+                .willReturn(response);
+
+        mockMvc.perform(put("/api/investments/" + id + "/movements/" + movId)
+                        .header(HttpHeaders.AUTHORIZATION, AUTH_HEADER)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(objectMapper.writeValueAsString(req)))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.type").value("FCI"));
+    }
+
+    @Test
+    @DisplayName("PUT /{id}/movements/{movId} sobre un activo no-FCI retorna 409")
+    void updateMovement_nonFci_returns409() throws Exception {
+        UUID id    = UUID.randomUUID();
+        UUID movId = UUID.randomUUID();
+        InvestmentMovementUpdateRequest req =
+                new InvestmentMovementUpdateRequest(null, new BigDecimal("12500.00"));
+
+        given(investmentService.updateMovement(eq(id), eq(movId),
+                any(InvestmentMovementUpdateRequest.class), any(User.class)))
+                .willThrow(new VectisException(
+                        "Solo se puede editar el interés de los tramos de una Cuenta Remunerada (FCI)",
+                        HttpStatus.CONFLICT));
+
+        mockMvc.perform(put("/api/investments/" + id + "/movements/" + movId)
+                        .header(HttpHeaders.AUTHORIZATION, AUTH_HEADER)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(objectMapper.writeValueAsString(req)))
+                .andExpect(status().isConflict());
+    }
+
+    @Test
+    @DisplayName("PUT /{id}/movements/{movId} cuando movimiento no existe retorna 404")
+    void updateMovement_movementNotFound_returns404() throws Exception {
+        UUID id    = UUID.randomUUID();
+        UUID movId = UUID.randomUUID();
+        InvestmentMovementUpdateRequest req =
+                new InvestmentMovementUpdateRequest(new BigDecimal("20000.00"), null);
+
+        given(investmentService.updateMovement(eq(id), eq(movId),
+                any(InvestmentMovementUpdateRequest.class), any(User.class)))
+                .willThrow(new InvestmentMovementNotFoundException(movId));
+
+        mockMvc.perform(put("/api/investments/" + id + "/movements/" + movId)
+                        .header(HttpHeaders.AUTHORIZATION, AUTH_HEADER)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(objectMapper.writeValueAsString(req)))
                 .andExpect(status().isNotFound());
     }
 

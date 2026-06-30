@@ -26,6 +26,10 @@ public record InvestmentMovementResponse(
             example = "400.000000")
     BigDecimal units,
 
+    @Schema(description = "Override manual del interés del tramo (solo FCI; null = se usa la proyección por TNA)",
+            example = "12500.0000")
+    BigDecimal interestOverride,
+
     @Schema(description = "Fecha de creación del registro")
     OffsetDateTime createdAt
 ) {}

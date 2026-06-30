@@ -155,6 +155,23 @@ describe('InvestmentService', () => {
     req.flush({ ...MOCK_INVESTMENT, movements: [] });
   });
 
+  it('updateMovement() hace PUT a /api/investments/{id}/movements/{movId} con el body', () => {
+    const investmentId = 'inv-1';
+    const movId        = 'mov-1';
+    const body         = { interestOverride: 12500 };
+
+    service.updateMovement(investmentId, movId, body).subscribe(res => {
+      expect(res).toBeTruthy();
+    });
+
+    const req = httpMock.expectOne(
+      r => r.url === `${baseUrl}/${investmentId}/movements/${movId}` && r.method === 'PUT',
+    );
+    expect(req.request.method).toBe('PUT');
+    expect(req.request.body).toEqual(body);
+    req.flush(MOCK_INVESTMENT);
+  });
+
   it('addValuation() envía POST al endpoint correcto', () => {
     const req: InvestmentValuationRequest = { valuationDate: '2026-06-01', pricePerUnit: 1500 };
     service.addValuation('inv-1', req).subscribe();

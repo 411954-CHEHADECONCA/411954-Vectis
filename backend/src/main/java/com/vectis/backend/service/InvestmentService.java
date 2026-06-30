@@ -8,6 +8,7 @@ import com.vectis.backend.domain.entity.InvestmentMovementType;
 import com.vectis.backend.domain.entity.InvestmentValuation;
 import com.vectis.backend.domain.entity.User;
 import com.vectis.backend.dto.InvestmentMovementRequest;
+import com.vectis.backend.dto.InvestmentMovementUpdateRequest;
 import com.vectis.backend.dto.InvestmentRequest;
 import com.vectis.backend.dto.InvestmentResponse;
 import com.vectis.backend.dto.InvestmentValuationRequest;
@@ -40,6 +41,7 @@ public class InvestmentService {
     private final InvestmentValuationRepository  valuationRepository;
     private final AccountRepository              accountRepository;
     private final InvestmentMapper               investmentMapper;
+    private final FciValuationSyncService        fciValuationSyncService;
 
     public List<InvestmentResponse> getInvestments(UUID userId) {
         return investmentRepository.findAllByUser_IdOrderByCreatedAtAsc(userId)
@@ -68,6 +70,7 @@ public class InvestmentService {
                 .build();
 
         InvestmentAsset saved = investmentRepository.save(asset);
+        saved = backfillFciValuationsIfApplicable(saved);
         return investmentMapper.toResponse(saved);
     }
 
@@ -99,7 +102,23 @@ public class InvestmentService {
         }
 
         InvestmentAsset saved = investmentRepository.save(asset);
+        saved = backfillFciValuationsIfApplicable(saved);
         return investmentMapper.toResponse(saved);
+    }
+
+    /**
+     * Para activos FCI_CUOTAPARTES con seguimiento automático, rellena las valuaciones históricas
+     * faltantes (desde la fecha de compra hasta hoy) usando la serie de VCP de argentinadatos.
+     * Resiliente: si la API falla, el activo se devuelve igual sin las valuaciones extra.
+     */
+    private InvestmentAsset backfillFciValuationsIfApplicable(InvestmentAsset asset) {
+        if (asset.getType() != InvestmentAssetType.FCI_CUOTAPARTES
+                || !asset.isAutoTrack()
+                || asset.getExternalId() == null || asset.getExternalId().isBlank()) {
+            return asset;
+        }
+        int filled = fciValuationSyncService.backfillValuations(asset);
+        return filled > 0 ? investmentRepository.save(asset) : asset;
     }
 
     @Transactional
@@ -130,6 +149,39 @@ public class InvestmentService {
                 .build();
 
         asset.getMovements().add(movement);
+        recalculatePrincipal(asset);
+
+        InvestmentAsset saved = investmentRepository.save(asset);
+        return investmentMapper.toResponse(saved);
+    }
+
+    /**
+     * Edita un movimiento de una Cuenta Remunerada (FCI): ajusta el monto (tramo REVALUO,
+     * capitaliza) y/o fija el override de interés del tramo (SUSCRIPCION/RESCATE, no capitaliza).
+     * Restringido a FCI para no afectar el cálculo de los demás tipos de inversión.
+     */
+    @Transactional
+    public InvestmentResponse updateMovement(UUID investmentId, UUID movId,
+                                             InvestmentMovementUpdateRequest request, User user) {
+        InvestmentAsset asset = investmentRepository.findWithMovementsByIdAndUser_Id(investmentId, user.getId())
+                .orElseThrow(() -> new InvestmentNotFoundException(investmentId));
+
+        if (asset.getType() != InvestmentAssetType.FCI) {
+            throw new VectisException(
+                    "Solo se puede editar el interés de los tramos de una Cuenta Remunerada (FCI)",
+                    HttpStatus.CONFLICT);
+        }
+
+        InvestmentMovement movement = movementRepository.findByIdAndInvestmentAsset_Id(movId, investmentId)
+                .orElseThrow(() -> new InvestmentMovementNotFoundException(movId));
+
+        // amount: solo se actualiza si viene presente (tramo REVALUO).
+        if (request.amount() != null) {
+            movement.setAmount(request.amount());
+        }
+        // interestOverride: se aplica siempre el valor recibido (null = restaurar cálculo por TNA).
+        movement.setInterestOverride(request.interestOverride());
+
         recalculatePrincipal(asset);
 
         InvestmentAsset saved = investmentRepository.save(asset);

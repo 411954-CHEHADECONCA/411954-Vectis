@@ -47,6 +47,7 @@ import {
   InvestmentAssetType,
   InvestmentMovement,
   InvestmentMovementRequest,
+  InvestmentMovementUpdateRequest,
   InvestmentMovementType,
   InvestmentValuation,
   InvestmentValuationRequest,
@@ -158,7 +159,11 @@ export class InversionesComponent implements OnInit {
   loading          = signal(true);
   error            = signal<string | null>(null);
   modal            = signal<ModalState | null>(null);
-  subModal         = signal<{ kind: 'add-movement' | 'add-valuation'; asset: InvestmentResponse } | null>(null);
+  subModal         = signal<{
+    kind:  'add-movement' | 'add-valuation' | 'create-tramo' | 'edit-tramo-interest';
+    asset: InvestmentResponse;
+    mov?:  InvestmentMovement;   // tramo en edición (kind 'edit-tramo-interest')
+  } | null>(null);
   submitting       = signal(false);
   formError        = signal<string | null>(null);
   expanded         = signal<Set<string>>(new Set());
@@ -327,13 +332,15 @@ export class InversionesComponent implements OnInit {
 
   // ── FCI Form ──────────────────────────────────────────────────────────────
   readonly fciForm = new FormGroup({
-    name:      new FormControl('', {
+    name:         new FormControl('', {
       nonNullable: true,
       validators:  [Validators.required, Validators.maxLength(255)],
     }),
-    currency:  new FormControl<'ARS' | 'USD'>('ARS', { nonNullable: true }),
-    tna:       new FormControl<number | null>(null, [Validators.required, Validators.min(0)]),
-    accountId: new FormControl<string | null>(null),
+    currency:     new FormControl<'ARS' | 'USD'>('ARS', { nonNullable: true }),
+    tna:          new FormControl<number | null>(null, [Validators.required, Validators.min(0)]),
+    purchaseDate: new FormControl('', { nonNullable: true, validators: [Validators.required] }),
+    initialAmount: new FormControl<number | null>(null, [Validators.min(0.01)]),
+    accountId:    new FormControl<string | null>(null),
   });
 
   readonly addMovementForm = new FormGroup({
@@ -346,10 +353,11 @@ export class InversionesComponent implements OnInit {
 
   // ── FCI Cuotapartes Form ─────────────────────────────────────────────────
   readonly fciCPForm = new FormGroup({
-    name:       new FormControl('', { nonNullable: true, validators: [Validators.required, Validators.maxLength(255)] }),
-    currency:   new FormControl<'ARS' | 'USD'>('ARS', { nonNullable: true }),
-    accountId:  new FormControl<string | null>(null),
-    externalId: new FormControl<string | null>(null),
+    name:         new FormControl('', { nonNullable: true, validators: [Validators.required, Validators.maxLength(255)] }),
+    currency:     new FormControl<'ARS' | 'USD'>('ARS', { nonNullable: true }),
+    purchaseDate: new FormControl('', { nonNullable: true, validators: [Validators.required] }),
+    accountId:    new FormControl<string | null>(null),
+    externalId:   new FormControl<string | null>(null),
   });
 
   readonly addMovementCPForm = new FormGroup({
@@ -363,6 +371,15 @@ export class InversionesComponent implements OnInit {
   readonly addValuationForm = new FormGroup({
     valuationDate: new FormControl('', { nonNullable: true, validators: [Validators.required] }),
     pricePerUnit:  new FormControl<number | null>(null, [Validators.required, Validators.min(0.01)]),
+  });
+
+  // ── Cuenta Remunerada (FCI): crear tramo / editar interés de tramo ─────────
+  readonly createTramoForm = new FormGroup({
+    movementDate: new FormControl('', { nonNullable: true, validators: [Validators.required] }),
+  });
+
+  readonly editTramoForm = new FormGroup({
+    intereses: new FormControl<number | null>(null, [Validators.required, Validators.min(0)]),
   });
 
   // ── Letra / Bono / ON Form ────────────────────────────────────────────────
@@ -442,6 +459,13 @@ export class InversionesComponent implements OnInit {
       distinctUntilChanged(),
       takeUntilDestroyed(this.destroyRef),
     ).subscribe(date => this._loadCreationInstrumentPrice(date || this.todayIso()));
+
+    // Ídem para Fondo Cuotaparte: al cambiar la fecha de compra con seguimiento automático,
+    // recargar el VCP histórico de esa fecha para que pueda operar hacia atrás.
+    this.fciCPForm.controls.purchaseDate.valueChanges.pipe(
+      distinctUntilChanged(),
+      takeUntilDestroyed(this.destroyRef),
+    ).subscribe(date => this._loadCreationFciPrice(date || this.todayIso()));
   }
 
   loadAssets(): void {
@@ -554,7 +578,7 @@ export class InversionesComponent implements OnInit {
     return new Date(y, m - 1, d);
   }
 
-  private todayIso(): string {
+  protected todayIso(): string {
     const t = this.todayMidnight();
     return [
       t.getFullYear(),
@@ -577,24 +601,29 @@ export class InversionesComponent implements OnInit {
       const d = a.movementDate.localeCompare(b.movementDate);
       return d !== 0 ? d : (MOV_ORDER[a.type] ?? 1) - (MOV_ORDER[b.type] ?? 1);
     });
-    let balance = 0;
-    let prevDate = this.parseDateLocal(sorted[0].movementDate);
+    const todayMs = this.todayMidnight().getTime();
     const tramos: FCITramo[] = [];
-    for (const mov of sorted) {
-      const curDate   = this.parseDateLocal(mov.movementDate);
-      const dias      = Math.floor((curDate.getTime() - prevDate.getTime()) / 86400000);
-      const intereses = mov.type === 'REVALUO'
-        ? +mov.amount
-        : balance * ((asset.tna ?? 0) / 100) * (dias / 365);
-      tramos.push({ mov, saldo: balance, dias, intereses, enCurso: false });
+    let balance = 0;
+    // Atribución hacia adelante: cada movimiento abre un tramo que va desde su fecha
+    // hasta el siguiente movimiento (o hasta hoy), sobre el saldo resultante.
+    for (let i = 0; i < sorted.length; i++) {
+      const mov = sorted[i];
       if (mov.type === 'SUSCRIPCION' || mov.type === 'REVALUO') balance += +mov.amount;
       else if (mov.type === 'RESCATE') balance -= +mov.amount;
-      prevDate = curDate;
+
+      const startMs = this.parseDateLocal(mov.movementDate).getTime();
+      const endMs   = i < sorted.length - 1
+        ? this.parseDateLocal(sorted[i + 1].movementDate).getTime()
+        : todayMs;
+      const dias    = Math.max(0, Math.floor((endMs - startMs) / 86400000));
+      const intereses = mov.type === 'REVALUO'
+        ? +mov.amount                                          // realizado capitalizado
+        : (mov.interestOverride != null
+            ? +mov.interestOverride                            // override manual del tramo (Feature 2)
+            : balance * ((asset.tna ?? 0) / 100) * (dias / 365)); // proyección por TNA
+
+      tramos.push({ mov, saldo: balance, dias, intereses, enCurso: i === sorted.length - 1 });
     }
-    const todayMs    = this.todayMidnight().getTime();
-    const diasActual    = Math.floor((todayMs - prevDate.getTime()) / 86400000);
-    const interesActual = balance * ((asset.tna ?? 0) / 100) * (diasActual / 365);
-    tramos.push({ mov: null, saldo: balance, dias: diasActual, intereses: interesActual, enCurso: true });
     return tramos;
   }
 
@@ -604,6 +633,28 @@ export class InversionesComponent implements OnInit {
       if (m.type === 'RESCATE') return acc - +m.amount;
       return acc;
     }, 0);
+  }
+
+  /** Días e interés por TNA del período abierto desde el último movimiento hasta `dateIso` (Feature 1). */
+  private accruedInterestForDate(asset: InvestmentResponse, dateIso: string): { dias: number; interes: number } | null {
+    const dates = (asset.movements ?? []).map(m => m.movementDate);
+    if (!dates.length || !dateIso) return null;
+    const lastIso = [...dates].sort().at(-1)!;
+    const dias = Math.floor(
+      (this.parseDateLocal(dateIso).getTime() - this.parseDateLocal(lastIso).getTime()) / 86400000,
+    );
+    if (dias <= 0) return { dias, interes: 0 };
+    const saldo  = this.calcSaldoFCI(asset);
+    const interes = saldo * ((asset.tna ?? 0) / 100) * (dias / 365);
+    return { dias, interes };
+  }
+
+  /** Preview del interés autocalculado para el modal "Crear tramo" (Feature 1). */
+  protected createTramoPreview(): { dias: number; interes: number } | null {
+    const sub = this.subModal();
+    if (!sub || sub.kind !== 'create-tramo') return null;
+    const date = this.createTramoForm.controls.movementDate.value;
+    return this.accruedInterestForDate(sub.asset, date);
   }
 
   // ── FCI Cuotapartes helpers ───────────────────────────────────────────────
@@ -759,7 +810,7 @@ export class InversionesComponent implements OnInit {
       name: '', currency: 'ARS', principal: null,
       purchaseDate: this.todayIso(), dias: null, tna: null, accountId: null,
     });
-    this.fciForm.reset({ name: '', currency: 'ARS', tna: null, accountId: null });
+    this.fciForm.reset({ name: '', currency: 'ARS', tna: null, purchaseDate: this.todayIso(), initialAmount: null, accountId: null });
     this.fciCPForm.reset({ name: '', currency: 'ARS', accountId: null });
     this.letraForm.reset({ name: '', currency: 'ARS', purchaseDate: this.todayIso(), maturityDate: '', accountId: null });
     this.formError.set(null);
@@ -778,11 +829,11 @@ export class InversionesComponent implements OnInit {
     this.priceSource.set(null);
     this.editingAssetType.set(type);
     if (type === 'FCI') {
-      this.fciForm.reset({ name: '', currency: 'ARS', tna: null, accountId: null });
+      this.fciForm.reset({ name: '', currency: 'ARS', tna: null, purchaseDate: this.todayIso(), initialAmount: null, accountId: null });
     }
     if (type === 'FCI_CUOTAPARTES') {
       this.selectedFciCategory.set('mercadoDinero');
-      this.fciCPForm.reset({ name: '', currency: 'ARS', accountId: null, externalId: null });
+      this.fciCPForm.reset({ name: '', currency: 'ARS', purchaseDate: this.todayIso(), accountId: null, externalId: null });
       this.addMovementCPForm.reset({ movementDate: this.todayIso(), type: 'SUSCRIPCION', amount: null, units: null, pricePerUnit: null });
     }
     if (type === 'LETRA' || type === 'BONO' || type === 'ON') {
@@ -799,7 +850,7 @@ export class InversionesComponent implements OnInit {
     this.editingValuationId.set(null);
 
     if (asset.type === 'FCI') {
-      this.fciForm.reset({ name: '', currency: 'ARS', tna: null, accountId: null });
+      this.fciForm.reset({ name: '', currency: 'ARS', tna: null, purchaseDate: asset.purchaseDate ?? this.todayIso(), initialAmount: null, accountId: null });
       this.fciForm.patchValue({
         name:      asset.name ?? '',
         currency:  (asset.currency as 'ARS' | 'USD') ?? 'ARS',
@@ -811,7 +862,7 @@ export class InversionesComponent implements OnInit {
     }
 
     if (asset.type === 'FCI_CUOTAPARTES') {
-      this.fciCPForm.reset({ name: asset.name, currency: asset.currency, accountId: asset.accountId, externalId: asset.externalId ?? null });
+      this.fciCPForm.reset({ name: asset.name, currency: asset.currency, purchaseDate: asset.purchaseDate ?? this.todayIso(), accountId: asset.accountId, externalId: asset.externalId ?? null });
       this.trackingMode.set(asset.autoTrack ? 'auto' : 'manual');
       // Preseleccionar la categoría del fondo (si está en el catálogo) para que las pills sean coherentes.
       const fund = this.fciFunds().find(f => f.fondo === asset.externalId);
@@ -1078,6 +1129,94 @@ export class InversionesComponent implements OnInit {
     });
   }
 
+  // ── Cuenta Remunerada: crear tramo por fecha (Feature 1) ───────────────────
+  openCreateTramoModal(asset: InvestmentResponse): void {
+    this.movFormError.set(null);
+    this.createTramoForm.reset({ movementDate: this.todayIso() });
+    this.subModal.set({ kind: 'create-tramo', asset });
+  }
+
+  submitCreateTramo(): void {
+    const sub = this.subModal();
+    if (!sub || sub.kind !== 'create-tramo') return;
+    if (this.createTramoForm.invalid) {
+      this.createTramoForm.markAllAsTouched();
+      return;
+    }
+    const date    = this.createTramoForm.controls.movementDate.value;
+    const accrued = this.accruedInterestForDate(sub.asset, date);
+    if (!accrued || accrued.dias <= 0) {
+      this.movFormError.set('La fecha debe ser posterior al último movimiento para generar un tramo.');
+      return;
+    }
+    const interes = Math.round(accrued.interes * 100) / 100;
+    if (interes < 0.01) {
+      this.movFormError.set('El interés calculado para ese período es cero. Elegí una fecha más adelante.');
+      return;
+    }
+    this.movFormError.set(null);
+
+    // Capitaliza el interés del período como un REVALUO a la fecha elegida.
+    this.investmentService.addMovement(sub.asset.id, {
+      movementDate: date,
+      type:         'REVALUO',
+      amount:       interes,
+    }).subscribe({
+      next: updated => {
+        this.assets.update(list => list.map(a => a.id === updated.id ? updated : a));
+        this.modal.update(s => s ? { ...s, asset: updated } : null);
+        this.subModal.set(null);
+      },
+      error: (err: HttpErrorResponse) => {
+        this.movFormError.set(err.error?.message ?? 'No se pudo crear el tramo');
+      },
+    });
+  }
+
+  // ── Cuenta Remunerada: editar interés de un tramo (Feature 2) ──────────────
+  openEditTramoModal(asset: InvestmentResponse, tramo: FCITramo): void {
+    if (!tramo.mov) return;
+    this.movFormError.set(null);
+    this.editTramoForm.reset({ intereses: Math.round(tramo.intereses * 100) / 100 });
+    this.subModal.set({ kind: 'edit-tramo-interest', asset, mov: tramo.mov });
+  }
+
+  submitEditTramo(): void {
+    const sub = this.subModal();
+    if (!sub || sub.kind !== 'edit-tramo-interest' || !sub.mov) return;
+    if (this.editTramoForm.invalid) {
+      this.editTramoForm.markAllAsTouched();
+      return;
+    }
+    const interes = this.editTramoForm.controls.intereses.value!;
+    // REVALUO guarda el interés en `amount` (capitaliza); SUSC/RESC en `interestOverride` (no capitaliza).
+    const body = sub.mov.type === 'REVALUO'
+      ? { amount: interes }
+      : { interestOverride: interes };
+    this._applyTramoUpdate(sub.asset.id, sub.mov.id, body);
+  }
+
+  /** Restaura el cálculo por TNA del tramo (limpia el override). Solo SUSC/RESC. */
+  restoreTramoTNA(): void {
+    const sub = this.subModal();
+    if (!sub || sub.kind !== 'edit-tramo-interest' || !sub.mov) return;
+    this._applyTramoUpdate(sub.asset.id, sub.mov.id, { interestOverride: null });
+  }
+
+  private _applyTramoUpdate(assetId: string, movId: string, body: InvestmentMovementUpdateRequest): void {
+    this.movFormError.set(null);
+    this.investmentService.updateMovement(assetId, movId, body).subscribe({
+      next: updated => {
+        this.assets.update(list => list.map(a => a.id === updated.id ? updated : a));
+        this.modal.update(s => s ? { ...s, asset: updated } : null);
+        this.subModal.set(null);
+      },
+      error: (err: HttpErrorResponse) => {
+        this.movFormError.set(err.error?.message ?? 'No se pudo editar el interés del tramo');
+      },
+    });
+  }
+
   // ── FCI Cuotapartes movement actions ─────────────────────────────────────
   addPendingMovementCP(): void {
     const raw = this.addMovementCPForm.getRawValue();
@@ -1285,6 +1424,11 @@ export class InversionesComponent implements OnInit {
     this.priceAtCreation.set(fund.vcp);
     this.priceSource.set('fci');
     this.addMovementCPForm.controls.pricePerUnit.setValue(fund.vcp, { emitEvent: false });
+    // Si la fecha de compra es pasada, sobrescribir con el VCP histórico de ese día.
+    const fecha = this.fciCPForm.controls.purchaseDate.value;
+    if (fecha && fecha !== this.todayIso()) {
+      this._loadCreationFciPrice(fecha);
+    }
   }
 
   selectInstrument(instr: InstrumentOption): void {
@@ -1318,6 +1462,28 @@ export class InversionesComponent implements OnInit {
           this.priceSource.set('ppi');
           this.addMovementCPForm.controls.pricePerUnit.setValue(res.pricePerUnit, { emitEvent: false });
           // Recalcular nominales a partir del monto ya ingresado, si lo hubiera.
+          this.onPricePerUnitInput(this.addMovementCPForm);
+        }
+      });
+  }
+
+  /**
+   * Carga, en modo auto, el VCP del fondo FCI seleccionado para la fecha indicada y lo aplica
+   * como precio de la suscripción inicial, recalculando las cuotapartes. Permite registrar
+   * compras con fecha pasada usando el VCP histórico de ese día.
+   */
+  private _loadCreationFciPrice(fecha: string): void {
+    const extId = this.fciCPForm.controls.externalId.value;
+    if (this.trackingMode() !== 'auto' || this.modal()?.assetType !== 'FCI_CUOTAPARTES') return;
+    if (!extId || !fecha) return;
+    this.investmentService.getFciVcp(extId, fecha)
+      .pipe(takeUntilDestroyed(this.destroyRef))
+      .subscribe(res => {
+        if (res) {
+          this.priceAtCreation.set(res.vcp);
+          this.priceSource.set('fci');
+          this.addMovementCPForm.controls.pricePerUnit.setValue(res.vcp, { emitEvent: false });
+          // Recalcular cuotapartes a partir del monto ya ingresado, si lo hubiera.
           this.onPricePerUnitInput(this.addMovementCPForm);
         }
       });
@@ -1452,12 +1618,13 @@ export class InversionesComponent implements OnInit {
     this.submitting.set(true);
     this.formError.set(null);
     const raw = this.fciForm.getRawValue();
+    const purchaseDate = raw.purchaseDate || this.todayIso();
     const req: InvestmentRequest = {
       name:         raw.name,
       type:         'FCI',
       currency:     raw.currency,
       principal:    0,
-      purchaseDate: m.asset?.purchaseDate ?? new Date().toISOString().split('T')[0],
+      purchaseDate,
       maturityDate: null,
       tna:          raw.tna!,
       accountId:    raw.accountId || null,
@@ -1474,11 +1641,34 @@ export class InversionesComponent implements OnInit {
       next: saved => {
         if (isEdit) {
           this.assets.update(list => list.map(a => a.id === m.id ? saved : a));
+          this.submitting.set(false);
+          this.closeModal();
         } else {
           this.assets.update(list => [...list, saved]);
+          // Apertura inicial opcional: registra la suscripción en la fecha de apertura
+          // para que la cuenta devengue desde esa fecha (incluso pasada).
+          if (raw.initialAmount) {
+            this.investmentService.addMovement(saved.id, {
+              movementDate: purchaseDate,
+              type:         'SUSCRIPCION',
+              amount:       raw.initialAmount,
+              units:        undefined,
+            }).subscribe({
+              next: updated => {
+                this.assets.update(list => list.map(a => a.id === updated.id ? updated : a));
+                this.submitting.set(false);
+                this.closeModal();
+              },
+              error: () => {
+                this.submitting.set(false);
+                this.closeModal();
+              },
+            });
+          } else {
+            this.submitting.set(false);
+            this.closeModal();
+          }
         }
-        this.submitting.set(false);
-        this.closeModal();
       },
       error: (err: HttpErrorResponse) => {
         this.submitting.set(false);
@@ -1507,7 +1697,7 @@ export class InversionesComponent implements OnInit {
       type:         'FCI_CUOTAPARTES',
       currency:     raw.currency,
       principal:    0,
-      purchaseDate: m.asset?.purchaseDate ?? new Date().toISOString().split('T')[0],
+      purchaseDate: raw.purchaseDate || this.todayIso(),
       maturityDate: null,
       tna:          0,
       accountId:    raw.accountId || null,
@@ -1534,7 +1724,7 @@ export class InversionesComponent implements OnInit {
           const cpPrice  = this.addMovementCPForm.controls.pricePerUnit.value;
           if (cpAmount && cpUnits) {
             this.investmentService.addMovement(saved.id, {
-              movementDate: this.todayIso(),
+              movementDate: raw.purchaseDate || this.todayIso(),
               type:         'SUSCRIPCION',
               amount:       cpAmount,
               units:        cpUnits,
@@ -1704,20 +1894,24 @@ export class InversionesComponent implements OnInit {
   }
 
   private calcTIRFCI(asset: InvestmentResponse): number {
-    const tramos    = this.calcTramosFCI(asset);
     const totalDias = this.diasPeriodoFCI(asset);
     if (totalDias === 0) return 0;
 
+    const MOV_ORDER: Record<string, number> = { SUSCRIPCION: 0, REVALUO: 1, RESCATE: 2 };
+    const sorted = [...(asset.movements ?? [])].sort((a, b) => {
+      const d = a.movementDate.localeCompare(b.movementDate);
+      return d !== 0 ? d : (MOV_ORDER[a.type] ?? 1) - (MOV_ORDER[b.type] ?? 1);
+    });
+    if (!sorted.length) return 0;
+
+    // Offset de cada movimiento medido desde el primer movimiento (independiente
+    // de la estructura de tramos, que usa atribución hacia adelante).
+    const firstMs = this.parseDateLocal(sorted[0].movementDate).getTime();
     const cashflows: { dias: number; amount: number }[] = [];
-    let diasAcum = 0;
-    for (const t of tramos) {
-      diasAcum += t.dias;
-      if (t.mov && t.mov.type !== 'REVALUO') {
-        cashflows.push({
-          dias:   diasAcum,
-          amount: t.mov.type === 'SUSCRIPCION' ? -t.mov.amount : +t.mov.amount,
-        });
-      }
+    for (const mov of sorted) {
+      if (mov.type === 'REVALUO') continue;
+      const dias = Math.floor((this.parseDateLocal(mov.movementDate).getTime() - firstMs) / 86400000);
+      cashflows.push({ dias, amount: mov.type === 'SUSCRIPCION' ? -mov.amount : +mov.amount });
     }
     const saldoFinal     = this.calcSaldoFCI(asset);
     const interesesFinal = this.calcInteresesFCI(asset);
