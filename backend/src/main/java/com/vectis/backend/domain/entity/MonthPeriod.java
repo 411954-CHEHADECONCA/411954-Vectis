@@ -43,6 +43,10 @@ public class MonthPeriod {
     @Column(name = "recurring_materialized_at")
     private OffsetDateTime recurringMaterializedAt;
 
+    /** Momento en que se materializaron los tramos de inversión al cerrar este mes. Null = aún no. */
+    @Column(name = "investment_tramos_materialized_at")
+    private OffsetDateTime investmentTramosMaterializedAt;
+
     @Column(name = "created_at", nullable = false, updatable = false)
     private OffsetDateTime createdAt;
 

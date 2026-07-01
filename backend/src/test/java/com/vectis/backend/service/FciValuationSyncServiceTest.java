@@ -312,15 +312,17 @@ class FciValuationSyncServiceTest {
     void backfillValuations_addsValuationsInRange() {
         InvestmentAsset asset = buildFciCuotapartesAsset(UUID.randomUUID(), FONDO_NAME); // purchaseDate 2026-01-01
 
-        com.vectis.backend.dto.macro.ArgentinadatosFciHistoricoDto[] serie = {
-            histo("2025-12-01", "1000.0000"),  // antes de la compra → excluida
-            histo("2026-01-05", "1010.5000"),
-            histo("2026-01-06", "1020.0000"),
-            histo("2999-01-01", "9999.0000"),  // futura → excluida
-        };
+        var response = new com.vectis.backend.dto.macro.ArgentinadatosFciHistoricoResponseDto(
+                FONDO_NAME,
+                java.util.List.of(
+                    histo("2025-12-01", "1000.0000"),  // antes de la compra → excluida
+                    histo("2026-01-05", "1010.5000"),
+                    histo("2026-01-06", "1020.0000"),
+                    histo("2999-01-01", "9999.0000")   // futura → excluida
+                ));
         given(macroRestTemplate.getForObject(contains("/finanzas/fci/fondos/"),
-                eq(com.vectis.backend.dto.macro.ArgentinadatosFciHistoricoDto[].class)))
-                .willReturn(serie);
+                eq(com.vectis.backend.dto.macro.ArgentinadatosFciHistoricoResponseDto.class)))
+                .willReturn(response);
 
         int created = service.backfillValuations(asset);
 
@@ -343,13 +345,15 @@ class FciValuationSyncServiceTest {
                 .source("MANUAL")
                 .build());
 
-        com.vectis.backend.dto.macro.ArgentinadatosFciHistoricoDto[] serie = {
-            histo("2026-01-05", "1010.5000"),  // ya existe → no se duplica
-            histo("2026-01-06", "1020.0000"),
-        };
+        var response = new com.vectis.backend.dto.macro.ArgentinadatosFciHistoricoResponseDto(
+                FONDO_NAME,
+                java.util.List.of(
+                    histo("2026-01-05", "1010.5000"),  // ya existe → no se duplica
+                    histo("2026-01-06", "1020.0000")
+                ));
         given(macroRestTemplate.getForObject(anyString(),
-                eq(com.vectis.backend.dto.macro.ArgentinadatosFciHistoricoDto[].class)))
-                .willReturn(serie);
+                eq(com.vectis.backend.dto.macro.ArgentinadatosFciHistoricoResponseDto.class)))
+                .willReturn(response);
 
         int created = service.backfillValuations(asset);
 
@@ -369,7 +373,7 @@ class FciValuationSyncServiceTest {
 
         assertThat(created).isZero();
         verify(macroRestTemplate, never()).getForObject(anyString(),
-                eq(com.vectis.backend.dto.macro.ArgentinadatosFciHistoricoDto[].class));
+                eq(com.vectis.backend.dto.macro.ArgentinadatosFciHistoricoResponseDto.class));
     }
 
     @Test
@@ -377,7 +381,7 @@ class FciValuationSyncServiceTest {
     void backfillValuations_handlesApiFailure_gracefully() {
         InvestmentAsset asset = buildFciCuotapartesAsset(UUID.randomUUID(), FONDO_NAME);
         given(macroRestTemplate.getForObject(anyString(),
-                eq(com.vectis.backend.dto.macro.ArgentinadatosFciHistoricoDto[].class)))
+                eq(com.vectis.backend.dto.macro.ArgentinadatosFciHistoricoResponseDto.class)))
                 .willThrow(new RuntimeException("timeout"));
 
         int created = service.backfillValuations(asset);

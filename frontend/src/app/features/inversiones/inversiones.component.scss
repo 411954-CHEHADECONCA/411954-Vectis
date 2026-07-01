@@ -1162,6 +1162,20 @@
   vertical-align: middle;
 }
 
+.tramo-auto-tag {
+  display: inline-block;
+  margin-left: 4px;
+  padding: 1px 6px;
+  font-size: var(--text-overline, 10px);
+  font-weight: var(--weight-semibold);
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: var(--color-secondary);
+  background: color-mix(in srgb, var(--color-secondary) 14%, transparent);
+  border-radius: var(--radius-sm, 4px);
+  vertical-align: middle;
+}
+
 // ── FCI balance preview ───────────────────────────────────────────────────────
 
 .fci-balance {

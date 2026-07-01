@@ -320,14 +320,15 @@ public class InvestmentController {
 
     @GetMapping("/market/fci-vcp")
     @Operation(summary = "Obtiene el VCP de un fondo FCI para una fecha específica",
-               description = "Busca en los snapshots persistidos el Valor de Cuotaparte del fondo indicado para la fecha solicitada.")
+               description = "Busca en los snapshots persistidos el Valor de Cuotaparte del fondo indicado para la fecha solicitada. "
+                       + "Si no hay dato disponible devuelve 204 No Content (no es un error): la ausencia de precio es un "
+                       + "resultado válido para instrumentos/fechas sin cotización.")
     @ApiResponses({
         @ApiResponse(responseCode = "200", description = "VCP encontrado para la fecha indicada",
             content = @Content(mediaType = "application/json",
                 schema = @Schema(implementation = FciFundDto.class))),
+        @ApiResponse(responseCode = "204", description = "No hay VCP disponible para el fondo y fecha (sin cuerpo)"),
         @ApiResponse(responseCode = "401", description = "Token JWT ausente o inválido",
-            content = @Content(schema = @Schema(implementation = ErrorResponse.class))),
-        @ApiResponse(responseCode = "404", description = "No existe snapshot de VCP para el fondo y fecha indicados",
             content = @Content(schema = @Schema(implementation = ErrorResponse.class))),
         @ApiResponse(responseCode = "500", description = "Error interno del servidor",
             content = @Content(schema = @Schema(implementation = ErrorResponse.class)))
@@ -335,23 +336,26 @@ public class InvestmentController {
     public ResponseEntity<FciFundDto> getFciVcp(
             @RequestParam String fondo,
             @RequestParam @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) LocalDate fecha) {
+        // "Sin precio" es un resultado válido, no un error: se devuelve 204 (2xx, no lo marca en rojo el
+        // navegador) en lugar de 404. HttpClient de Angular emite null ante 204, igual que antes.
         return fciValuationSyncService.getVcpForDate(fondo, fecha)
                 .map(ResponseEntity::ok)
-                .orElse(ResponseEntity.notFound().build());
+                .orElseGet(() -> ResponseEntity.noContent().build());
     }
 
     @GetMapping("/market/instrument-price")
     @Operation(summary = "Obtiene el precio de un instrumento (BONO/LETRA/ON) para una fecha",
-               description = "Consulta a PPI (Portfolio Personal Inversiones) el precio del instrumento indicado para la fecha solicitada. Requiere credenciales PPI configuradas.")
+               description = "Consulta a PPI (Portfolio Personal Inversiones) el precio del instrumento indicado para la fecha solicitada. "
+                       + "Requiere credenciales PPI configuradas. Si no hay precio disponible devuelve 204 No Content (no es un "
+                       + "error): la ausencia de cotización es un resultado válido para ciertos instrumentos/fechas.")
     @ApiResponses({
-        @ApiResponse(responseCode = "200", description = "Precio encontrado",
+        @ApiResponse(responseCode = "200", description = "Precio encontrado para la fecha indicada",
             content = @Content(mediaType = "application/json",
                 schema = @Schema(implementation = InstrumentPriceResponse.class))),
+        @ApiResponse(responseCode = "204", description = "No hay cotización disponible para el instrumento y fecha (sin cuerpo)"),
         @ApiResponse(responseCode = "400", description = "Tipo de instrumento inválido",
             content = @Content(schema = @Schema(implementation = ErrorResponse.class))),
         @ApiResponse(responseCode = "401", description = "Token JWT ausente o inválido",
-            content = @Content(schema = @Schema(implementation = ErrorResponse.class))),
-        @ApiResponse(responseCode = "404", description = "No hay precio disponible para el instrumento y fecha indicados",
             content = @Content(schema = @Schema(implementation = ErrorResponse.class))),
         @ApiResponse(responseCode = "503", description = "Integración PPI no configurada",
             content = @Content(schema = @Schema(implementation = ErrorResponse.class)))
@@ -364,10 +368,11 @@ public class InvestmentController {
             throw new VectisException("PPI no configurado", HttpStatus.SERVICE_UNAVAILABLE);
         }
         String ppiType = mapToPpiType(type);
+        // "Sin precio" es un resultado válido, no un error: se devuelve 204 (2xx, no lo marca en rojo el
+        // navegador) en lugar de 404. HttpClient de Angular emite null ante 204, igual que antes.
         return ppiMarketDataClient.getPriceForDate(ticker, ppiType, fecha)
-                .map(price -> ResponseEntity.ok(
-                        new InstrumentPriceResponse(ticker, type, fecha.toString(), price)))
-                .orElse(ResponseEntity.notFound().build());
+                .map(price -> ResponseEntity.ok(new InstrumentPriceResponse(ticker, type, fecha.toString(), price)))
+                .orElseGet(() -> ResponseEntity.noContent().build());
     }
 
     // ─── Private helpers ─────────────────────────────────────────────────────

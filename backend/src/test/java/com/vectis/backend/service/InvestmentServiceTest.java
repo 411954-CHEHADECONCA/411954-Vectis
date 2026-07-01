@@ -57,6 +57,7 @@ class InvestmentServiceTest {
     @Mock private AccountRepository              accountRepository;
     @Mock private InvestmentMapper               investmentMapper;
     @Mock private FciValuationSyncService        fciValuationSyncService;
+    @Mock private PpiValuationSyncService        ppiValuationSyncService;
 
     private User    user;
     private UUID    userId;
@@ -393,7 +394,7 @@ class InvestmentServiceTest {
         UUID assetId = UUID.randomUUID();
         InvestmentAsset asset = buildFciAsset(assetId, BigDecimal.ZERO);
         InvestmentMovementRequest req = new InvestmentMovementRequest(
-                LocalDate.of(2026, 1, 1), InvestmentMovementType.SUSCRIPCION, new BigDecimal("500000.00"), null);
+                LocalDate.of(2026, 1, 1), InvestmentMovementType.SUSCRIPCION, new BigDecimal("500000.00"), null, null);
         InvestmentResponse resp = buildResponse(assetId, null, null);
 
         given(investmentRepository.findWithMovementsByIdAndUser_Id(assetId, userId)).willReturn(Optional.of(asset));
@@ -413,7 +414,7 @@ class InvestmentServiceTest {
         UUID assetId = UUID.randomUUID();
         InvestmentAsset asset = buildFciAsset(assetId, new BigDecimal("100000.00"));
         InvestmentMovementRequest req = new InvestmentMovementRequest(
-                LocalDate.of(2026, 3, 1), InvestmentMovementType.RESCATE, new BigDecimal("200000.00"), null);
+                LocalDate.of(2026, 3, 1), InvestmentMovementType.RESCATE, new BigDecimal("200000.00"), null, null);
 
         given(investmentRepository.findWithMovementsByIdAndUser_Id(assetId, userId)).willReturn(Optional.of(asset));
 
@@ -432,7 +433,7 @@ class InvestmentServiceTest {
         given(investmentRepository.findWithMovementsByIdAndUser_Id(assetId, userId)).willReturn(Optional.empty());
 
         InvestmentMovementRequest req = new InvestmentMovementRequest(
-                LocalDate.of(2026, 1, 1), InvestmentMovementType.SUSCRIPCION, new BigDecimal("100000.00"), null);
+                LocalDate.of(2026, 1, 1), InvestmentMovementType.SUSCRIPCION, new BigDecimal("100000.00"), null, null);
 
         assertThatThrownBy(() -> investmentService.addMovement(assetId, req, user))
                 .isInstanceOf(InvestmentNotFoundException.class);
@@ -650,6 +651,7 @@ class InvestmentServiceTest {
                 LocalDate.of(2025, 12, 1),
                 InvestmentMovementType.SUSCRIPCION,
                 new BigDecimal("100000.00"),
+                null,
                 null);
 
         InvestmentResponse resp = buildResponse(assetId, null, null);
@@ -723,7 +725,8 @@ class InvestmentServiceTest {
                 LocalDate.of(2026, 8, 31),
                 InvestmentMovementType.RESCATE,
                 new BigDecimal("500000.00"),
-                new BigDecimal("600.000000"));
+                new BigDecimal("600.000000"),
+                null);
 
         given(investmentRepository.findWithMovementsByIdAndUser_Id(assetId, userId))
                 .willReturn(Optional.of(asset));
@@ -1004,7 +1007,8 @@ class InvestmentServiceTest {
                 LocalDate.of(2026, 3, 1),
                 InvestmentMovementType.RESCATE,
                 new BigDecimal("100000.00"),
-                new BigDecimal("200.000000"));
+                new BigDecimal("200.000000"),
+                null);
 
         given(investmentRepository.findWithMovementsByIdAndUser_Id(assetId, userId)).willReturn(Optional.of(asset));
 
@@ -1034,7 +1038,7 @@ class InvestmentServiceTest {
         asset.getMovements().add(existing);
 
         InvestmentMovementRequest req = new InvestmentMovementRequest(
-                LocalDate.of(2026, 4, 1), InvestmentMovementType.REVALUO, new BigDecimal("15000.00"), null);
+                LocalDate.of(2026, 4, 1), InvestmentMovementType.REVALUO, new BigDecimal("15000.00"), null, null);
         InvestmentResponse resp = buildResponse(assetId, null, null);
 
         given(investmentRepository.findWithMovementsByIdAndUser_Id(assetId, userId)).willReturn(Optional.of(asset));
@@ -1056,7 +1060,7 @@ class InvestmentServiceTest {
         UUID assetId = UUID.randomUUID();
         InvestmentAsset asset = buildFciCuotapartesAsset(assetId, new BigDecimal("200000.00"));
         InvestmentMovementRequest req = new InvestmentMovementRequest(
-                LocalDate.of(2026, 4, 1), InvestmentMovementType.REVALUO, new BigDecimal("15000.00"), null);
+                LocalDate.of(2026, 4, 1), InvestmentMovementType.REVALUO, new BigDecimal("15000.00"), null, null);
         InvestmentResponse resp = buildFciCuotapartesResponse(assetId);
 
         given(investmentRepository.findWithMovementsByIdAndUser_Id(assetId, userId)).willReturn(Optional.of(asset));
@@ -1122,5 +1126,252 @@ class InvestmentServiceTest {
         investmentService.createInvestment(req, user);
 
         verify(fciValuationSyncService, never()).backfillValuations(any(InvestmentAsset.class));
+    }
+
+    @Test
+    @DisplayName("createInvestment dispara el backfill PPI para LETRA con seguimiento automático")
+    void createInvestment_triggersPpiBackfill_forAutoTrackedLetra() {
+        InvestmentRequest req = new InvestmentRequest(
+                "LECAP S31G5", InvestmentAssetType.LETRA, "ARS",
+                BigDecimal.ZERO, LocalDate.of(2026, 2, 20), LocalDate.of(2026, 8, 31), BigDecimal.ZERO,
+                null, true, "S31G5");
+
+        given(investmentRepository.save(any(InvestmentAsset.class))).willAnswer(inv -> inv.getArgument(0));
+        given(investmentMapper.toResponse(any(InvestmentAsset.class)))
+                .willReturn(buildResponse(UUID.randomUUID(), null, null));
+        given(ppiValuationSyncService.backfillValuations(any(InvestmentAsset.class))).willReturn(90);
+
+        investmentService.createInvestment(req, user);
+
+        verify(ppiValuationSyncService).backfillValuations(any(InvestmentAsset.class));
+        verify(fciValuationSyncService, never()).backfillValuations(any(InvestmentAsset.class));
+    }
+
+    // ─── Valuación histórica por operación (susc/resc) en familia cuotapartes ──
+
+    @Test
+    @DisplayName("addMovement CP con pricePerUnit persiste una valuación a la fecha del movimiento")
+    void addMovement_cp_withExplicitPrice_persistsValuation() {
+        UUID assetId = UUID.randomUUID();
+        InvestmentAsset asset = buildFciCuotapartesAsset(assetId, BigDecimal.ZERO);
+        InvestmentMovementRequest req = new InvestmentMovementRequest(
+                LocalDate.of(2026, 3, 15), InvestmentMovementType.SUSCRIPCION,
+                new BigDecimal("500000.00"), new BigDecimal("400.000000"), new BigDecimal("1250.5000"));
+
+        given(investmentRepository.findWithMovementsByIdAndUser_Id(assetId, userId)).willReturn(Optional.of(asset));
+        given(investmentRepository.save(asset)).willReturn(asset);
+        given(investmentMapper.toResponse(asset)).willReturn(buildFciCuotapartesResponse(assetId));
+
+        investmentService.addMovement(assetId, req, user);
+
+        assertThat(asset.getValuations()).hasSize(1);
+        InvestmentValuation val = asset.getValuations().get(0);
+        assertThat(val.getValuationDate()).isEqualTo(LocalDate.of(2026, 3, 15));
+        assertThat(val.getPricePerUnit()).isEqualByComparingTo("1250.5000");
+    }
+
+    @Test
+    @DisplayName("addMovement CP con una valuación existente a esa fecha la actualiza (upsert, no duplica)")
+    void addMovement_cp_existingValuationSameDate_isUpdated() {
+        UUID assetId = UUID.randomUUID();
+        InvestmentAsset asset = buildFciCuotapartesAsset(assetId, BigDecimal.ZERO);
+        asset.getValuations().add(InvestmentValuation.builder()
+                .id(UUID.randomUUID()).investmentAsset(asset)
+                .valuationDate(LocalDate.of(2026, 3, 15))
+                .pricePerUnit(new BigDecimal("1000.0000")).source("MANUAL").build());
+
+        InvestmentMovementRequest req = new InvestmentMovementRequest(
+                LocalDate.of(2026, 3, 15), InvestmentMovementType.SUSCRIPCION,
+                new BigDecimal("500000.00"), new BigDecimal("400.000000"), new BigDecimal("1300.0000"));
+
+        given(investmentRepository.findWithMovementsByIdAndUser_Id(assetId, userId)).willReturn(Optional.of(asset));
+        given(investmentRepository.save(asset)).willReturn(asset);
+        given(investmentMapper.toResponse(asset)).willReturn(buildFciCuotapartesResponse(assetId));
+
+        investmentService.addMovement(assetId, req, user);
+
+        assertThat(asset.getValuations()).hasSize(1);
+        assertThat(asset.getValuations().get(0).getPricePerUnit()).isEqualByComparingTo("1300.0000");
+    }
+
+    @Test
+    @DisplayName("addMovement CP sin pricePerUnit deriva el precio de monto/cuotapartes")
+    void addMovement_cp_withoutPrice_derivesFromAmountAndUnits() {
+        UUID assetId = UUID.randomUUID();
+        InvestmentAsset asset = buildFciCuotapartesAsset(assetId, BigDecimal.ZERO);
+        InvestmentMovementRequest req = new InvestmentMovementRequest(
+                LocalDate.of(2026, 3, 15), InvestmentMovementType.SUSCRIPCION,
+                new BigDecimal("500000.00"), new BigDecimal("400.000000"), null);
+
+        given(investmentRepository.findWithMovementsByIdAndUser_Id(assetId, userId)).willReturn(Optional.of(asset));
+        given(investmentRepository.save(asset)).willReturn(asset);
+        given(investmentMapper.toResponse(asset)).willReturn(buildFciCuotapartesResponse(assetId));
+
+        investmentService.addMovement(assetId, req, user);
+
+        assertThat(asset.getValuations()).hasSize(1);
+        // 500000 / 400 = 1250.0000
+        assertThat(asset.getValuations().get(0).getPricePerUnit()).isEqualByComparingTo("1250.0000");
+    }
+
+    @Test
+    @DisplayName("addMovement CP sin precio ni cuotapartes NO persiste valuación")
+    void addMovement_cp_withoutPriceNorUnits_noValuation() {
+        UUID assetId = UUID.randomUUID();
+        InvestmentAsset asset = buildFciCuotapartesAsset(assetId, BigDecimal.ZERO);
+        InvestmentMovementRequest req = new InvestmentMovementRequest(
+                LocalDate.of(2026, 3, 15), InvestmentMovementType.SUSCRIPCION,
+                new BigDecimal("500000.00"), null, null);
+
+        given(investmentRepository.findWithMovementsByIdAndUser_Id(assetId, userId)).willReturn(Optional.of(asset));
+        given(investmentRepository.save(asset)).willReturn(asset);
+        given(investmentMapper.toResponse(asset)).willReturn(buildFciCuotapartesResponse(assetId));
+
+        investmentService.addMovement(assetId, req, user);
+
+        assertThat(asset.getValuations()).isEmpty();
+    }
+
+    @Test
+    @DisplayName("addMovement FCI (Cuenta Remunerada) NO persiste valuación aunque llegue pricePerUnit (aislamiento)")
+    void addMovement_fci_neverPersistsValuation() {
+        UUID assetId = UUID.randomUUID();
+        InvestmentAsset asset = buildFciAsset(assetId, BigDecimal.ZERO);
+        InvestmentMovementRequest req = new InvestmentMovementRequest(
+                LocalDate.of(2026, 3, 15), InvestmentMovementType.SUSCRIPCION,
+                new BigDecimal("500000.00"), null, new BigDecimal("1250.5000"));
+
+        given(investmentRepository.findWithMovementsByIdAndUser_Id(assetId, userId)).willReturn(Optional.of(asset));
+        given(investmentRepository.save(asset)).willReturn(asset);
+        given(investmentMapper.toResponse(asset)).willReturn(buildResponse(assetId, null, null));
+
+        investmentService.addMovement(assetId, req, user);
+
+        assertThat(asset.getValuations()).isEmpty();
+    }
+
+    @Test
+    @DisplayName("addMovement CP RESCATE persiste su valuación a la fecha (marca de precio de la operación)")
+    void addMovement_cp_rescate_persistsValuation() {
+        UUID assetId = UUID.randomUUID();
+        InvestmentAsset asset = buildFciCuotapartesAsset(assetId, new BigDecimal("500000.00"));
+        asset.getMovements().add(InvestmentMovement.builder()
+                .id(UUID.randomUUID()).investmentAsset(asset)
+                .movementDate(LocalDate.of(2026, 1, 1))
+                .type(InvestmentMovementType.SUSCRIPCION)
+                .amount(new BigDecimal("500000.00")).units(new BigDecimal("400.000000")).build());
+
+        InvestmentMovementRequest req = new InvestmentMovementRequest(
+                LocalDate.of(2026, 4, 1), InvestmentMovementType.RESCATE,
+                new BigDecimal("100000.00"), new BigDecimal("80.000000"), new BigDecimal("1300.0000"));
+
+        given(investmentRepository.findWithMovementsByIdAndUser_Id(assetId, userId)).willReturn(Optional.of(asset));
+        given(investmentRepository.save(asset)).willReturn(asset);
+        given(investmentMapper.toResponse(asset)).willReturn(buildFciCuotapartesResponse(assetId));
+
+        investmentService.addMovement(assetId, req, user);
+
+        assertThat(asset.getValuations()).hasSize(1);
+        assertThat(asset.getValuations().get(0).getValuationDate()).isEqualTo(LocalDate.of(2026, 4, 1));
+        assertThat(asset.getValuations().get(0).getPricePerUnit()).isEqualByComparingTo("1300.0000");
+    }
+
+    @Test
+    @DisplayName("addMovement CP NO pisa una valuación de mercado (PPI) a la misma fecha (precedencia de fuente)")
+    void addMovement_cp_doesNotOverwriteMarketValuation() {
+        UUID assetId = UUID.randomUUID();
+        InvestmentAsset asset = buildFciCuotapartesAsset(assetId, BigDecimal.ZERO);
+        asset.getValuations().add(InvestmentValuation.builder()
+                .id(UUID.randomUUID()).investmentAsset(asset)
+                .valuationDate(LocalDate.of(2026, 3, 15))
+                .pricePerUnit(new BigDecimal("965.9000")).source("PPI").build());
+
+        InvestmentMovementRequest req = new InvestmentMovementRequest(
+                LocalDate.of(2026, 3, 15), InvestmentMovementType.SUSCRIPCION,
+                new BigDecimal("500000.00"), new BigDecimal("400.000000"), new BigDecimal("1300.0000"));
+
+        given(investmentRepository.findWithMovementsByIdAndUser_Id(assetId, userId)).willReturn(Optional.of(asset));
+        given(investmentRepository.save(asset)).willReturn(asset);
+        given(investmentMapper.toResponse(asset)).willReturn(buildFciCuotapartesResponse(assetId));
+
+        investmentService.addMovement(assetId, req, user);
+
+        assertThat(asset.getValuations()).hasSize(1);
+        assertThat(asset.getValuations().get(0).getPricePerUnit()).isEqualByComparingTo("965.9000");
+        assertThat(asset.getValuations().get(0).getSource()).isEqualTo("PPI");
+    }
+
+    @Test
+    @DisplayName("addMovement CP redondea el pricePerUnit explícito a 4 decimales (HALF_EVEN)")
+    void addMovement_cp_scalesExplicitPriceTo4Decimals() {
+        UUID assetId = UUID.randomUUID();
+        InvestmentAsset asset = buildFciCuotapartesAsset(assetId, BigDecimal.ZERO);
+        InvestmentMovementRequest req = new InvestmentMovementRequest(
+                LocalDate.of(2026, 3, 15), InvestmentMovementType.SUSCRIPCION,
+                new BigDecimal("500000.00"), new BigDecimal("400.000000"), new BigDecimal("1234.56789012"));
+
+        given(investmentRepository.findWithMovementsByIdAndUser_Id(assetId, userId)).willReturn(Optional.of(asset));
+        given(investmentRepository.save(asset)).willReturn(asset);
+        given(investmentMapper.toResponse(asset)).willReturn(buildFciCuotapartesResponse(assetId));
+
+        investmentService.addMovement(assetId, req, user);
+
+        assertThat(asset.getValuations().get(0).getPricePerUnit()).isEqualByComparingTo("1234.5679");
+    }
+
+    @Test
+    @DisplayName("deleteMovement CP elimina la valuación MANUAL huérfana de la operación")
+    void deleteMovement_cp_removesOrphanOperationValuation() {
+        UUID assetId = UUID.randomUUID();
+        UUID movId   = UUID.randomUUID();
+        InvestmentAsset asset = buildFciCuotapartesAsset(assetId, new BigDecimal("500000.00"));
+        InvestmentMovement movement = InvestmentMovement.builder()
+                .id(movId).investmentAsset(asset)
+                .movementDate(LocalDate.of(2026, 3, 15))
+                .type(InvestmentMovementType.SUSCRIPCION)
+                .amount(new BigDecimal("500000.00")).units(new BigDecimal("400.000000")).build();
+        asset.getMovements().add(movement);
+        asset.getValuations().add(InvestmentValuation.builder()
+                .id(UUID.randomUUID()).investmentAsset(asset)
+                .valuationDate(LocalDate.of(2026, 3, 15))
+                .pricePerUnit(new BigDecimal("1250.0000")).source("MANUAL").build());
+
+        given(investmentRepository.findWithMovementsByIdAndUser_Id(assetId, userId)).willReturn(Optional.of(asset));
+        given(movementRepository.findByIdAndInvestmentAsset_Id(movId, assetId)).willReturn(Optional.of(movement));
+        given(investmentRepository.save(asset)).willReturn(asset);
+        given(investmentMapper.toResponse(asset)).willReturn(buildFciCuotapartesResponse(assetId));
+
+        investmentService.deleteMovement(assetId, movId, user);
+
+        assertThat(asset.getMovements()).isEmpty();
+        assertThat(asset.getValuations()).isEmpty();
+    }
+
+    @Test
+    @DisplayName("deleteMovement CP preserva la valuación de mercado (PPI) a la fecha del movimiento borrado")
+    void deleteMovement_cp_preservesMarketValuation() {
+        UUID assetId = UUID.randomUUID();
+        UUID movId   = UUID.randomUUID();
+        InvestmentAsset asset = buildFciCuotapartesAsset(assetId, new BigDecimal("500000.00"));
+        InvestmentMovement movement = InvestmentMovement.builder()
+                .id(movId).investmentAsset(asset)
+                .movementDate(LocalDate.of(2026, 3, 15))
+                .type(InvestmentMovementType.SUSCRIPCION)
+                .amount(new BigDecimal("500000.00")).units(new BigDecimal("400.000000")).build();
+        asset.getMovements().add(movement);
+        asset.getValuations().add(InvestmentValuation.builder()
+                .id(UUID.randomUUID()).investmentAsset(asset)
+                .valuationDate(LocalDate.of(2026, 3, 15))
+                .pricePerUnit(new BigDecimal("965.9000")).source("PPI").build());
+
+        given(investmentRepository.findWithMovementsByIdAndUser_Id(assetId, userId)).willReturn(Optional.of(asset));
+        given(movementRepository.findByIdAndInvestmentAsset_Id(movId, assetId)).willReturn(Optional.of(movement));
+        given(investmentRepository.save(asset)).willReturn(asset);
+        given(investmentMapper.toResponse(asset)).willReturn(buildFciCuotapartesResponse(assetId));
+
+        investmentService.deleteMovement(assetId, movId, user);
+
+        assertThat(asset.getValuations()).hasSize(1);
+        assertThat(asset.getValuations().get(0).getSource()).isEqualTo("PPI");
     }
 }

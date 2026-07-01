@@ -501,6 +501,7 @@ class InvestmentControllerTest {
                 LocalDate.of(2026, 1, 1),
                 type,
                 new BigDecimal(amount),
+                null,
                 null);
     }
 
@@ -776,8 +777,8 @@ class InvestmentControllerTest {
     }
 
     @Test
-    @DisplayName("GET /market/fci-vcp con fondo inexistente retorna 404")
-    void getFciVcp_returns404_whenSnapshotNotFound() throws Exception {
+    @DisplayName("GET /market/fci-vcp con fondo inexistente retorna 204 No Content (no 404)")
+    void getFciVcp_returns204_whenSnapshotNotFound() throws Exception {
         LocalDate fecha = LocalDate.of(2026, 6, 25);
 
         given(fciValuationSyncService.getVcpForDate("fondo-inexistente", fecha))
@@ -787,7 +788,8 @@ class InvestmentControllerTest {
                         .param("fondo", "fondo-inexistente")
                         .param("fecha", "2026-06-25")
                         .header(HttpHeaders.AUTHORIZATION, AUTH_HEADER))
-                .andExpect(status().isNotFound());
+                .andExpect(status().isNoContent())
+                .andExpect(content().string(""));
     }
 
     @Test
@@ -836,8 +838,8 @@ class InvestmentControllerTest {
     }
 
     @Test
-    @DisplayName("GET /market/instrument-price cuando el ticker no tiene datos retorna 404")
-    void getInstrumentPrice_returns404_whenTickerNotFound() throws Exception {
+    @DisplayName("GET /market/instrument-price cuando el ticker no tiene datos retorna 204 No Content (no 404)")
+    void getInstrumentPrice_returns204_whenTickerNotFound() throws Exception {
         LocalDate fecha = LocalDate.of(2026, 6, 25);
 
         given(ppiMarketDataClient.isConfigured()).willReturn(true);
@@ -849,7 +851,8 @@ class InvestmentControllerTest {
                         .param("type", "BONO")
                         .param("fecha", "2026-06-25")
                         .header(HttpHeaders.AUTHORIZATION, AUTH_HEADER))
-                .andExpect(status().isNotFound());
+                .andExpect(status().isNoContent())
+                .andExpect(content().string(""));
     }
 
     @Test

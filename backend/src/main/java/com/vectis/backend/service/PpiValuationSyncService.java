@@ -20,7 +20,10 @@ import java.math.BigDecimal;
 import java.math.RoundingMode;
 import java.time.LocalDate;
 import java.time.ZoneOffset;
+import java.util.HashSet;
 import java.util.List;
+import java.util.Set;
+import java.util.stream.Collectors;
 
 @Slf4j
 @Service
@@ -98,6 +101,58 @@ public class PpiValuationSyncService {
 
     public boolean isConfigured() {
         return ppiMarketDataClient.isConfigured();
+    }
+
+    // ─── Backfill histórico de valuaciones ──────────────────────────────────────
+
+    /**
+     * Rellena las valuaciones faltantes de un activo LETRA/BONO/ON con seguimiento automático,
+     * trayendo la serie histórica de precios de PPI ({@code MarketData/Search} por rango) desde la
+     * fecha de compra hasta hoy y creando una valuación por cada día disponible que aún no exista.
+     *
+     * <p>Espeja {@code FciValuationSyncService.backfillValuations}: <b>muta</b> la colección
+     * {@code asset.getValuations()} (no persiste); el llamador debe guardar el activo dentro de su
+     * transacción para que el cascade persista las valuaciones nuevas. Degrada con elegancia: si la
+     * API falla o no hay datos, no lanza y retorna 0.
+     *
+     * @return cantidad de valuaciones nuevas agregadas a la colección del activo.
+     */
+    public int backfillValuations(InvestmentAsset asset) {
+        if (!PPI_TYPES.contains(asset.getType()) || !asset.isAutoTrack()) return 0;
+        String ticker = asset.getExternalId();
+        if (ticker == null || ticker.isBlank() || asset.getPurchaseDate() == null) return 0;
+
+        String ppiType = mapToPpiType(asset.getType());
+        if (ppiType == null) return 0;
+
+        LocalDate from = asset.getPurchaseDate();
+        LocalDate to   = LocalDate.now(ZoneOffset.UTC);
+        if (from.isAfter(to)) return 0;
+
+        List<PpiMarketDataClient.DatedPrice> serie =
+                ppiMarketDataClient.getPriceSeries(ticker, ppiType, from, to);
+        if (serie.isEmpty()) return 0;
+
+        Set<LocalDate> existing = asset.getValuations().stream()
+                .map(InvestmentValuation::getValuationDate)
+                .collect(Collectors.toCollection(HashSet::new));
+
+        int created = 0;
+        for (PpiMarketDataClient.DatedPrice dp : serie) {
+            if (dp.date() == null || dp.price() == null) continue;
+            if (dp.date().isBefore(from) || dp.date().isAfter(to)) continue;
+            if (!existing.add(dp.date())) continue; // evita duplicados (existentes o repetidos en la serie)
+
+            asset.getValuations().add(InvestmentValuation.builder()
+                    .investmentAsset(asset)
+                    .valuationDate(dp.date())
+                    .pricePerUnit(dp.price().setScale(4, RoundingMode.HALF_EVEN))
+                    .source("PPI")
+                    .build());
+            created++;
+        }
+        log.info("Backfill PPI '{}': {} valuaciones nuevas entre {} y {}", ticker, created, from, to);
+        return created;
     }
 
     /**

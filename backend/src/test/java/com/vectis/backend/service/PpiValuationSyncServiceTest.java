@@ -134,6 +134,84 @@ class PpiValuationSyncServiceTest {
         verify(valuationRepository, never()).save(any());
     }
 
+    // ─── backfillValuations ───────────────────────────────────────────────────
+
+    @Test
+    @DisplayName("backfillValuations agrega una valuación PPI por día de la serie y retorna la cantidad creada")
+    void backfillValuations_addsOnePerSeriesDay() {
+        InvestmentAsset asset = buildBonoAsset(UUID.randomUUID(), "AL30");
+        given(ppiMarketDataClient.getPriceSeries(eq("AL30"), eq("BONOS"), any(LocalDate.class), any(LocalDate.class)))
+                .willReturn(List.of(
+                        new PpiMarketDataClient.DatedPrice(LocalDate.of(2026, 1, 15), new BigDecimal("965.9000")),
+                        new PpiMarketDataClient.DatedPrice(LocalDate.of(2026, 1, 16), new BigDecimal("963.0000"))));
+
+        int created = service.backfillValuations(asset);
+
+        assertThat(created).isEqualTo(2);
+        assertThat(asset.getValuations()).hasSize(2);
+        assertThat(asset.getValuations()).allSatisfy(v -> assertThat(v.getSource()).isEqualTo("PPI"));
+        assertThat(asset.getValuations().get(0).getValuationDate()).isEqualTo(LocalDate.of(2026, 1, 15));
+    }
+
+    @Test
+    @DisplayName("backfillValuations saltea las fechas que ya tienen valuación (no duplica)")
+    void backfillValuations_skipsExistingDates() {
+        InvestmentAsset asset = buildBonoAsset(UUID.randomUUID(), "AL30");
+        asset.getValuations().add(InvestmentValuation.builder()
+                .id(UUID.randomUUID()).investmentAsset(asset)
+                .valuationDate(LocalDate.of(2026, 1, 15))
+                .pricePerUnit(new BigDecimal("900.0000")).source("MANUAL").build());
+
+        given(ppiMarketDataClient.getPriceSeries(eq("AL30"), eq("BONOS"), any(LocalDate.class), any(LocalDate.class)))
+                .willReturn(List.of(
+                        new PpiMarketDataClient.DatedPrice(LocalDate.of(2026, 1, 15), new BigDecimal("965.9000")),
+                        new PpiMarketDataClient.DatedPrice(LocalDate.of(2026, 1, 16), new BigDecimal("963.0000"))));
+
+        int created = service.backfillValuations(asset);
+
+        assertThat(created).isEqualTo(1);
+        assertThat(asset.getValuations()).hasSize(2);
+        // la valuación existente del 15 no se toca
+        assertThat(asset.getValuations().get(0).getPricePerUnit()).isEqualByComparingTo("900.0000");
+    }
+
+    @Test
+    @DisplayName("backfillValuations retorna 0 cuando la serie viene vacía (degrada sin lanzar)")
+    void backfillValuations_returnsZero_whenSeriesEmpty() {
+        InvestmentAsset asset = buildBonoAsset(UUID.randomUUID(), "AL30");
+        given(ppiMarketDataClient.getPriceSeries(eq("AL30"), eq("BONOS"), any(LocalDate.class), any(LocalDate.class)))
+                .willReturn(List.of());
+
+        int created = service.backfillValuations(asset);
+
+        assertThat(created).isZero();
+        assertThat(asset.getValuations()).isEmpty();
+    }
+
+    @Test
+    @DisplayName("backfillValuations retorna 0 y no consulta la API para activos sin seguimiento automático")
+    void backfillValuations_returnsZero_whenNotAutoTracked() {
+        InvestmentAsset asset = buildBonoAsset(UUID.randomUUID(), "AL30");
+        asset.setAutoTrack(false);
+
+        int created = service.backfillValuations(asset);
+
+        assertThat(created).isZero();
+        verify(ppiMarketDataClient, never()).getPriceSeries(any(), any(), any(), any());
+    }
+
+    @Test
+    @DisplayName("backfillValuations retorna 0 para tipos que no son LETRA/BONO/ON (aislamiento)")
+    void backfillValuations_returnsZero_forNonPpiType() {
+        InvestmentAsset asset = buildBonoAsset(UUID.randomUUID(), "AL30");
+        asset.setType(InvestmentAssetType.FCI_CUOTAPARTES);
+
+        int created = service.backfillValuations(asset);
+
+        assertThat(created).isZero();
+        verify(ppiMarketDataClient, never()).getPriceSeries(any(), any(), any(), any());
+    }
+
     // ─── getInstrumentsByType ─────────────────────────────────────────────────
 
     @Test

@@ -27,6 +27,7 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.math.BigDecimal;
+import java.math.RoundingMode;
 import java.time.LocalDate;
 import java.util.List;
 import java.util.UUID;
@@ -42,6 +43,7 @@ public class InvestmentService {
     private final AccountRepository              accountRepository;
     private final InvestmentMapper               investmentMapper;
     private final FciValuationSyncService        fciValuationSyncService;
+    private final PpiValuationSyncService        ppiValuationSyncService;
 
     public List<InvestmentResponse> getInvestments(UUID userId) {
         return investmentRepository.findAllByUser_IdOrderByCreatedAtAsc(userId)
@@ -70,7 +72,7 @@ public class InvestmentService {
                 .build();
 
         InvestmentAsset saved = investmentRepository.save(asset);
-        saved = backfillFciValuationsIfApplicable(saved);
+        saved = backfillValuationsIfApplicable(saved);
         return investmentMapper.toResponse(saved);
     }
 
@@ -102,22 +104,26 @@ public class InvestmentService {
         }
 
         InvestmentAsset saved = investmentRepository.save(asset);
-        saved = backfillFciValuationsIfApplicable(saved);
+        saved = backfillValuationsIfApplicable(saved);
         return investmentMapper.toResponse(saved);
     }
 
     /**
-     * Para activos FCI_CUOTAPARTES con seguimiento automático, rellena las valuaciones históricas
-     * faltantes (desde la fecha de compra hasta hoy) usando la serie de VCP de argentinadatos.
+     * Para activos con seguimiento automático, rellena las valuaciones históricas faltantes (desde la
+     * fecha de compra hasta hoy) usando la serie de precios de la fuente correspondiente:
+     * FCI_CUOTAPARTES → VCP de argentinadatos; LETRA/BONO/ON → precios de PPI.
      * Resiliente: si la API falla, el activo se devuelve igual sin las valuaciones extra.
      */
-    private InvestmentAsset backfillFciValuationsIfApplicable(InvestmentAsset asset) {
-        if (asset.getType() != InvestmentAssetType.FCI_CUOTAPARTES
-                || !asset.isAutoTrack()
+    private InvestmentAsset backfillValuationsIfApplicable(InvestmentAsset asset) {
+        if (!asset.isAutoTrack()
                 || asset.getExternalId() == null || asset.getExternalId().isBlank()) {
             return asset;
         }
-        int filled = fciValuationSyncService.backfillValuations(asset);
+        int filled = switch (asset.getType()) {
+            case FCI_CUOTAPARTES     -> fciValuationSyncService.backfillValuations(asset);
+            case LETRA, BONO, ON     -> ppiValuationSyncService.backfillValuations(asset);
+            default                  -> 0;
+        };
         return filled > 0 ? investmentRepository.save(asset) : asset;
     }
 
@@ -150,6 +156,19 @@ public class InvestmentService {
 
         asset.getMovements().add(movement);
         recalculatePrincipal(asset);
+
+        // Familia cuotapartes: registrar el valor histórico de la operación como valuación a su fecha,
+        // para que toda operación (susc/rescate) deje su marca de precio, igual que el revalúo.
+        // Se excluye FCI (Cuenta Remunerada, rinde por TNA) y PLAZO_FIJO (sin valuaciones).
+        // Nota: el activo se cargó con @EntityGraph de `movements`; acceder a `valuations` aquí dispara
+        // un único SELECT lazy adicional (mitigado por @BatchSize). Es deliberado: no se puede hacer
+        // JOIN FETCH de ambas colecciones (List) a la vez sin MultipleBagFetchException.
+        if (isCuotaparteFamily(asset.getType())) {
+            BigDecimal price = resolveMovementPrice(request);
+            if (price != null) {
+                upsertValuationForMovement(asset, request.movementDate(), price);
+            }
+        }
 
         InvestmentAsset saved = investmentRepository.save(asset);
         return investmentMapper.toResponse(saved);
@@ -198,6 +217,15 @@ public class InvestmentService {
 
         asset.getMovements().remove(movement);
         recalculatePrincipal(asset);
+
+        // Ciclo de vida simétrico: si el movimiento había dejado su valuación de operación
+        // (familia cuotapartes), quitarla al borrarlo para no dejar una marca de precio huérfana
+        // que `calcTramosCP` tomaría como evento. Sólo se remueve la MANUAL derivada de la operación
+        // y sólo si ningún otro movimiento queda en esa fecha; las de mercado (PPI/ARGENTINADATOS)
+        // y las de cierre de mes (SYSTEM) se preservan.
+        if (isCuotaparteFamily(asset.getType())) {
+            removeOperationValuationIfOrphan(asset, movement.getMovementDate());
+        }
 
         InvestmentAsset saved = investmentRepository.save(asset);
         return investmentMapper.toResponse(saved);
@@ -258,6 +286,71 @@ public class InvestmentService {
     }
 
     // ── Private helpers ──────────────────────────────────────────────────────
+
+    /** Tipos cuyo rendimiento deriva de valuaciones/precio (no de TNA): usan marca de precio por operación. */
+    private boolean isCuotaparteFamily(InvestmentAssetType type) {
+        return type == InvestmentAssetType.FCI_CUOTAPARTES
+                || type == InvestmentAssetType.LETRA
+                || type == InvestmentAssetType.BONO
+                || type == InvestmentAssetType.ON;
+    }
+
+    /**
+     * Precio de la operación: el {@code pricePerUnit} explícito si viene; si no, el implícito
+     * {@code amount / units} (sólo si hay unidades positivas). Devuelve null si no se puede determinar.
+     */
+    private BigDecimal resolveMovementPrice(InvestmentMovementRequest request) {
+        if (request.pricePerUnit() != null && request.pricePerUnit().signum() > 0) {
+            // Escala 4 siempre (columna NUMERIC(19,4)) con HALF_EVEN, igual que el fallback y el sync PPI.
+            return request.pricePerUnit().setScale(4, RoundingMode.HALF_EVEN);
+        }
+        if (request.units() != null && request.units().signum() > 0) {
+            return request.amount().divide(request.units(), 4, RoundingMode.HALF_EVEN);
+        }
+        return null;
+    }
+
+    /**
+     * Upsert de la valuación de una operación a una fecha: si ya existe una para esa fecha, actualiza
+     * su precio; si no, agrega una nueva a la colección del activo (se persiste por cascade). No lanza
+     * por duplicado (a diferencia de {@link #addValuation}), porque un movimiento y su valuación
+     * comparten fecha por diseño.
+     *
+     * <p>Precedencia de fuente: sólo se sobreescribe una valuación {@code MANUAL}. Los precios de
+     * mercado oficiales ({@code PPI}/{@code ARGENTINADATOS}) y los cierres automáticos ({@code SYSTEM})
+     * NO se pisan con el precio implícito de una operación — se conservan como más confiables.
+     */
+    private void upsertValuationForMovement(InvestmentAsset asset, LocalDate date, BigDecimal price) {
+        asset.getValuations().stream()
+                .filter(v -> v.getValuationDate().equals(date))
+                .findFirst()
+                .ifPresentOrElse(
+                        existing -> {
+                            if ("MANUAL".equals(existing.getSource())) {
+                                existing.setPricePerUnit(price);
+                            }
+                        },
+                        () -> asset.getValuations().add(InvestmentValuation.builder()
+                                .investmentAsset(asset)
+                                .valuationDate(date)
+                                .pricePerUnit(price)
+                                .source("MANUAL")
+                                .build()));
+    }
+
+    /**
+     * Al borrar un movimiento de la familia cuotapartes, elimina la valuación MANUAL a su fecha
+     * (la marca de precio que había dejado la operación) siempre que ya no quede ningún otro
+     * movimiento en esa misma fecha. Preserva las valuaciones de mercado (PPI/ARGENTINADATOS) y de
+     * cierre de mes (SYSTEM). Debe llamarse DESPUÉS de remover el movimiento de la colección.
+     */
+    private void removeOperationValuationIfOrphan(InvestmentAsset asset, LocalDate date) {
+        boolean otherMovementSameDate = asset.getMovements().stream()
+                .anyMatch(m -> m.getMovementDate().equals(date));
+        if (otherMovementSameDate) return;
+        asset.getValuations().removeIf(v -> v.getValuationDate().equals(date)
+                && "MANUAL".equals(v.getSource()));
+    }
 
     private void recalculatePrincipal(InvestmentAsset asset) {
         BigDecimal balance = asset.getMovements().stream()

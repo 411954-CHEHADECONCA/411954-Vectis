@@ -8,7 +8,8 @@ import jakarta.validation.constraints.NotNull;
 import java.math.BigDecimal;
 import java.time.LocalDate;
 
-@Schema(description = "Datos para registrar un movimiento de FCI (suscripción o rescate)")
+@Schema(description = "Datos para registrar un movimiento de inversión (suscripción, rescate o revalúo) "
+        + "para cualquier tipo: FCI, FCI_CUOTAPARTES, LETRA, BONO u ON")
 public record InvestmentMovementRequest(
 
     @Schema(description = "Fecha del movimiento", example = "2026-03-15")
@@ -27,5 +28,12 @@ public record InvestmentMovementRequest(
     @Schema(description = "Cuotapartes involucradas (obligatorio para FCI_CUOTAPARTES, null para los demás tipos)",
             example = "400.000000")
     @DecimalMin(value = "0.000001", message = "Las cuotapartes deben ser mayores a cero")
-    BigDecimal units
+    BigDecimal units,
+
+    @Schema(description = "Precio por cuotaparte/nominal al momento del movimiento. Para activos de la familia "
+            + "cuotapartes (FCI_CUOTAPARTES/LETRA/BONO/ON) se persiste como valuación histórica a la fecha del "
+            + "movimiento. Opcional: si no viene, se deriva de monto/cuotapartes.",
+            example = "1250.5000")
+    @DecimalMin(value = "0.000001", message = "El precio debe ser mayor a cero")
+    BigDecimal pricePerUnit
 ) {}

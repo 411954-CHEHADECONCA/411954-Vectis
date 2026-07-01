@@ -39,6 +39,7 @@ public class MonthPeriodService {
     private final TransactionRepository transactionRepository;
     private final UserRepository userRepository;
     private final CategoryBudgetRepository categoryBudgetRepository;
+    private final InvestmentMonthCloseService investmentMonthCloseService;
 
     // ─────────────────────────────────────────────────────────────────────────
     // Public API
@@ -110,10 +111,24 @@ public class MonthPeriodService {
             return; // already closed — idempotent
         }
 
+        doClose(mp, user);
+        log.info("Period {}/{} closed for user {}", year, month, user.getId());
+    }
+
+    /**
+     * Cierra el período y materializa los tramos de inversión a fin de mes (una sola vez,
+     * controlado por {@code investmentTramosMaterializedAt}). Reutilizado por el cierre
+     * manual y el cierre automático programado.
+     */
+    private void doClose(MonthPeriod mp, User user) {
         mp.setStatus("CLOSED");
         mp.setClosedAt(OffsetDateTime.now(ZoneOffset.UTC));
+
+        if (mp.getInvestmentTramosMaterializedAt() == null) {
+            investmentMonthCloseService.materializeForMonth(user, mp.getYear(), mp.getMonth());
+            mp.setInvestmentTramosMaterializedAt(OffsetDateTime.now(ZoneOffset.UTC));
+        }
         monthPeriodRepository.save(mp);
-        log.info("Period {}/{} closed for user {}", year, month, user.getId());
     }
 
     /**
@@ -136,6 +151,11 @@ public class MonthPeriodService {
         LocalDate from = LocalDate.of(year, month, 1);
         LocalDate to   = from.withDayOfMonth(from.lengthOfMonth());
         transactionRepository.deleteByUserAndTransactionDateBetweenAndIsProjectedTrue(user, from, to);
+
+        // Revertir los tramos de inversión generados al cerrar este mes y limpiar el marcador
+        // para que un próximo cierre los regenere limpio (idempotencia).
+        investmentMonthCloseService.removeForMonth(user, year, month);
+        mp.setInvestmentTramosMaterializedAt(null);
 
         boolean materialized = false;
         if (mp.getRecurringMaterializedAt() == null) {
@@ -233,12 +253,10 @@ public class MonthPeriodService {
         List<MonthPeriod> expired = monthPeriodRepository
                 .findAllExpiredOpen(today.getYear(), today.getMonthValue());
 
-        OffsetDateTime now = OffsetDateTime.now(ZoneOffset.UTC);
         for (MonthPeriod mp : expired) {
-            mp.setStatus("CLOSED");
-            mp.setClosedAt(now);
+            // doClose persiste cada período y materializa sus tramos de inversión (idempotente)
+            doClose(mp, mp.getUser());
         }
-        monthPeriodRepository.saveAll(expired);
         log.info("autoCloseExpiredPeriods: closed {} period(s)", expired.size());
     }
 

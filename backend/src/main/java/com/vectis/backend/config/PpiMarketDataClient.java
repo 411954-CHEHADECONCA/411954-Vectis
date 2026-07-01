@@ -58,9 +58,11 @@ public class PpiMarketDataClient {
 
     /**
      * Días hacia atrás a consultar desde la fecha pedida para encontrar el último cierre
-     * disponible. Cubre fines de semana largos y feriados (p. ej. Semana Santa).
+     * disponible. Cubre fines de semana largos, feriados y además instrumentos poco líquidos
+     * (p. ej. ciertos ON que pueden pasar semanas sin cotizar): así el "precio de hoy" cae al
+     * último cierre disponible en lugar de devolver vacío.
      */
-    private static final int LOOKBACK_DAYS = 7;
+    private static final int LOOKBACK_DAYS = 45;
 
     /**
      * Immutable token state — stored atomically to avoid TOCTOU between guard and refresh.
@@ -163,6 +165,69 @@ public class PpiMarketDataClient {
             return Optional.empty();
         }
     }
+
+    /**
+     * Fetches the full daily price series for the given ticker between {@code from} and {@code to}
+     * (inclusive) via GET /api/1/MarketData/Search (A-48HS settlement). Unlike {@link #getPriceForDate},
+     * it returns every available close in the range (not just the latest), normalized by dividing by 100.
+     *
+     * Used to backfill the historical valuation series of a LETRA/BONO/ON when it is created with a
+     * past purchase date, mirroring the FCI cuotapartes backfill.
+     *
+     * @return a list of {@link DatedPrice} (date + normalized price) sorted ascending by date,
+     *         or an empty list if not configured, no data, or failure (degrades gracefully).
+     */
+    public List<DatedPrice> getPriceSeries(String ticker, String ppiType, LocalDate from, LocalDate to) {
+        if (!isConfigured()) {
+            log.warn("PPI client no configurado — se omite getPriceSeries para {}", ticker);
+            return List.of();
+        }
+        if (from == null || to == null || from.isAfter(to)) {
+            return List.of();
+        }
+        try {
+            String token = getToken();
+            if (token == null) return List.of();
+
+            String url = UriComponentsBuilder.fromHttpUrl(baseUrl)
+                    .path("/api/1/MarketData/Search")
+                    .queryParam("Ticker",     ticker)
+                    .queryParam("Type",       ppiType)
+                    .queryParam("DateFrom",   from.toString())
+                    .queryParam("DateTo",     to.toString())
+                    .queryParam("Settlement", "A-48HS")
+                    .build()
+                    .toUriString();
+
+            ResponseEntity<MarketDataItem[]> response = restTemplate.exchange(
+                    url, HttpMethod.GET, new HttpEntity<>(bearerHeaders(token)), MarketDataItem[].class);
+
+            MarketDataItem[] body = response.getBody();
+            if (body == null || body.length == 0) {
+                log.debug("PPI MarketData/Search (serie) vacío para ticker={} type={} rango={}..{}",
+                        ticker, ppiType, from, to);
+                return List.of();
+            }
+
+            return Arrays.stream(body)
+                    .filter(i -> i.price() != null && i.date() != null)
+                    .filter(i -> {
+                        LocalDate d = i.dateAsLocalDate();
+                        return !d.isBefore(from) && !d.isAfter(to);
+                    })
+                    .map(i -> new DatedPrice(i.dateAsLocalDate(),
+                            i.price().divide(NOMINAL_IN_PRICE, 4, RoundingMode.HALF_EVEN)))
+                    .sorted(Comparator.comparing(DatedPrice::date))
+                    .toList();
+
+        } catch (Exception e) {
+            log.warn("PPI getPriceSeries({}, {}, {}..{}) falló: {}", ticker, ppiType, from, to, e.getMessage());
+            return List.of();
+        }
+    }
+
+    /** A single close: its date and its normalized price (rawPrice / 100). */
+    public record DatedPrice(LocalDate date, BigDecimal price) {}
 
     // ─── Token management ─────────────────────────────────────────────────────
 

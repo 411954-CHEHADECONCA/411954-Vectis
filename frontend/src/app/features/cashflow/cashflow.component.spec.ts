@@ -352,6 +352,11 @@ describe('CashflowComponent', () => {
     });
 
     it('confirmProjection() calls the project endpoint and updates data', fakeAsync(() => {
+      // Alinear el período del componente con MOCK_DATA: confirmProjection() usa this.year()/this.month()
+      // (inicializados desde la fecha actual), por lo que fijarlos evita que el test dependa del reloj.
+      component.year.set(MOCK_DATA.year);
+      component.month.set(MOCK_DATA.month);
+
       component.data.set({
         ...MOCK_DATA,
         status: 'proyectado',

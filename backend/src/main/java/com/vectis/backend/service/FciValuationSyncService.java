@@ -7,6 +7,7 @@ import com.vectis.backend.domain.entity.InvestmentValuation;
 import com.vectis.backend.dto.FciFundDto;
 import com.vectis.backend.dto.macro.ArgentinadatosFciDto;
 import com.vectis.backend.dto.macro.ArgentinadatosFciHistoricoDto;
+import com.vectis.backend.dto.macro.ArgentinadatosFciHistoricoResponseDto;
 import com.vectis.backend.repository.FciVcpSnapshotRepository;
 import com.vectis.backend.repository.InvestmentRepository;
 import com.vectis.backend.repository.InvestmentValuationRepository;
@@ -203,23 +204,25 @@ public class FciValuationSyncService {
         LocalDate to   = LocalDate.now(ZoneOffset.UTC);
         if (from.isAfter(to)) return 0;
 
-        ArgentinadatosFciHistoricoDto[] historico;
+        // API argentinadatos (migración 2026-07): el endpoint /historico ahora envuelve el
+        // array bajo {"historico": [...]} en vez de devolverlo directamente.
+        ArgentinadatosFciHistoricoResponseDto response;
         try {
-            historico = macroRestTemplate.getForObject(
+            response = macroRestTemplate.getForObject(
                     macroBaseUrl + "/finanzas/fci/fondos/" + slugify(fondo) + "/historico",
-                    ArgentinadatosFciHistoricoDto[].class);
+                    ArgentinadatosFciHistoricoResponseDto.class);
         } catch (Exception e) {
             log.warn("No se pudo obtener histórico FCI para backfill de '{}': {}", fondo, e.getMessage());
             return 0;
         }
-        if (historico == null || historico.length == 0) return 0;
+        if (response == null || response.historico().isEmpty()) return 0;
 
         Set<LocalDate> existing = asset.getValuations().stream()
                 .map(InvestmentValuation::getValuationDate)
                 .collect(Collectors.toCollection(java.util.HashSet::new));
 
         int created = 0;
-        for (ArgentinadatosFciHistoricoDto dto : historico) {
+        for (ArgentinadatosFciHistoricoDto dto : response.historico()) {
             if (dto.fecha() == null || dto.valorCuotaparte() == null) continue;
             LocalDate fecha;
             try {

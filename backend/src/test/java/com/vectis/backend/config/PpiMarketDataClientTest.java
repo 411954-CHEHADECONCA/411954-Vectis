@@ -239,6 +239,38 @@ class PpiMarketDataClientTest {
     }
 
     @Test
+    @DisplayName("lookback amplio: consulta 45 días atrás y recupera un cierre lejano (instrumento poco líquido)")
+    void getPriceForDate_findsCloseFromWeeksAgo_forIlliquidInstrument() {
+        doReturn("pre-seeded-token").when(spyClient).getToken();
+
+        // Instrumento ilíquido: último cierre 2026-05-22, se pide precio al 2026-06-25 (34 días después).
+        // Con la ventana anterior de 7 días no habría dato; con la ventana ampliada (45) sí lo encuentra.
+        PpiMarketDataClient.MarketDataItem[] body = {
+                new PpiMarketDataClient.MarketDataItem("2026-05-22T00:00:00-03:00", new BigDecimal("22400")),
+        };
+        given(restTemplate.exchange(
+                contains("/api/1/MarketData/Search"),
+                eq(HttpMethod.GET),
+                any(HttpEntity.class),
+                any(Class.class)))
+                .willReturn(ResponseEntity.ok(body));
+
+        Optional<BigDecimal> result =
+                spyClient.getPriceForDate("MRCAO", "ON", LocalDate.of(2026, 6, 25));
+
+        assertThat(result).contains(new BigDecimal("224.0000"));
+
+        // Verifica que la ventana consultada es de 45 días (DateFrom = fecha − 45 = 2026-05-11),
+        // no la anterior de 7 días — la constante LOOKBACK_DAYS efectivamente se amplió.
+        ArgumentCaptor<String> urlCaptor = ArgumentCaptor.forClass(String.class);
+        verify(restTemplate).exchange(
+                urlCaptor.capture(), eq(HttpMethod.GET), any(HttpEntity.class), any(Class.class));
+        assertThat(urlCaptor.getValue())
+                .contains("DateFrom=2026-05-11")
+                .contains("DateTo=2026-06-25");
+    }
+
+    @Test
     @DisplayName("fallback: ignora cierres posteriores a la fecha pedida")
     void getPriceForDate_ignoresClosesAfterRequestedDate() {
         doReturn("pre-seeded-token").when(spyClient).getToken();
@@ -259,6 +291,79 @@ class PpiMarketDataClientTest {
                 spyClient.getPriceForDate("AL30", "BONOS", LocalDate.of(2026, 6, 25));
 
         assertThat(result).contains(new BigDecimal("965.9000"));
+    }
+
+    // ─── getPriceSeries ───────────────────────────────────────────────────────
+
+    @Test
+    @DisplayName("getPriceSeries retorna lista vacía y no llama RestTemplate cuando no está configurado")
+    void getPriceSeries_returnsEmpty_whenNotConfigured() {
+        ReflectionTestUtils.setField(client, "apiSecret", "");
+
+        var result = client.getPriceSeries("AL30", "BONOS",
+                LocalDate.of(2026, 2, 1), LocalDate.of(2026, 6, 25));
+
+        assertThat(result).isEmpty();
+        verifyNoInteractions(restTemplate);
+    }
+
+    @Test
+    @DisplayName("getPriceSeries retorna lista vacía cuando el rango es inválido (from > to)")
+    void getPriceSeries_returnsEmpty_whenRangeInverted() {
+        var result = client.getPriceSeries("AL30", "BONOS",
+                LocalDate.of(2026, 6, 25), LocalDate.of(2026, 2, 1));
+
+        assertThat(result).isEmpty();
+        verifyNoInteractions(restTemplate);
+    }
+
+    @Test
+    @DisplayName("getPriceSeries devuelve toda la serie normalizada, ordenada y sin fechas fuera de rango")
+    void getPriceSeries_returnsNormalizedSortedSeries() {
+        doReturn("pre-seeded-token").when(spyClient).getToken();
+
+        PpiMarketDataClient.MarketDataItem[] body = {
+                new PpiMarketDataClient.MarketDataItem("2026-03-02T00:00:00-03:00", new BigDecimal("96300")),
+                new PpiMarketDataClient.MarketDataItem("2026-03-01T00:00:00-03:00", new BigDecimal("96590")),
+                // fuera de rango (posterior al 'to'): debe descartarse
+                new PpiMarketDataClient.MarketDataItem("2026-06-30T00:00:00-03:00", new BigDecimal("99000")),
+                // precio nulo: debe descartarse
+                new PpiMarketDataClient.MarketDataItem("2026-03-03T00:00:00-03:00", null),
+        };
+        given(restTemplate.exchange(
+                contains("/api/1/MarketData/Search"),
+                eq(HttpMethod.GET),
+                any(HttpEntity.class),
+                any(Class.class)))
+                .willReturn(ResponseEntity.ok(body));
+
+        var result = spyClient.getPriceSeries("AL30", "BONOS",
+                LocalDate.of(2026, 3, 1), LocalDate.of(2026, 3, 31));
+
+        assertThat(result).hasSize(2);
+        // ordenado ascendente por fecha
+        assertThat(result.get(0).date()).isEqualTo(LocalDate.of(2026, 3, 1));
+        assertThat(result.get(0).price()).isEqualByComparingTo("965.9000");
+        assertThat(result.get(1).date()).isEqualTo(LocalDate.of(2026, 3, 2));
+        assertThat(result.get(1).price()).isEqualByComparingTo("963.0000");
+    }
+
+    @Test
+    @DisplayName("getPriceSeries retorna lista vacía ante excepción del RestTemplate (resiliencia)")
+    void getPriceSeries_returnsEmpty_whenCallFails() {
+        doReturn("pre-seeded-token").when(spyClient).getToken();
+
+        given(restTemplate.exchange(
+                contains("/api/1/MarketData/Search"),
+                eq(HttpMethod.GET),
+                any(HttpEntity.class),
+                any(Class.class)))
+                .willThrow(new RuntimeException("timeout"));
+
+        var result = spyClient.getPriceSeries("AL30", "BONOS",
+                LocalDate.of(2026, 3, 1), LocalDate.of(2026, 3, 31));
+
+        assertThat(result).isEmpty();
     }
 
     // ─── BigDecimal normalization (pure unit tests) ───────────────────────────
