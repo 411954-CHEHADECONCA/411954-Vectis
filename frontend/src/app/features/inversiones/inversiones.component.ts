@@ -1525,15 +1525,23 @@ export class InversionesComponent implements OnInit {
     const today = this.todayIso();
     if (asset.valuations?.some(v => v.valuationDate === today)) return;
 
-    const price$ = asset.type === 'FCI_CUOTAPARTES'
-      ? this.investmentService.getFciVcp(asset.externalId, today).pipe(map(r => r?.vcp ?? null))
+    // Cada fuente devuelve el precio y la FECHA a la que corresponde: FCI usa el snapshot del día;
+    // PPI devuelve el último cierre real (para instrumentos ilíquidos puede ser de semanas atrás),
+    // por lo que la valuación se persiste en esa fecha verídica, no en "hoy".
+    const seed$ = asset.type === 'FCI_CUOTAPARTES'
+      ? this.investmentService.getFciVcp(asset.externalId, today)
+          .pipe(map(r => r?.vcp != null ? { price: r.vcp, date: today } : null))
       : this.investmentService.getInstrumentPrice(asset.externalId, asset.type, today)
-          .pipe(map(r => r?.pricePerUnit ?? null));
+          .pipe(map(r => r?.pricePerUnit != null ? { price: r.pricePerUnit, date: r.fecha ?? today } : null));
 
-    price$.pipe(
-      switchMap(price => price != null
-        ? this.investmentService.addValuation(asset.id, { valuationDate: today, pricePerUnit: price })
-        : of(null)),
+    seed$.pipe(
+      switchMap(seed => {
+        if (!seed) return of(null);
+        // No re-persistir si ya existe una valuación en esa fecha (p. ej. el backfill ya la trajo):
+        // addValuation rechaza fechas duplicadas con 409.
+        if (asset.valuations?.some(v => v.valuationDate === seed.date)) return of(null);
+        return this.investmentService.addValuation(asset.id, { valuationDate: seed.date, pricePerUnit: seed.price });
+      }),
       takeUntilDestroyed(this.destroyRef),
     ).subscribe(updated => {
       if (updated) {
@@ -1703,6 +1711,13 @@ export class InversionesComponent implements OnInit {
     });
   }
 
+  /** true si la compra inicial (monto y cuotapartes/nominales) está cargada y es > 0. */
+  private hasCompraInicial(): boolean {
+    const amount = this.addMovementCPForm.controls.amount.value;
+    const units  = this.addMovementCPForm.controls.units.value;
+    return amount != null && amount > 0 && units != null && units > 0;
+  }
+
   private submitFCICP(m: ModalState): void {
     // En modo auto, el nombre y externalId se populan por selectFund
     if (this.trackingMode() === 'auto' && !this.fciCPForm.controls.externalId.value) {
@@ -1711,6 +1726,16 @@ export class InversionesComponent implements OnInit {
     }
     if (this.fciCPForm.invalid) {
       this.fciCPForm.markAllAsTouched();
+      return;
+    }
+
+    // Con seguimiento automático, la compra inicial (monto + cuotapartes) es obligatoria al CREAR: sin
+    // una suscripción el fondo queda con 0 cuotapartes y todo el rendimiento se ve en $0 aunque el
+    // histórico de precios exista. (En modo manual se puede cargar el movimiento después.)
+    if (m.kind === 'form-create' && this.trackingMode() === 'auto' && !this.hasCompraInicial()) {
+      this.addMovementCPForm.controls.amount.markAsTouched();
+      this.addMovementCPForm.controls.units.markAsTouched();
+      this.formError.set('Cargá la compra inicial (monto y cuotapartes) para ver el rendimiento del fondo.');
       return;
     }
 
@@ -1789,6 +1814,16 @@ export class InversionesComponent implements OnInit {
     }
     if (this.letraForm.invalid) {
       this.letraForm.markAllAsTouched();
+      return;
+    }
+
+    // Con seguimiento automático, la compra inicial (monto + nominales) es obligatoria al CREAR: sin
+    // ella el instrumento queda con 0 nominales y todo el rendimiento se ve en $0 aunque el histórico
+    // de precios exista. (En modo manual se puede cargar el movimiento después.)
+    if (m.kind === 'form-create' && this.trackingMode() === 'auto' && !this.hasCompraInicial()) {
+      this.addMovementCPForm.controls.amount.markAsTouched();
+      this.addMovementCPForm.controls.units.markAsTouched();
+      this.formError.set('Cargá la compra inicial (monto y nominales) para ver el rendimiento del instrumento.');
       return;
     }
 

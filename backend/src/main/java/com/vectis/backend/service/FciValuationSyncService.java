@@ -283,8 +283,55 @@ public class FciValuationSyncService {
      */
     @Transactional(readOnly = true)
     public Optional<FciFundDto> getVcpForDate(String fondo, LocalDate fecha) {
-        return fciVcpSnapshotRepository.findByFondoAndFecha(fondo, fecha)
+        Optional<FciFundDto> fromSnapshot = fciVcpSnapshotRepository.findByFondoAndFecha(fondo, fecha)
                 .map(s -> new FciFundDto(s.getFondo(), s.getCategoria(), s.getVcp(), s.getFecha()));
+        if (fromSnapshot.isPresent()) return fromSnapshot;
+        // Fallback: no hay snapshot persistido (típico para fechas históricas anteriores al inicio del
+        // job diario) → buscar el VCP en la serie histórica de argentinadatos. Así el formulario de
+        // creación con fecha de compra pasada obtiene el VCP de ese día.
+        return getVcpFromHistorico(fondo, fecha);
+    }
+
+    /**
+     * Busca el VCP de un fondo para una fecha en la serie histórica de argentinadatos, tomando el
+     * cierre exacto o el más reciente anterior o igual a {@code fecha} (cubre fines de semana y
+     * feriados). Degrada a empty ante fallo o ausencia de datos.
+     */
+    private Optional<FciFundDto> getVcpFromHistorico(String fondo, LocalDate fecha) {
+        ArgentinadatosFciHistoricoResponseDto response;
+        try {
+            response = macroRestTemplate.getForObject(
+                    macroBaseUrl + "/finanzas/fci/fondos/" + slugify(fondo) + "/historico",
+                    ArgentinadatosFciHistoricoResponseDto.class);
+        } catch (Exception e) {
+            log.warn("No se pudo obtener histórico FCI para VCP de '{}' al {}: {}", fondo, fecha, e.getMessage());
+            return Optional.empty();
+        }
+        if (response == null || response.historico().isEmpty()) return Optional.empty();
+
+        ArgentinadatosFciHistoricoDto best = null;
+        LocalDate bestDate = null;
+        for (ArgentinadatosFciHistoricoDto dto : response.historico()) {
+            if (dto.fecha() == null || dto.valorCuotaparte() == null) continue;
+            LocalDate d;
+            try {
+                d = LocalDate.parse(dto.fecha());
+            } catch (Exception ex) {
+                continue;
+            }
+            if (d.isAfter(fecha)) continue; // sólo cierres ≤ fecha pedida
+            if (bestDate == null || d.isAfter(bestDate)) {
+                bestDate = d;
+                best = dto;
+            }
+        }
+        if (best == null) return Optional.empty();
+
+        return Optional.of(new FciFundDto(
+                fondo,
+                best.categoriaKey(),
+                best.valorCuotaparte().setScale(4, RoundingMode.HALF_EVEN),
+                bestDate));
     }
 
     /**

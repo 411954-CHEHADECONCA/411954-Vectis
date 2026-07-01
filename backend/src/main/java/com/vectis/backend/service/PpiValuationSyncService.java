@@ -70,9 +70,12 @@ public class PpiValuationSyncService {
                     log.debug("Tipo {} no soportado por PPI — se omite", asset.getType());
                     continue;
                 }
-                ppiMarketDataClient.getPriceForDate(ticker, ppiType, today).ifPresent(price -> {
+                // Persistir la valuación con la FECHA REAL del cierre devuelto (no "hoy"): para ON
+                // ilíquidos el último cierre puede ser de semanas atrás; usar `today` falsearía el
+                // histórico. savePpiValuation deduplica por fecha (existsBy), así que es idempotente.
+                ppiMarketDataClient.getPriceForDate(ticker, ppiType, today).ifPresent(dp -> {
                     try {
-                        savePpiValuation(asset, today, price.setScale(4, RoundingMode.HALF_EVEN));
+                        savePpiValuation(asset, dp.date(), dp.price().setScale(4, RoundingMode.HALF_EVEN));
                     } catch (Exception inner) {
                         log.warn("No se pudo guardar valuacion PPI para activo {}: {}",
                                 asset.getId(), inner.getMessage());
@@ -156,15 +159,15 @@ public class PpiValuationSyncService {
     }
 
     /**
-     * Devuelve el catálogo de instrumentos cacheado por tipo.
-     * El catálogo es sembrado via Flyway (V034) y se actualiza con precios de PPI
-     * cada vez que se ejecuta syncPpiValuations() para activos con auto-track.
+     * Devuelve el catálogo de instrumentos <b>vigentes</b> (active=true) cacheado por tipo.
+     * El catálogo es sembrado via Flyway (V034) y mantenido al día por
+     * {@code InstrumentCatalogSyncService} contra PPI (da de baja los delisted, agrega nuevos).
      */
     @Transactional(readOnly = true)
     public List<InstrumentDto> getInstrumentsByType(String tipo) {
         List<DoctaInstrumentCache> cached = tipo != null && !tipo.isBlank()
-                ? instrumentCacheRepository.findAllByTipoOrderByNombreAsc(tipo)
-                : instrumentCacheRepository.findAll();
+                ? instrumentCacheRepository.findAllByTipoAndActiveTrueOrderByNombreAsc(tipo)
+                : instrumentCacheRepository.findAllByActiveTrueOrderByNombreAsc();
 
         return cached.stream()
                 .map(c -> new InstrumentDto(c.getTicker(), c.getNombre(), c.getTipo(),

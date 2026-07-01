@@ -8,6 +8,7 @@ import java.math.BigDecimal;
 public record InstrumentPriceResponse(
         @Schema(description = "Ticker del instrumento",        example = "AL30")         String ticker,
         @Schema(description = "Tipo de instrumento",           example = "BONO")         String type,
-        @Schema(description = "Fecha de cotización",           example = "2026-06-25")   String fecha,
+        @Schema(description = "Fecha del cierre real devuelto (puede ser anterior a la solicitada para instrumentos ilíquidos)",
+                example = "2026-06-25") String fecha,
         @Schema(description = "Precio por unidad normalizado", example = "963.0000")     BigDecimal pricePerUnit
 ) {}

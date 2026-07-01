@@ -809,8 +809,10 @@ class InvestmentControllerTest {
         LocalDate fecha = LocalDate.of(2026, 6, 25);
 
         given(ppiMarketDataClient.isConfigured()).willReturn(true);
+        // El cierre real es del 24/06, anterior a la fecha solicitada (25/06): el response lo refleja.
         given(ppiMarketDataClient.getPriceForDate("AL30", "BONOS", fecha))
-                .willReturn(Optional.of(new java.math.BigDecimal("963.0000")));
+                .willReturn(Optional.of(new com.vectis.backend.config.PpiMarketDataClient.DatedPrice(
+                        LocalDate.of(2026, 6, 24), new java.math.BigDecimal("963.0000"))));
 
         mockMvc.perform(get("/api/investments/market/instrument-price")
                         .param("ticker", "AL30")
@@ -820,6 +822,7 @@ class InvestmentControllerTest {
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.ticker").value("AL30"))
                 .andExpect(jsonPath("$.type").value("BONO"))
+                .andExpect(jsonPath("$.fecha").value("2026-06-24")) // fecha del cierre real, no la solicitada
                 .andExpect(jsonPath("$.pricePerUnit").value(963.0));
     }
 

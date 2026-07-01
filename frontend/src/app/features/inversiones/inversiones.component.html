@@ -1341,7 +1341,7 @@
             @if (modal()?.kind === 'form-create') {
               <div class="movements-section">
                 <div class="movements-header">
-                  <span class="cfg-label">Suscripción inicial (opcional)</span>
+                  <span class="cfg-label">Suscripción inicial <span class="field-required">*</span></span>
                 </div>
                 <div class="add-mov-form__grid add-mov-form__grid--4col" [formGroup]="addMovementCPForm">
                   <div class="cfg-field">
@@ -1701,7 +1701,7 @@
             <!-- Compra inicial (solo en modo crear) -->
             @if (modal()?.kind === 'form-create') {
               <div class="movements-section" [formGroup]="addMovementCPForm">
-                <p class="cfg-label" style="margin-bottom: 8px">Compra inicial <span class="field-hint">(opcional)</span></p>
+                <p class="cfg-label" style="margin-bottom: 8px">Compra inicial <span class="field-required">*</span></p>
                 <div class="add-mov-form__grid">
                   <div class="cfg-field">
                     <label class="cfg-label" for="letra-create-amount">Monto</label>

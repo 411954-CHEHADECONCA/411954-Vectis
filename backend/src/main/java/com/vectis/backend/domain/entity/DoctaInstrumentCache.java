@@ -40,6 +40,11 @@ public class DoctaInstrumentCache {
     @Column(name = "maturity_date")
     private LocalDate maturityDate;
 
+    /** Vigencia en PPI: false = delisted/inválido, se oculta del selector (InstrumentCatalogSyncService). */
+    @Column(nullable = false)
+    @Builder.Default
+    private boolean active = true;
+
     @Column(name = "updated_at", nullable = false)
     private OffsetDateTime updatedAt;
 

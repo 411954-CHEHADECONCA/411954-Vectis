@@ -290,6 +290,7 @@ describe('InvestmentService', () => {
     service.getInstrumentPrice('S31G5', 'LETRA', '2026-06-26').subscribe(res => {
       expect(res).not.toBeNull();
       expect(res?.pricePerUnit).toBe(1020.5);
+      expect(res?.fecha).toBe('2026-06-26'); // fecha del cierre real devuelta por el backend
     });
 
     const req = httpMock.expectOne(r =>

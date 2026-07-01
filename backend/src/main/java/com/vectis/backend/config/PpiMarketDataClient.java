@@ -107,13 +107,17 @@ public class PpiMarketDataClient {
      * The raw price is normalized by dividing by 100 (nominalInPrice convention for all PPI
      * instruments).
      *
+     * <p>Devuelve un {@link DatedPrice} con la <b>fecha real del cierre</b> elegido (no la fecha
+     * solicitada): para instrumentos ilíquidos ese cierre puede ser de varias semanas atrás, y quien
+     * persista la valuación debe usar esa fecha verídica en vez de "hoy" para no falsear el histórico.
+     *
      * @param ticker  e.g. "AL30", "S31G5"
      * @param ppiType PPI instrument type string, e.g. "BONOS", "LETRAS", "ON"
      * @param fecha   the date to query (upper bound of the lookback window)
-     * @return normalized price (rawPrice / 100) of the latest close ≤ fecha,
+     * @return the latest close ≤ fecha as a {@link DatedPrice} (real close date + normalized price),
      *         or empty if not configured, no data in the window, or failure
      */
-    public Optional<BigDecimal> getPriceForDate(String ticker, String ppiType, LocalDate fecha) {
+    public Optional<DatedPrice> getPriceForDate(String ticker, String ppiType, LocalDate fecha) {
         if (!isConfigured()) {
             log.warn("PPI client no configurado — se omite getPriceForDate para {}", ticker);
             return Optional.empty();
@@ -158,7 +162,7 @@ public class PpiMarketDataClient {
             BigDecimal normalized = latest.price().divide(NOMINAL_IN_PRICE, 4, RoundingMode.HALF_EVEN);
             log.debug("PPI precio para {} (solicitado {}, cierre {}): {} / 100 = {}",
                     ticker, fecha, latest.dateAsLocalDate(), latest.price(), normalized);
-            return Optional.of(normalized);
+            return Optional.of(new DatedPrice(latest.dateAsLocalDate(), normalized));
 
         } catch (Exception e) {
             log.warn("PPI getPriceForDate({}, {}, {}) falló: {}", ticker, ppiType, fecha, e.getMessage());
@@ -228,6 +232,67 @@ public class PpiMarketDataClient {
 
     /** A single close: its date and its normalized price (rawPrice / 100). */
     public record DatedPrice(LocalDate date, BigDecimal price) {}
+
+    // ─── Instrument search / validation ─────────────────────────────────────────
+
+    /**
+     * Searches PPI's instrument universe via GET /api/1/MarketData/SearchInstrument. PPI treats this
+     * as an autocomplete: at least one of {@code name}/{@code tickerPrefix} must have ≥2 chars, and it
+     * returns fuzzy, mixed-type matches. Used to keep the local catalog fresh: discover new
+     * instruments (by name) and validate whether a ticker is still listed (by exact ticker).
+     *
+     * @return matching instruments (never null); empty if not configured, bad criteria, or failure.
+     */
+    public List<PpiInstrument> searchInstruments(String name, String tickerPrefix) {
+        if (!isConfigured()) {
+            log.warn("PPI client no configurado — se omite searchInstruments");
+            return List.of();
+        }
+        try {
+            String token = getToken();
+            if (token == null) return List.of();
+
+            String url = UriComponentsBuilder.fromHttpUrl(baseUrl)
+                    .path("/api/1/MarketData/SearchInstrument")
+                    .queryParam("Name",   name != null ? name : "")
+                    .queryParam("Ticker", tickerPrefix != null ? tickerPrefix : "")
+                    .build()
+                    .toUriString();
+
+            ResponseEntity<PpiInstrument[]> response = restTemplate.exchange(
+                    url, HttpMethod.GET, new HttpEntity<>(bearerHeaders(token)), PpiInstrument[].class);
+
+            PpiInstrument[] body = response.getBody();
+            if (body == null || body.length == 0) return List.of();
+
+            return Arrays.stream(body)
+                    .filter(i -> i.ticker() != null && !i.ticker().isBlank())
+                    .toList();
+
+        } catch (Exception e) {
+            log.warn("PPI searchInstruments(name={}, ticker={}) falló: {}", name, tickerPrefix, e.getMessage());
+            return List.of();
+        }
+    }
+
+    /**
+     * Whether an exact ticker is currently listed in PPI. Delisted/expired tickers return false, so
+     * the catalog can mark them inactive. Uses the ticker as the search criterion and matches exactly.
+     */
+    public boolean instrumentExists(String ticker) {
+        if (ticker == null || ticker.length() < 2) return false;
+        return searchInstruments("", ticker).stream()
+                .anyMatch(i -> ticker.equalsIgnoreCase(i.ticker()));
+    }
+
+    /** One instrument as returned by SearchInstrument. Extra JSON fields are ignored. */
+    @com.fasterxml.jackson.annotation.JsonIgnoreProperties(ignoreUnknown = true)
+    public record PpiInstrument(
+            @JsonProperty("ticker")      String ticker,
+            @JsonProperty("description") String description,
+            @JsonProperty("type")        String type,
+            @JsonProperty("currency")    String currency
+    ) {}
 
     // ─── Token management ─────────────────────────────────────────────────────
 

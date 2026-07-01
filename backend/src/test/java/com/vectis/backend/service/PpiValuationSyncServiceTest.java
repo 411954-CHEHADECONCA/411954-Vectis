@@ -65,8 +65,10 @@ class PpiValuationSyncServiceTest {
         given(ppiMarketDataClient.isConfigured()).willReturn(true);
         given(investmentRepository.findAllByTypesAndAutoTrackTrue(any()))
                 .willReturn(List.of(asset));
+        // El cierre real es del 2026-01-16 (no "hoy"): la valuación debe fecharse ahí.
+        LocalDate cierreReal = LocalDate.of(2026, 1, 16);
         given(ppiMarketDataClient.getPriceForDate(eq(ticker), eq("BONOS"), any(LocalDate.class)))
-                .willReturn(Optional.of(new BigDecimal("1450.5000")));
+                .willReturn(Optional.of(new PpiMarketDataClient.DatedPrice(cierreReal, new BigDecimal("1450.5000"))));
         given(valuationRepository.existsByInvestmentAsset_IdAndValuationDate(eq(assetId), any(LocalDate.class)))
                 .willReturn(false);
 
@@ -77,6 +79,7 @@ class PpiValuationSyncServiceTest {
         InvestmentValuation saved = captor.getValue();
         assertThat(saved.getPricePerUnit()).isEqualByComparingTo("1450.5000");
         assertThat(saved.getSource()).isEqualTo("PPI");
+        assertThat(saved.getValuationDate()).isEqualTo(cierreReal); // fecha real del cierre, no hoy
         assertThat(saved.getInvestmentAsset()).isEqualTo(asset);
     }
 
@@ -91,7 +94,7 @@ class PpiValuationSyncServiceTest {
         given(investmentRepository.findAllByTypesAndAutoTrackTrue(any()))
                 .willReturn(List.of(asset));
         given(ppiMarketDataClient.getPriceForDate(eq(ticker), eq("BONOS"), any(LocalDate.class)))
-                .willReturn(Optional.of(new BigDecimal("1450.5000")));
+                .willReturn(Optional.of(new PpiMarketDataClient.DatedPrice(LocalDate.of(2026, 1, 16), new BigDecimal("1450.5000"))));
         given(valuationRepository.existsByInvestmentAsset_IdAndValuationDate(eq(assetId), any(LocalDate.class)))
                 .willReturn(true);
 
@@ -227,7 +230,7 @@ class PpiValuationSyncServiceTest {
                         .maturityDate(LocalDate.of(2030, 7, 9))
                         .build();
 
-        given(instrumentCacheRepository.findAllByTipoOrderByNombreAsc("BONO"))
+        given(instrumentCacheRepository.findAllByTipoAndActiveTrueOrderByNombreAsc("BONO"))
                 .willReturn(List.of(cached));
 
         List<InstrumentDto> result = service.getInstrumentsByType("BONO");

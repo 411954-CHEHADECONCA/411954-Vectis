@@ -96,7 +96,7 @@ class PpiMarketDataClientTest {
     void getPriceForDate_returnsEmpty_whenNotConfigured() {
         ReflectionTestUtils.setField(client, "authorizedClient", "");
 
-        Optional<BigDecimal> result = client.getPriceForDate("AL30", "BONOS", LocalDate.of(2026, 6, 25));
+        Optional<PpiMarketDataClient.DatedPrice> result = client.getPriceForDate("AL30", "BONOS", LocalDate.of(2026, 6, 25));
 
         assertThat(result).isEmpty();
         verifyNoInteractions(restTemplate);
@@ -116,7 +116,7 @@ class PpiMarketDataClientTest {
                 any(Class.class)))
                 .willAnswer(inv -> ResponseEntity.ok(null));
 
-        Optional<BigDecimal> result = client.getPriceForDate("AL30", "BONOS", LocalDate.of(2026, 6, 25));
+        Optional<PpiMarketDataClient.DatedPrice> result = client.getPriceForDate("AL30", "BONOS", LocalDate.of(2026, 6, 25));
 
         assertThat(result).isEmpty();
         // LoginApi must have been called exactly once
@@ -143,7 +143,7 @@ class PpiMarketDataClientTest {
                 any(Class.class)))
                 .willThrow(new RuntimeException("connection refused"));
 
-        Optional<BigDecimal> result = client.getPriceForDate("AL30", "BONOS", LocalDate.of(2026, 6, 25));
+        Optional<PpiMarketDataClient.DatedPrice> result = client.getPriceForDate("AL30", "BONOS", LocalDate.of(2026, 6, 25));
 
         assertThat(result).isEmpty();
     }
@@ -163,7 +163,7 @@ class PpiMarketDataClientTest {
                 any(Class.class)))
                 .willAnswer(inv -> ResponseEntity.ok(null));
 
-        Optional<BigDecimal> result = spyClient.getPriceForDate("AL30", "BONOS", LocalDate.of(2026, 6, 25));
+        Optional<PpiMarketDataClient.DatedPrice> result = spyClient.getPriceForDate("AL30", "BONOS", LocalDate.of(2026, 6, 25));
 
         assertThat(result).isEmpty();
     }
@@ -180,7 +180,7 @@ class PpiMarketDataClientTest {
                 any(Class.class)))
                 .willThrow(new RuntimeException("timeout"));
 
-        Optional<BigDecimal> result = spyClient.getPriceForDate("AL30", "BONOS", LocalDate.of(2026, 6, 25));
+        Optional<PpiMarketDataClient.DatedPrice> result = spyClient.getPriceForDate("AL30", "BONOS", LocalDate.of(2026, 6, 25));
 
         assertThat(result).isEmpty();
     }
@@ -232,10 +232,12 @@ class PpiMarketDataClientTest {
                 any(Class.class)))
                 .willReturn(ResponseEntity.ok(body));
 
-        Optional<BigDecimal> result =
+        Optional<PpiMarketDataClient.DatedPrice> result =
                 spyClient.getPriceForDate("AL30", "BONOS", LocalDate.of(2026, 6, 27));
 
-        assertThat(result).contains(new BigDecimal("963.0000"));
+        assertThat(result).isPresent();
+        assertThat(result.get().price()).isEqualByComparingTo(new BigDecimal("963.0000"));
+        assertThat(result.get().date()).isEqualTo(LocalDate.of(2026, 6, 26)); // fecha real del cierre
     }
 
     @Test
@@ -255,10 +257,13 @@ class PpiMarketDataClientTest {
                 any(Class.class)))
                 .willReturn(ResponseEntity.ok(body));
 
-        Optional<BigDecimal> result =
+        Optional<PpiMarketDataClient.DatedPrice> result =
                 spyClient.getPriceForDate("MRCAO", "ON", LocalDate.of(2026, 6, 25));
 
-        assertThat(result).contains(new BigDecimal("224.0000"));
+        assertThat(result).isPresent();
+        assertThat(result.get().price()).isEqualByComparingTo(new BigDecimal("224.0000"));
+        // La valuación se debe fechar en el cierre REAL (22/05), no en la fecha solicitada (25/06).
+        assertThat(result.get().date()).isEqualTo(LocalDate.of(2026, 5, 22));
 
         // Verifica que la ventana consultada es de 45 días (DateFrom = fecha − 45 = 2026-05-11),
         // no la anterior de 7 días — la constante LOOKBACK_DAYS efectivamente se amplió.
@@ -287,10 +292,12 @@ class PpiMarketDataClientTest {
                 any(Class.class)))
                 .willReturn(ResponseEntity.ok(body));
 
-        Optional<BigDecimal> result =
+        Optional<PpiMarketDataClient.DatedPrice> result =
                 spyClient.getPriceForDate("AL30", "BONOS", LocalDate.of(2026, 6, 25));
 
-        assertThat(result).contains(new BigDecimal("965.9000"));
+        assertThat(result).isPresent();
+        assertThat(result.get().price()).isEqualByComparingTo(new BigDecimal("965.9000"));
+        assertThat(result.get().date()).isEqualTo(LocalDate.of(2026, 6, 25));
     }
 
     // ─── getPriceSeries ───────────────────────────────────────────────────────
@@ -364,6 +371,86 @@ class PpiMarketDataClientTest {
                 LocalDate.of(2026, 3, 1), LocalDate.of(2026, 3, 31));
 
         assertThat(result).isEmpty();
+    }
+
+    // ─── searchInstruments / instrumentExists ─────────────────────────────────
+
+    @Test
+    @DisplayName("searchInstruments retorna lista vacía y no llama RestTemplate cuando no está configurado")
+    void searchInstruments_returnsEmpty_whenNotConfigured() {
+        ReflectionTestUtils.setField(client, "apiSecret", "");
+
+        var result = client.searchInstruments("LETRA TESORO", "");
+
+        assertThat(result).isEmpty();
+        verifyNoInteractions(restTemplate);
+    }
+
+    @Test
+    @DisplayName("searchInstruments parsea la respuesta y descarta items sin ticker")
+    void searchInstruments_parsesResponse() {
+        doReturn("pre-seeded-token").when(spyClient).getToken();
+
+        PpiMarketDataClient.PpiInstrument[] body = {
+                new PpiMarketDataClient.PpiInstrument("S30N6", "LETRA TESORO NACIONAL CAPITALIZABLE 30/11/26 $", "LETRAS", "Pesos"),
+                new PpiMarketDataClient.PpiInstrument("S31G6", "LETRA TESORO NACIONAL CAPITALIZABLE 31/08/26 $", "LETRAS", "Pesos"),
+                new PpiMarketDataClient.PpiInstrument(null, "sin ticker — se descarta", "LETRAS", "Pesos"),
+        };
+        given(restTemplate.exchange(
+                contains("/api/1/MarketData/SearchInstrument"),
+                eq(HttpMethod.GET),
+                any(HttpEntity.class),
+                eq(PpiMarketDataClient.PpiInstrument[].class)))
+                .willReturn(ResponseEntity.ok(body));
+
+        var result = spyClient.searchInstruments("LETRA TESORO", "");
+
+        assertThat(result).hasSize(2);
+        assertThat(result).extracting(PpiMarketDataClient.PpiInstrument::ticker)
+                .containsExactly("S30N6", "S31G6");
+    }
+
+    @Test
+    @DisplayName("searchInstruments retorna lista vacía ante excepción del RestTemplate (resiliencia)")
+    void searchInstruments_returnsEmpty_whenCallFails() {
+        doReturn("pre-seeded-token").when(spyClient).getToken();
+
+        given(restTemplate.exchange(
+                contains("/api/1/MarketData/SearchInstrument"),
+                eq(HttpMethod.GET),
+                any(HttpEntity.class),
+                eq(PpiMarketDataClient.PpiInstrument[].class)))
+                .willThrow(new RuntimeException("timeout"));
+
+        var result = spyClient.searchInstruments("LETRA TESORO", "");
+
+        assertThat(result).isEmpty();
+    }
+
+    @Test
+    @DisplayName("instrumentExists true cuando PPI devuelve el ticker exacto; false si no aparece")
+    void instrumentExists_matchesExactTicker() {
+        doReturn("pre-seeded-token").when(spyClient).getToken();
+
+        PpiMarketDataClient.PpiInstrument[] body = {
+                new PpiMarketDataClient.PpiInstrument("S31L6", "LETRA ... 31/07/26 $", "LETRAS", "Pesos"),
+        };
+        given(restTemplate.exchange(
+                contains("/api/1/MarketData/SearchInstrument"),
+                eq(HttpMethod.GET),
+                any(HttpEntity.class),
+                eq(PpiMarketDataClient.PpiInstrument[].class)))
+                .willReturn(ResponseEntity.ok(body));
+
+        assertThat(spyClient.instrumentExists("S31L6")).isTrue();
+        assertThat(spyClient.instrumentExists("S18D6")).isFalse(); // no está en la respuesta
+    }
+
+    @Test
+    @DisplayName("instrumentExists false y no llama a PPI cuando el ticker tiene menos de 2 chars")
+    void instrumentExists_false_whenTickerTooShort() {
+        assertThat(spyClient.instrumentExists("S")).isFalse();
+        assertThat(spyClient.instrumentExists(null)).isFalse();
     }
 
     // ─── BigDecimal normalization (pure unit tests) ───────────────────────────

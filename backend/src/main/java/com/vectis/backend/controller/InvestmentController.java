@@ -370,8 +370,11 @@ public class InvestmentController {
         String ppiType = mapToPpiType(type);
         // "Sin precio" es un resultado válido, no un error: se devuelve 204 (2xx, no lo marca en rojo el
         // navegador) en lugar de 404. HttpClient de Angular emite null ante 204, igual que antes.
+        // La `fecha` de la respuesta es la del CIERRE REAL devuelto por PPI (puede ser anterior a la
+        // solicitada para instrumentos ilíquidos), para que el front persista la valuación en esa fecha.
         return ppiMarketDataClient.getPriceForDate(ticker, ppiType, fecha)
-                .map(price -> ResponseEntity.ok(new InstrumentPriceResponse(ticker, type, fecha.toString(), price)))
+                .map(dp -> ResponseEntity.ok(
+                        new InstrumentPriceResponse(ticker, type, dp.date().toString(), dp.price())))
                 .orElseGet(() -> ResponseEntity.noContent().build());
     }
 

@@ -269,16 +269,46 @@ class FciValuationSyncServiceTest {
     }
 
     @Test
-    @DisplayName("getVcpForDate retorna Optional.empty() cuando no existe snapshot para el fondo y fecha")
-    void getVcpForDate_returnsEmpty_whenSnapshotDoesNotExist() {
+    @DisplayName("getVcpForDate retorna empty cuando no hay snapshot ni histórico para el fondo y fecha")
+    void getVcpForDate_returnsEmpty_whenNoSnapshotNorHistorico() {
         LocalDate fecha = LocalDate.of(2026, 6, 25);
 
         given(fciVcpSnapshotRepository.findByFondoAndFecha("fondo-inexistente", fecha))
                 .willReturn(Optional.empty());
+        given(macroRestTemplate.getForObject(anyString(),
+                eq(com.vectis.backend.dto.macro.ArgentinadatosFciHistoricoResponseDto.class)))
+                .willReturn(null); // histórico tampoco disponible
 
         Optional<FciFundDto> result = service.getVcpForDate("fondo-inexistente", fecha);
 
         assertThat(result).isEmpty();
+    }
+
+    @Test
+    @DisplayName("getVcpForDate cae al histórico de argentinadatos cuando no hay snapshot (fecha pasada)")
+    void getVcpForDate_fallsBackToHistorico_whenNoSnapshot() {
+        LocalDate fecha = LocalDate.of(2026, 3, 3);
+
+        given(fciVcpSnapshotRepository.findByFondoAndFecha(FONDO_NAME, fecha))
+                .willReturn(Optional.empty());
+        // Serie histórica: el cierre exacto del 03/03 y uno anterior; debe elegir el ≤ fecha más reciente.
+        var response = new com.vectis.backend.dto.macro.ArgentinadatosFciHistoricoResponseDto(
+                FONDO_NAME,
+                java.util.List.of(
+                    histo("2026-03-02", "1378140.3800"),
+                    histo("2026-03-03", "1378257.0290"),
+                    histo("2026-03-05", "1380000.0000") // posterior a la fecha → se ignora
+                ));
+        given(macroRestTemplate.getForObject(anyString(),
+                eq(com.vectis.backend.dto.macro.ArgentinadatosFciHistoricoResponseDto.class)))
+                .willReturn(response);
+
+        Optional<FciFundDto> result = service.getVcpForDate(FONDO_NAME, fecha);
+
+        assertThat(result).isPresent();
+        assertThat(result.get().fondo()).isEqualTo(FONDO_NAME);
+        assertThat(result.get().vcp()).isEqualByComparingTo("1378257.0290");
+        assertThat(result.get().fecha()).isEqualTo(LocalDate.of(2026, 3, 3));
     }
 
     // ─── getLatestFciFunds ────────────────────────────────────────────────────

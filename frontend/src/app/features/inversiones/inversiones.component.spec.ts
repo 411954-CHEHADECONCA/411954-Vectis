@@ -846,6 +846,42 @@ describe('InversionesComponent', () => {
       expect(investSpy.addValuation).not.toHaveBeenCalled();
     });
 
+    it('_seedTodayValuation persiste la valuación PPI en la FECHA REAL del cierre (no hoy)', () => {
+      const asset: InvestmentResponse = {
+        ...MOCK_ASSETS[1], // LETRA
+        autoTrack: true,
+        externalId: 'S31L6',
+        valuations: [],
+      };
+      // Cierre real de un instrumento ilíquido: hace semanas, no hoy.
+      investSpy.getInstrumentPrice.and.returnValue(of({ pricePerUnit: 1650, fecha: '2026-05-22' }));
+      investSpy.addValuation.and.returnValue(of(asset));
+
+      component['_seedTodayValuation'](asset);
+
+      expect(investSpy.addValuation).toHaveBeenCalledWith(
+        asset.id,
+        jasmine.objectContaining({ valuationDate: '2026-05-22', pricePerUnit: 1650 }),
+      );
+    });
+
+    it('_seedTodayValuation NO re-persiste si ya existe una valuación en esa fecha (evita 409)', () => {
+      const asset: InvestmentResponse = {
+        ...MOCK_ASSETS[1],
+        autoTrack: true,
+        externalId: 'S31L6',
+        valuations: [
+          { id: 'v', valuationDate: '2026-05-22', pricePerUnit: 1650, source: 'MANUAL', createdAt: '' },
+        ],
+      };
+      investSpy.getInstrumentPrice.and.returnValue(of({ pricePerUnit: 1650, fecha: '2026-05-22' }));
+      investSpy.addValuation.calls.reset();
+
+      component['_seedTodayValuation'](asset);
+
+      expect(investSpy.addValuation).not.toHaveBeenCalled();
+    });
+
     it('addPendingMovementCP con SUSCRIPCION envía pricePerUnit en el payload de addMovement', () => {
       const cpAsset: InvestmentResponse = {
         ...MOCK_ASSETS[0],
@@ -1289,7 +1325,7 @@ describe('InversionesComponent', () => {
       expect(component.modal()).toBeNull();
     });
 
-    it('al crear LETRA sin amount no llama addMovement', () => {
+    it('al crear LETRA MANUAL sin amount no llama addMovement (compra inicial opcional en manual)', () => {
       const savedAsset: InvestmentResponse = {
         ...MOCK_ASSETS[1], id: 'nueva-letra-sin-mov', type: 'LETRA',
         purchaseDate: '2026-06-01', maturityDate: '2026-12-31',
@@ -1308,6 +1344,25 @@ describe('InversionesComponent', () => {
       expect(investSpy.createInvestment).toHaveBeenCalled();
       expect(investSpy.addMovement).not.toHaveBeenCalled();
       expect(component.modal()).toBeNull();
+    });
+
+    it('al crear LETRA con seguimiento AUTO sin compra inicial, bloquea el submit y muestra error', () => {
+      investSpy.createInvestment.calls.reset();
+      investSpy.addMovement.calls.reset();
+
+      component.openCreate();
+      component.selectType('LETRA'); // por defecto trackingMode = 'auto'
+      component.letraForm.patchValue({ name: 'LECAP Test', purchaseDate: '2026-06-01', maturityDate: '2026-12-31' });
+      component.letraForm.controls.externalId.setValue('S31L6'); // simula selección de instrumento
+      // addMovementCPForm vacío → sin compra inicial
+
+      component.submit();
+
+      // No se crea nada; se informa el error y el modal sigue abierto.
+      expect(investSpy.createInvestment).not.toHaveBeenCalled();
+      expect(investSpy.addMovement).not.toHaveBeenCalled();
+      expect(component.formError()).toContain('compra inicial');
+      expect(component.modal()).not.toBeNull();
     });
 
   });

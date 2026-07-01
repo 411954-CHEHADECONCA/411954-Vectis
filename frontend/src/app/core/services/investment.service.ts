@@ -81,9 +81,11 @@ export class InvestmentService {
       .pipe(catchError(() => of(null)));
   }
 
-  getInstrumentPrice(ticker: string, type: string, fecha: string): Observable<{ pricePerUnit: number } | null> {
+  getInstrumentPrice(
+    ticker: string, type: string, fecha: string,
+  ): Observable<{ pricePerUnit: number; fecha: string } | null> {
     return this.http
-      .get<{ pricePerUnit: number }>(
+      .get<{ pricePerUnit: number; fecha: string }>(
         `${this.baseUrl}/market/instrument-price`,
         { params: { ticker, type, fecha } },
       )
