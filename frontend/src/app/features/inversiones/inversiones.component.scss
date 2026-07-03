@@ -121,11 +121,11 @@
 
 .kpi-grid {
   display: grid;
-  grid-template-columns: repeat(3, 1fr);
+  grid-template-columns: repeat(4, 1fr);
   gap: 18px;
 
-  @media (max-width: 860px) { grid-template-columns: 1fr 1fr; }
-  @media (max-width: 560px) { grid-template-columns: 1fr; }
+  @media (max-width: 1100px) { grid-template-columns: repeat(2, 1fr); }
+  @media (max-width: 560px)  { grid-template-columns: 1fr; }
 }
 
 // ── KPI Card ──────────────────────────────────────────────────────────────────
@@ -166,20 +166,13 @@
   font-size: var(--text-caption);
   font-weight: var(--weight-medium);
   color: var(--color-text-muted);
-  text-transform: uppercase;
-  letter-spacing: 0.07em;
+  letter-spacing: 0;
 }
 
 .kpi-card__value {
   display: flex;
   flex-direction: column;
   gap: 4px;
-}
-
-.kpi-card__value--row {
-  flex-direction: row;
-  align-items: baseline;
-  gap: 10px;
 }
 
 .kpi-dot {
@@ -190,9 +183,10 @@
   flex-shrink: 0;
 }
 
-.kpi-dot--primary   { background: var(--color-primary); }
-.kpi-dot--secondary { background: var(--color-secondary, #9ed1c5); }
-.kpi-dot--tertiary  { background: var(--color-tertiary, #b2dbd2); }
+.kpi-dot--primary    { background: var(--color-primary); }
+.kpi-dot--secondary  { background: var(--color-secondary, #9ed1c5); }
+.kpi-dot--tertiary   { background: var(--color-tertiary, #b2dbd2); }
+.kpi-dot--quaternary { background: var(--color-warning); }
 
 .kpi-icon {
   color: var(--color-text-muted);
@@ -215,6 +209,7 @@
 
 .kpi-badge {
   display: inline-flex;
+  align-self: flex-start;
   align-items: center;
   background: color-mix(in srgb, var(--color-primary) 12%, transparent);
   color: var(--color-primary);
@@ -223,6 +218,11 @@
   font-size: var(--text-body-lg, var(--text-sm));
   font-weight: var(--weight-bold);
   font-variant-numeric: tabular-nums;
+}
+
+.kpi-badge--negative {
+  background: color-mix(in srgb, var(--color-error) 12%, transparent);
+  color: var(--color-error);
 }
 
 .kpi-realrate-label {
@@ -301,8 +301,7 @@
   padding: 9px 12px;
   font-size: var(--text-overline);
   font-weight: var(--weight-bold);
-  text-transform: uppercase;
-  letter-spacing: 0.07em;
+  letter-spacing: 0;
   color: var(--color-text-muted);
   border-bottom: 1px solid var(--color-outline-variant);
   white-space: nowrap;
@@ -402,6 +401,9 @@
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
+  // Tope de ancho: sin él, el nowrap fuerza a la tabla a ensanchar la columna
+  // al largo del nombre completo y aparece scroll horizontal.
+  max-width: 220px;
 }
 
 .asset-type {
@@ -469,8 +471,7 @@
 .detail-label {
   display: block;
   font-size: var(--text-overline);
-  text-transform: uppercase;
-  letter-spacing: 0.07em;
+  letter-spacing: 0;
   color: var(--color-text-muted);
   margin-bottom: 4px;
 }
@@ -1130,52 +1131,6 @@
   color: var(--color-on-surface-variant);
 }
 
-.tramo-preview {
-  display: flex;
-  gap: var(--space-6, 24px);
-  margin-top: var(--space-4, 16px);
-  padding: var(--space-3, 12px) var(--space-4, 16px);
-  background: color-mix(in srgb, var(--color-primary) 8%, transparent);
-  border: 1px solid color-mix(in srgb, var(--color-primary) 22%, transparent);
-  border-radius: var(--radius);
-}
-
-.tramo-preview__item {
-  display: flex;
-  flex-direction: column;
-  gap: 2px;
-
-  .detail-value { font-variant-numeric: tabular-nums; }
-}
-
-.tramo-override-tag {
-  display: inline-block;
-  margin-left: 4px;
-  padding: 1px 6px;
-  font-size: var(--text-overline, 10px);
-  font-weight: var(--weight-semibold);
-  text-transform: uppercase;
-  letter-spacing: 0.04em;
-  color: var(--color-tertiary);
-  background: color-mix(in srgb, var(--color-tertiary) 14%, transparent);
-  border-radius: var(--radius-sm, 4px);
-  vertical-align: middle;
-}
-
-.tramo-auto-tag {
-  display: inline-block;
-  margin-left: 4px;
-  padding: 1px 6px;
-  font-size: var(--text-overline, 10px);
-  font-weight: var(--weight-semibold);
-  text-transform: uppercase;
-  letter-spacing: 0.04em;
-  color: var(--color-secondary);
-  background: color-mix(in srgb, var(--color-secondary) 14%, transparent);
-  border-radius: var(--radius-sm, 4px);
-  vertical-align: middle;
-}
-
 // ── FCI balance preview ───────────────────────────────────────────────────────
 
 .fci-balance {
@@ -1235,8 +1190,7 @@
     padding: 7px 10px;
     font-size: var(--text-overline);
     font-weight: var(--weight-bold);
-    text-transform: uppercase;
-    letter-spacing: 0.07em;
+    letter-spacing: 0;
     color: var(--color-text-muted);
     border-bottom: 1px solid var(--color-outline-variant);
     text-align: left;
@@ -1265,21 +1219,40 @@
   > * + * { margin-left: 6px; }
 }
 
-// Celda "Hasta": fecha de cierre del tramo + badge del tipo de operación en línea,
-// para informar la operación sin sumar una columna (evita scroll horizontal).
+// Celda "Período": fecha inicio → fecha fin del tramo + badge del tipo de operación
+// en línea, para informar la operación sin sumar una columna (evita scroll horizontal).
 .tramo-hasta {
   display: inline-flex;
   flex-direction: row;
   align-items: center;
-  gap: 8px;
+  gap: 6px;
+}
 
-  // La fecha ocupa un ancho fijo (con cifras tabulares) para que TODOS los badges
-  // arranquen exactamente en el mismo pixel, sin importar el largo del texto.
-  > :first-child {
-    flex: 0 0 72px;
-    width: 72px;
-    font-variant-numeric: tabular-nums;
-  }
+// Ambas fechas ocupan un ancho fijo (con cifras tabulares) para que TODOS los badges
+// arranquen exactamente en el mismo pixel, sin importar el largo del texto.
+.tramo-hasta__date {
+  flex: 0 0 72px;
+  width: 72px;
+  font-variant-numeric: tabular-nums;
+}
+
+.tramo-hasta__arrow {
+  flex: 0 0 auto;
+  color: var(--color-text-muted);
+  font-size: var(--text-caption);
+}
+
+// Celda "Precio": precio inicial → precio final del tramo, flecha discreta separada
+// del texto (no pegada a los números) para que se lea como un rango, no como resta.
+.price-range {
+  display: inline-flex;
+  align-items: baseline;
+  gap: 6px;
+}
+
+.price-range__arrow {
+  color: var(--color-text-muted);
+  font-size: 0.85em;
 }
 
 .tramo-cell--highlight {
@@ -1296,8 +1269,7 @@
 .tramo-current-label {
   font-size: var(--text-overline);
   font-weight: var(--weight-bold);
-  text-transform: uppercase;
-  letter-spacing: 0.07em;
+  letter-spacing: 0;
   color: var(--color-primary);
 }
 
@@ -1316,8 +1288,7 @@
 
 .tramos-summary__label {
   font-size: var(--text-overline);
-  text-transform: uppercase;
-  letter-spacing: 0.07em;
+  letter-spacing: 0;
   color: var(--color-text-muted);
 }
 

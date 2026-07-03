@@ -19,6 +19,7 @@
         <div class="skeleton-block" style="height: 120px;"></div>
         <div class="skeleton-block" style="height: 120px;"></div>
         <div class="skeleton-block" style="height: 120px;"></div>
+        <div class="skeleton-block" style="height: 120px;"></div>
       </div>
       <div class="skeleton-block" style="height: 300px;"></div>
     </div>
@@ -41,15 +42,15 @@
       <div class="kpi-card">
         <div class="kpi-card__header">
           <span class="kpi-card__label">
-            <span class="kpi-dot kpi-dot--secondary"></span>Capital invertido · ARS
+            <span class="kpi-dot kpi-dot--secondary"></span>Capital invertido · {{ currencyService.selected() }}
           </span>
           <svg lucideWallet [size]="18" class="kpi-icon"></svg>
         </div>
         <div class="kpi-card__value">
-          <span class="kpi-metric">{{ fmtARS(capitalARS()) }}</span>
+          <span class="kpi-metric">{{ currencyService.selected() === 'USD' ? fmtUSD(capitalMostrado()) : fmtARS(capitalMostrado()) }}</span>
         </div>
-        @if (capitalUSD() > 0) {
-          <span class="kpi-sub">+ ≈ {{ fmtUSD(capitalUSD()) }} en USD</span>
+        @if (capitalARS() > 0 && capitalUSD() > 0) {
+          <span class="kpi-sub">{{ fmtARS(capitalARS()) }} ARS + {{ fmtUSD(capitalUSD()) }} USD</span>
         } @else {
           <span class="kpi-sub">{{ assets().length }} instrumento{{ assets().length === 1 ? '' : 's' }}</span>
         }
@@ -58,44 +59,60 @@
       <div class="kpi-card">
         <div class="kpi-card__header">
           <span class="kpi-card__label">
-            <span class="kpi-dot kpi-dot--primary"></span>Variación mensual estimada
+            <span class="kpi-dot kpi-dot--primary"></span>Ganancia del mes
           </span>
           <svg lucideTrendingUp [size]="18" class="kpi-icon"></svg>
         </div>
-        <div class="kpi-card__value kpi-card__value--row">
-          <span class="kpi-metric kpi-metric--primary">{{ fmtARS(variacionMes()) }}</span>
-          <span class="kpi-badge">+{{ fmtPct(variacionPct()) }}</span>
+        <div class="kpi-card__value">
+          <span class="kpi-metric kpi-metric--primary">{{ currencyService.selected() === 'USD' ? fmtUSD(gananciaMesActual()) : fmtARS(gananciaMesActual()) }}</span>
         </div>
-        <span class="kpi-sub">Estimación basada en TNA mensual · ARS</span>
+      </div>
+
+      <div class="kpi-card">
+        <div class="kpi-card__header">
+          <span class="kpi-card__label">
+            <span class="kpi-dot kpi-dot--quaternary"></span>Estimación del mes
+          </span>
+          <svg lucideChartLine [size]="18" class="kpi-icon"></svg>
+        </div>
+        <div class="kpi-card__value">
+          <span class="kpi-metric">{{ currencyService.selected() === 'USD' ? fmtUSD(gananciaMesEstimada()) : fmtARS(gananciaMesEstimada()) }}</span>
+        </div>
+        @if (variacionEstimadaPct() !== null) {
+          <span class="kpi-badge" [class.kpi-badge--negative]="variacionEstimadaPct()! < 0">
+            {{ variacionEstimadaPct()! >= 0 ? '+' : '−' }}{{ fmtPct(Math.abs(variacionEstimadaPct()!)) }}
+          </span>
+        }
+        <span class="kpi-sub">vs. {{ currencyService.selected() === 'USD' ? fmtUSD(gananciaMesAnterior()) : fmtARS(gananciaMesAnterior()) }} el mes pasado · {{ currencyService.selected() }}</span>
       </div>
 
       <div
         class="kpi-card kpi-card--gradient"
-        [class.kpi-card--positive]="(realRate() ?? 0) >= 0"
-        [class.kpi-card--negative]="(realRate() ?? 0) < 0"
+        [class.kpi-card--positive]="(tasaRealMensual() ?? 0) >= 0"
+        [class.kpi-card--negative]="(tasaRealMensual() ?? 0) < 0"
       >
         <div class="kpi-card__header">
           <span class="kpi-card__label">
-            <span class="kpi-dot kpi-dot--tertiary"></span>Tasa real vs. inflación
+            <span class="kpi-dot kpi-dot--tertiary"></span>Tasa real mensual
           </span>
-          @if ((realRate() ?? 0) >= 0) {
+          @if ((tasaRealMensual() ?? 0) >= 0) {
             <svg lucideChartNoAxesColumn [size]="18" class="kpi-icon"></svg>
           } @else {
             <svg lucideChartNoAxesColumn [size]="18" class="kpi-icon kpi-icon--error"></svg>
           }
         </div>
-        @if (realRate() !== null) {
+        @if (tasaRealMensual() !== null) {
           <div class="kpi-card__value">
             <span
               class="kpi-metric"
-              [class.kpi-metric--primary]="realRate()! >= 0"
-              [class.kpi-metric--error]="realRate()! < 0"
+              [class.kpi-metric--primary]="tasaRealMensual()! >= 0"
+              [class.kpi-metric--error]="tasaRealMensual()! < 0"
             >
-              {{ realRate()! >= 0 ? '+' : '−' }}{{ fmtPct(Math.abs(realRate()!)) }}
+              {{ tasaRealMensual()! >= 0 ? '+' : '−' }}{{ fmtPct(Math.abs(tasaRealMensual()!)) }}
             </span>
-            <span class="kpi-realrate-label">real · ARS</span>
+            <span class="kpi-realrate-label">real · mensual · {{ currencyService.selected() }}</span>
           </div>
-          <span class="kpi-sub">TEA pond. {{ fmtPct(teaPromedioARS()) }} − IPC {{ ipc()?.monthlyRate }}% mens.</span>
+          <span class="kpi-sub">Rendimiento {{ fmtPct(tasaEfectivaMensual()) }} − IPC {{ fmtPct(parseFloat(ipc()!.monthlyRate)) }} mens.</span>
         } @else {
           <div class="kpi-card__value"><span class="kpi-metric kpi-metric--muted">—</span></div>
           <span class="kpi-sub">Sin datos de inflación disponibles</span>
@@ -134,9 +151,10 @@
               <tr>
                 <th class="th--left"  style="min-width: 165px">Activo</th>
                 <th class="th--right" style="width: 48px">Días</th>
-                <th class="th--right" style="min-width: 110px">Saldo Base</th>
+                <th class="th--right" style="min-width: 110px">Capital actual</th>
                 <th class="th--right" style="min-width: 120px">Intereses ($)</th>
                 <th class="th--right" style="min-width: 80px">T.E. Per.</th>
+                <th class="th--right" style="min-width: 68px">TNA</th>
                 <th class="th--right" style="min-width: 72px">T.E.A.</th>
                 <th class="th--right" style="min-width: 68px">TIR</th>
                 <th></th>
@@ -170,7 +188,7 @@
                       }
                     </span>
                     <span class="asset-info">
-                      <span class="asset-name">
+                      <span class="asset-name" [title]="asset.name">
                         {{ asset.name }}
                       </span>
                       <span class="asset-type">{{ ASSET_TYPE_LABELS[asset.type] }}</span>
@@ -186,12 +204,13 @@
                   </td>
                   <td class="asset-cell asset-cell--num">{{ diasPeriodo(asset) }}</td>
                   <td class="asset-cell asset-cell--num">
-                    {{ asset.currency === 'ARS' ? fmtARS(saldoBase(asset)) : fmtUSD(saldoBase(asset)) }}
+                    {{ fmtMontoSel(saldoBase(asset), asset.currency) }}
                   </td>
                   <td class="asset-cell asset-cell--num asset-cell--highlight">
-                    {{ asset.currency === 'ARS' ? fmtARS(calcIntereses(asset)) : fmtUSD(calcIntereses(asset)) }}
+                    {{ fmtMontoSel(calcIntereses(asset), asset.currency) }}
                   </td>
                   <td class="asset-cell asset-cell--num">{{ fmtPct(calcTEPeriodo(asset)) }}</td>
+                  <td class="asset-cell asset-cell--num">{{ fmtPct(calcTNA(asset)) }}</td>
                   <td class="asset-cell asset-cell--num asset-cell--highlight">{{ fmtPct(calcTEA(asset)) }}</td>
                   <td class="asset-cell asset-cell--num asset-cell--highlight">{{ fmtPct(calcTIR(asset)) }}</td>
                   <td class="asset-cell asset-cell--actions">
@@ -249,17 +268,6 @@
                               @if (asset.accountName) {
                                 <span class="detail-account">Cuenta: {{ asset.accountName }}</span>
                               }
-                              @if (asset.movements.length) {
-                                <button
-                                  type="button"
-                                  class="btn-add-mov btn-add-mov--inline"
-                                  (click)="openCreateTramoModal(asset)"
-                                  title="Crear tramo a una fecha"
-                                >
-                                  <svg lucidePlus [size]="14"></svg>
-                                  Crear tramo
-                                </button>
-                              }
                             </div>
                             <div class="tramos-scroll">
                               <table class="tramos-table">
@@ -307,15 +315,15 @@
                                       </td>
                                       <td class="tramo-cell tramo-cell--num">
                                         @if (tramo.mov) {
-                                          {{ asset.currency === 'ARS' ? fmtARS(tramo.mov.amount) : fmtUSD(tramo.mov.amount) }}
+                                          {{ fmtMontoSel(tramo.mov.amount, asset.currency) }}
                                         } @else { — }
                                       </td>
                                       <td class="tramo-cell tramo-cell--num">{{ tramo.dias }}</td>
                                       <td class="tramo-cell tramo-cell--num">
-                                        {{ asset.currency === 'ARS' ? fmtARS(tramo.saldo) : fmtUSD(tramo.saldo) }}
+                                        {{ fmtMontoSel(tramo.saldo, asset.currency) }}
                                       </td>
                                       <td class="tramo-cell tramo-cell--num tramo-cell--highlight">
-                                        {{ asset.currency === 'ARS' ? fmtARS(tramo.intereses) : fmtUSD(tramo.intereses) }}
+                                        {{ fmtMontoSel(tramo.intereses, asset.currency) }}
                                       </td>
                                       <td class="tramo-cell tramo-cell--num">
                                         @if (tramo.dias > 0 && tramo.saldo > 0) {
@@ -333,12 +341,6 @@
                                           >
                                             <svg lucidePen [size]="14"></svg>
                                           </button>
-                                          @if (tramo.mov.interestOverride != null) {
-                                            <span class="tramo-override-tag" title="Interés editado manualmente">editado</span>
-                                          }
-                                        }
-                                        @if (tramo.mov?.autoGenerated) {
-                                          <span class="tramo-auto-tag" title="Tramo generado al cerrar el mes">cierre de mes</span>
                                         }
                                       </td>
                                     </tr>
@@ -349,10 +351,10 @@
                                     <td colspan="3" class="tramo-cell tramos-summary__label">Resumen total</td>
                                     <td class="tramo-cell tramo-cell--num">{{ diasPeriodo(asset) }}</td>
                                     <td class="tramo-cell tramo-cell--num">
-                                      {{ asset.currency === 'ARS' ? fmtARS(calcSaldoFCI(asset)) : fmtUSD(calcSaldoFCI(asset)) }}
+                                      {{ fmtMontoSel(calcSaldoFCI(asset), asset.currency) }}
                                     </td>
                                     <td class="tramo-cell tramo-cell--num tramo-cell--highlight">
-                                      {{ asset.currency === 'ARS' ? fmtARS(calcIntereses(asset)) : fmtUSD(calcIntereses(asset)) }}
+                                      {{ fmtMontoSel(calcIntereses(asset), asset.currency) }}
                                     </td>
                                     <td class="tramo-cell tramo-cell--num tramo-cell--highlight">{{ fmtPct(calcTIR(asset)) }}</td>
                                     <td class="tramo-cell"></td>
@@ -368,6 +370,12 @@
                               <div class="cp-summary__item">
                                 <span class="detail-label">T.E. Mens.</span>
                                 <span class="detail-value">{{ fmtPct(asset.tna / 12) }}</span>
+                              </div>
+                              <div class="cp-summary__item">
+                                <span class="detail-label">Total (saldo + interés en curso)</span>
+                                <span class="detail-value detail-value--primary">
+                                  {{ fmtMontoSel(calcMontoTotal(asset), asset.currency) }}
+                                </span>
                               </div>
                             </div>
                           </div>
@@ -393,7 +401,7 @@
                                 </div>
                                 <div class="cp-summary__item">
                                   <span class="detail-label">Costo base</span>
-                                  <span class="detail-value">{{ asset.currency === 'ARS' ? fmtARS(asset.principal) : fmtUSD(asset.principal) }}</span>
+                                  <span class="detail-value">{{ fmtMontoSel(asset.principal, asset.currency) }}</span>
                                 </div>
                               </div>
                             } @else {
@@ -401,59 +409,65 @@
                                 <table class="tramos-table">
                                   <thead>
                                     <tr>
-                                      <th>Desde</th>
-                                      <th>Hasta</th>
+                                      <th>Período</th>
                                       <th class="th--right">Cuotapartes</th>
-                                      <th class="th--right">Precio ini.</th>
-                                      <th class="th--right">Precio fin.</th>
+                                      <th class="th--right">Precio</th>
                                       <th class="th--right">Días</th>
                                       <th class="th--right">Ganancia tramo</th>
+                                      <th class="th--right">Rend. período</th>
                                       <th class="th--right">TNA tramo</th>
                                       <th class="th--right">TEA tramo</th>
+                                      <th class="th--right">TIR acum.</th>
                                       <th></th>
                                     </tr>
                                   </thead>
                                   <tbody>
                                     @for (tramo of calcTramosCP(asset); track $index) {
                                       <tr [class.tramo-row--current]="tramo.enCurso">
-                                        <td class="tramo-cell">{{ fmtDate(tramo.startDate) }}</td>
                                         <td class="tramo-cell">
                                           <div class="tramo-hasta">
+                                            <span class="tramo-hasta__date">{{ fmtDate(tramo.startDate) }}</span>
+                                            <span class="tramo-hasta__arrow">→</span>
+                                            <span class="tramo-hasta__date">{{ fmtDate(tramo.endDate) }}</span>
                                             @if (tramo.enCurso) {
-                                              <span class="tramo-current-label">Hoy</span>
                                               <span class="mov-badge mov-badge--encurso">En curso</span>
                                             } @else {
-                                              <span>{{ fmtDate(tramo.endDate) }}</span>
                                               @switch (tramo.endEvent) {
                                                 @case ('SUSCRIPCION') { <span class="mov-badge mov-badge--suscripcion">Suscripción</span> }
                                                 @case ('RESCATE')     { <span class="mov-badge mov-badge--rescate">Rescate</span> }
                                                 @case ('REVALUO')     { <span class="mov-badge mov-badge--revaluo">Revalúo</span> }
                                                 @case ('VALUACION')   { <span class="mov-badge mov-badge--valuacion">Valuación</span> }
                                               }
-                                              @if (tramo.endAutoGenerated) {
-                                                <span class="tramo-auto-tag" title="Tramo generado al cerrar el mes">cierre de mes</span>
-                                              }
                                             }
                                           </div>
                                         </td>
                                         <td class="tramo-cell tramo-cell--num">{{ tramo.units | number:'1.4-6':'es-AR' }}</td>
-                                        <td class="tramo-cell tramo-cell--num">{{ asset.currency === 'ARS' ? fmtARS(tramo.startPrice) : fmtUSD(tramo.startPrice) }}</td>
                                         <td class="tramo-cell tramo-cell--num">
-                                          @if (tramo.enCurso) { <span class="tramo-current-label">—</span> }
-                                          @else { {{ asset.currency === 'ARS' ? fmtARS(tramo.endPrice) : fmtUSD(tramo.endPrice) }} }
+                                          <span class="price-range">
+                                            <span>{{ asset.currency === 'ARS' ? fmtARSPrecio(tramo.startPrice) : fmtUSDPrecio(tramo.startPrice) }}</span>
+                                            <span class="price-range__arrow">→</span>
+                                            <span>{{ asset.currency === 'ARS' ? fmtARSPrecio(tramo.endPrice) : fmtUSDPrecio(tramo.endPrice) }}</span>
+                                          </span>
                                         </td>
                                         <td class="tramo-cell tramo-cell--num">{{ tramo.dias }}</td>
                                         <td class="tramo-cell tramo-cell--num tramo-cell--highlight">
-                                          @if (tramo.enCurso) { — }
-                                          @else { {{ asset.currency === 'ARS' ? fmtARS(tramo.ganancia) : fmtUSD(tramo.ganancia) }} }
+                                          {{ fmtMontoSel(tramo.ganancia, asset.currency) }}
                                         </td>
                                         <td class="tramo-cell tramo-cell--num">
-                                          @if (tramo.enCurso || tramo.dias === 0) { — }
+                                          @if (tramo.dias === 0) { — }
+                                          @else { {{ fmtPct(tramo.tasaEfectiva) }} }
+                                        </td>
+                                        <td class="tramo-cell tramo-cell--num">
+                                          @if (tramo.dias === 0) { — }
                                           @else { {{ fmtPct(tramo.tna) }} }
                                         </td>
                                         <td class="tramo-cell tramo-cell--num tramo-cell--highlight">
-                                          @if (tramo.enCurso || tramo.dias === 0) { — }
+                                          @if (tramo.dias === 0) { — }
                                           @else { {{ fmtPct(tramo.tea) }} }
+                                        </td>
+                                        <td class="tramo-cell tramo-cell--num tramo-cell--highlight">
+                                          @if (tramo.dias === 0) { — }
+                                          @else { {{ fmtPct(tramo.tirAcumulada) }} }
                                         </td>
                                         <td class="tramo-cell tramo-cell--actions">
                                           @if (tramo.revaluoMovId && modal()?.id) {
@@ -471,13 +485,14 @@
                                   </tbody>
                                   <tfoot>
                                     <tr class="tramos-summary">
-                                      <td colspan="3" class="tramo-cell tramos-summary__label">Resumen total</td>
-                                      <td class="tramo-cell"></td>
+                                      <td colspan="2" class="tramo-cell tramos-summary__label">Resumen total</td>
                                       <td class="tramo-cell"></td>
                                       <td class="tramo-cell tramo-cell--num">{{ diasPeriodo(asset) }}</td>
                                       <td class="tramo-cell tramo-cell--num tramo-cell--highlight">
-                                        {{ asset.currency === 'ARS' ? fmtARS(calcGananciaCP(asset)) : fmtUSD(calcGananciaCP(asset)) }}
+                                        {{ fmtMontoSel(calcGananciaCP(asset), asset.currency) }}
                                       </td>
+                                      <td class="tramo-cell"></td>
+                                      <td class="tramo-cell"></td>
                                       <td class="tramo-cell tramo-cell--num tramo-cell--highlight">{{ fmtPct(calcTEA(asset)) }}</td>
                                       <td class="tramo-cell tramo-cell--num tramo-cell--highlight">{{ fmtPct(calcTIR(asset)) }}</td>
                                       <td class="tramo-cell"></td>
@@ -495,17 +510,17 @@
                                 <div class="cp-summary__item">
                                   <span class="detail-label">Valor de mercado</span>
                                   <span class="detail-value detail-value--primary">
-                                    {{ asset.currency === 'ARS' ? fmtARS(calcValorActualCP(asset)) : fmtUSD(calcValorActualCP(asset)) }}
+                                    {{ fmtMontoSel(calcValorActualCP(asset), asset.currency) }}
                                   </span>
                                 </div>
                                 <div class="cp-summary__item">
                                   <span class="detail-label">Costo base</span>
-                                  <span class="detail-value">{{ asset.currency === 'ARS' ? fmtARS(asset.principal) : fmtUSD(asset.principal) }}</span>
+                                  <span class="detail-value">{{ fmtMontoSel(asset.principal, asset.currency) }}</span>
                                 </div>
                                 <div class="cp-summary__item">
                                   <span class="detail-label">Ganancia total</span>
                                   <span class="detail-value detail-value--primary">
-                                    {{ asset.currency === 'ARS' ? fmtARS(calcGananciaCP(asset)) : fmtUSD(calcGananciaCP(asset)) }}
+                                    {{ fmtMontoSel(calcGananciaCP(asset), asset.currency) }}
                                   </span>
                                 </div>
                               </div>
@@ -537,7 +552,7 @@
                                 </div>
                                 <div class="cp-summary__item">
                                   <span class="detail-label">Costo base</span>
-                                  <span class="detail-value">{{ asset.currency === 'ARS' ? fmtARS(asset.principal) : fmtUSD(asset.principal) }}</span>
+                                  <span class="detail-value">{{ fmtMontoSel(asset.principal, asset.currency) }}</span>
                                 </div>
                               </div>
                             } @else {
@@ -545,71 +560,78 @@
                                 <table class="tramos-table">
                                   <thead>
                                     <tr>
-                                      <th>Desde</th>
-                                      <th>Hasta</th>
+                                      <th>Período</th>
                                       <th class="th--right">Nominales</th>
-                                      <th class="th--right">Precio ini.</th>
-                                      <th class="th--right">Precio fin.</th>
+                                      <th class="th--right">Precio</th>
                                       <th class="th--right">Días</th>
                                       <th class="th--right">Ganancia tramo</th>
+                                      <th class="th--right">Rend. período</th>
                                       <th class="th--right">TNA tramo</th>
                                       <th class="th--right">TEA tramo</th>
+                                      <th class="th--right">TIR acum.</th>
                                     </tr>
                                   </thead>
                                   <tbody>
                                     @for (tramo of calcTramosCP(asset); track $index) {
                                       <tr [class.tramo-row--current]="tramo.enCurso">
-                                        <td class="tramo-cell">{{ fmtDate(tramo.startDate) }}</td>
                                         <td class="tramo-cell">
                                           <div class="tramo-hasta">
+                                            <span class="tramo-hasta__date">{{ fmtDate(tramo.startDate) }}</span>
+                                            <span class="tramo-hasta__arrow">→</span>
+                                            <span class="tramo-hasta__date">{{ fmtDate(tramo.endDate) }}</span>
                                             @if (tramo.enCurso) {
-                                              <span class="tramo-current-label">Hoy</span>
                                               <span class="mov-badge mov-badge--encurso">En curso</span>
                                             } @else {
-                                              <span>{{ fmtDate(tramo.endDate) }}</span>
                                               @switch (tramo.endEvent) {
                                                 @case ('SUSCRIPCION') { <span class="mov-badge mov-badge--suscripcion">Suscripción</span> }
                                                 @case ('RESCATE')     { <span class="mov-badge mov-badge--rescate">Rescate</span> }
                                                 @case ('REVALUO')     { <span class="mov-badge mov-badge--revaluo">Revalúo</span> }
                                                 @case ('VALUACION')   { <span class="mov-badge mov-badge--valuacion">Valuación</span> }
                                               }
-                                              @if (tramo.endAutoGenerated) {
-                                                <span class="tramo-auto-tag" title="Tramo generado al cerrar el mes">cierre de mes</span>
-                                              }
                                             }
                                           </div>
                                         </td>
                                         <td class="tramo-cell tramo-cell--num">{{ tramo.units | number:'1.4-6':'es-AR' }}</td>
-                                        <td class="tramo-cell tramo-cell--num">{{ asset.currency === 'ARS' ? fmtARS(tramo.startPrice) : fmtUSD(tramo.startPrice) }}</td>
                                         <td class="tramo-cell tramo-cell--num">
-                                          @if (tramo.enCurso) { <span class="tramo-current-label">—</span> }
-                                          @else { {{ asset.currency === 'ARS' ? fmtARS(tramo.endPrice) : fmtUSD(tramo.endPrice) }} }
+                                          <span class="price-range">
+                                            <span>{{ asset.currency === 'ARS' ? fmtARSPrecio(tramo.startPrice) : fmtUSDPrecio(tramo.startPrice) }}</span>
+                                            <span class="price-range__arrow">→</span>
+                                            <span>{{ asset.currency === 'ARS' ? fmtARSPrecio(tramo.endPrice) : fmtUSDPrecio(tramo.endPrice) }}</span>
+                                          </span>
                                         </td>
                                         <td class="tramo-cell tramo-cell--num">{{ tramo.dias }}</td>
                                         <td class="tramo-cell tramo-cell--num tramo-cell--highlight">
-                                          @if (tramo.enCurso) { — }
-                                          @else { {{ asset.currency === 'ARS' ? fmtARS(tramo.ganancia) : fmtUSD(tramo.ganancia) }} }
+                                          {{ fmtMontoSel(tramo.ganancia, asset.currency) }}
                                         </td>
                                         <td class="tramo-cell tramo-cell--num">
-                                          @if (tramo.enCurso || tramo.dias === 0) { — }
+                                          @if (tramo.dias === 0) { — }
+                                          @else { {{ fmtPct(tramo.tasaEfectiva) }} }
+                                        </td>
+                                        <td class="tramo-cell tramo-cell--num">
+                                          @if (tramo.dias === 0) { — }
                                           @else { {{ fmtPct(tramo.tna) }} }
                                         </td>
                                         <td class="tramo-cell tramo-cell--num tramo-cell--highlight">
-                                          @if (tramo.enCurso || tramo.dias === 0) { — }
+                                          @if (tramo.dias === 0) { — }
                                           @else { {{ fmtPct(tramo.tea) }} }
+                                        </td>
+                                        <td class="tramo-cell tramo-cell--num tramo-cell--highlight">
+                                          @if (tramo.dias === 0) { — }
+                                          @else { {{ fmtPct(tramo.tirAcumulada) }} }
                                         </td>
                                       </tr>
                                     }
                                   </tbody>
                                   <tfoot>
                                     <tr class="tramos-summary">
-                                      <td colspan="3" class="tramo-cell tramos-summary__label">Resumen total</td>
-                                      <td class="tramo-cell"></td>
+                                      <td colspan="2" class="tramo-cell tramos-summary__label">Resumen total</td>
                                       <td class="tramo-cell"></td>
                                       <td class="tramo-cell tramo-cell--num">{{ diasPeriodo(asset) }}</td>
                                       <td class="tramo-cell tramo-cell--num tramo-cell--highlight">
-                                        {{ asset.currency === 'ARS' ? fmtARS(calcGananciaCP(asset)) : fmtUSD(calcGananciaCP(asset)) }}
+                                        {{ fmtMontoSel(calcGananciaCP(asset), asset.currency) }}
                                       </td>
+                                      <td class="tramo-cell"></td>
+                                      <td class="tramo-cell"></td>
                                       <td class="tramo-cell tramo-cell--num tramo-cell--highlight">{{ fmtPct(calcTEA(asset)) }}</td>
                                       <td class="tramo-cell tramo-cell--num tramo-cell--highlight">{{ fmtPct(calcTIR(asset)) }}</td>
                                     </tr>
@@ -631,17 +653,17 @@
                                 <div class="cp-summary__item">
                                   <span class="detail-label">Valor de mercado</span>
                                   <span class="detail-value detail-value--primary">
-                                    {{ asset.currency === 'ARS' ? fmtARS(calcValorActualCP(asset)) : fmtUSD(calcValorActualCP(asset)) }}
+                                    {{ fmtMontoSel(calcValorActualCP(asset), asset.currency) }}
                                   </span>
                                 </div>
                                 <div class="cp-summary__item">
                                   <span class="detail-label">Costo base</span>
-                                  <span class="detail-value">{{ asset.currency === 'ARS' ? fmtARS(asset.principal) : fmtUSD(asset.principal) }}</span>
+                                  <span class="detail-value">{{ fmtMontoSel(asset.principal, asset.currency) }}</span>
                                 </div>
                                 <div class="cp-summary__item">
                                   <span class="detail-label">Ganancia total</span>
                                   <span class="detail-value detail-value--primary">
-                                    {{ asset.currency === 'ARS' ? fmtARS(calcGananciaCP(asset)) : fmtUSD(calcGananciaCP(asset)) }}
+                                    {{ fmtMontoSel(calcGananciaCP(asset), asset.currency) }}
                                   </span>
                                 </div>
                               </div>
@@ -674,6 +696,18 @@
                             <div>
                               <span class="detail-label">T.E. Mens.</span>
                               <span class="detail-value">{{ fmtPct(asset.tna / 12) }}</span>
+                            </div>
+                            <div>
+                              <span class="detail-label">Intereses al venc.</span>
+                              <span class="detail-value">
+                                {{ fmtMontoSel(calcInteresesVencimiento(asset), asset.currency) }}
+                              </span>
+                            </div>
+                            <div>
+                              <span class="detail-label">Monto al venc.</span>
+                              <span class="detail-value detail-value--primary">
+                                {{ fmtMontoSel(calcMontoTotal(asset), asset.currency) }}
+                              </span>
                             </div>
                           </div>
                         }
@@ -886,18 +920,14 @@
                 <div class="pf-preview__item">
                   <span class="pf-preview__label">Intereses estimados</span>
                   <span class="pf-preview__value">
-                    {{ plazoFijoForm.controls.currency.value === 'ARS'
-                       ? fmtARS(interesesCalculados())
-                       : fmtUSD(interesesCalculados()) }}
+                    {{ fmtMontoSel(interesesCalculados(), plazoFijoForm.controls.currency.value) }}
                   </span>
                 </div>
                 <div class="pf-preview__sep"></div>
                 <div class="pf-preview__item">
                   <span class="pf-preview__label">Monto al vencimiento</span>
                   <span class="pf-preview__value pf-preview__value--primary">
-                    {{ plazoFijoForm.controls.currency.value === 'ARS'
-                       ? fmtARS(montoTotalPreview())
-                       : fmtUSD(montoTotalPreview()) }}
+                    {{ fmtMontoSel(montoTotalPreview(), plazoFijoForm.controls.currency.value) }}
                   </span>
                 </div>
               </div>
@@ -1103,9 +1133,7 @@
                              : 'Rescate' }}
                         </span>
                         <span class="movements-list__amount">
-                          {{ fciForm.controls.currency.value === 'ARS'
-                             ? fmtARS(mov.amount)
-                             : fmtUSD(mov.amount) }}
+                          {{ fmtMontoSel(mov.amount, fciForm.controls.currency.value) }}
                         </span>
                         <button
                           type="button"
@@ -1121,9 +1149,7 @@
                   <div class="fci-balance">
                     <span class="fci-balance__label">Saldo actual</span>
                     <span class="fci-balance__value">
-                      {{ fciForm.controls.currency.value === 'ARS'
-                         ? fmtARS(calcSaldoFCI(modal()!.asset!))
-                         : fmtUSD(calcSaldoFCI(modal()!.asset!)) }}
+                      {{ fmtMontoSel(calcSaldoFCI(modal()!.asset!), fciForm.controls.currency.value) }}
                     </span>
                   </div>
                 } @else {
@@ -1414,7 +1440,7 @@
                           {{ mov.type === 'SUSCRIPCION' ? 'Suscripción' : mov.type === 'REVALUO' ? 'Revalúo' : 'Rescate' }}
                         </span>
                         <span class="movements-list__amount">
-                          {{ fciCPForm.controls.currency.value === 'ARS' ? fmtARS(mov.amount) : fmtUSD(mov.amount) }}
+                          {{ fmtMontoSel(mov.amount, fciCPForm.controls.currency.value) }}
                         </span>
                         @if (mov.units != null) {
                           <span class="movements-list__units">{{ mov.units | number:'1.4-6':'es-AR' }} CP</span>
@@ -1441,7 +1467,7 @@
                 </div>
                 @if (modal()?.asset?.valuations?.length) {
                   <div class="movements-list">
-                    @for (val of modal()!.asset!.valuations; track val.id) {
+                    @for (val of displayValuations(modal()!.asset!); track val.id) {
                       @if (editingValuationId() === val.id) {
                         <!-- Inline edit -->
                         <div class="add-mov-form val-edit-form" [formGroup]="addValuationForm">
@@ -1772,7 +1798,7 @@
                           {{ mov.type === 'SUSCRIPCION' ? 'Suscripción' : mov.type === 'REVALUO' ? 'Revalúo' : 'Rescate' }}
                         </span>
                         <span class="movements-list__amount">
-                          {{ letraForm.controls.currency.value === 'ARS' ? fmtARS(mov.amount) : fmtUSD(mov.amount) }}
+                          {{ fmtMontoSel(mov.amount, letraForm.controls.currency.value) }}
                         </span>
                         @if (mov.units != null) {
                           <span class="movements-list__units">{{ mov.units | number:'1.4-6':'es-AR' }} nom.</span>
@@ -1799,7 +1825,7 @@
                 </div>
                 @if (modal()?.asset?.valuations?.length) {
                   <div class="movements-list">
-                    @for (val of modal()!.asset!.valuations; track val.id) {
+                    @for (val of displayValuations(modal()!.asset!); track val.id) {
                       @if (editingValuationId() === val.id) {
                         <div class="add-mov-form val-edit-form" [formGroup]="addValuationForm">
                           <div class="add-mov-form__grid">
@@ -1970,9 +1996,12 @@
                     @if (addMovementForm.controls.type.value === 'RESCATE' && currentBalanceForMovement() > 0) {
                       <span class="field-hint">
                         Saldo disponible:
-                        {{ subAsset.currency === 'ARS'
-                           ? fmtARS(currentBalanceForMovement())
-                           : fmtUSD(currentBalanceForMovement()) }}
+                        {{ fmtMontoSel(currentBalanceForMovement(), subAsset.currency) }}
+                      </span>
+                    }
+                    @if (addMovementForm.controls.type.value === 'REVALUO') {
+                      <span class="field-hint">
+                        Precargado con el interés por T.N.A. hasta la fecha elegida. Podés ajustarlo.
                       </span>
                     }
                   </div>
@@ -2033,9 +2062,7 @@
                       @if (addMovementCPForm.controls.type.value === 'RESCATE' && currentBalanceForMovement() > 0) {
                         <span class="field-hint">
                           Saldo disponible:
-                          {{ subAsset.currency === 'ARS'
-                             ? fmtARS(currentBalanceForMovement())
-                             : fmtUSD(currentBalanceForMovement()) }}
+                          {{ fmtMontoSel(currentBalanceForMovement(), subAsset.currency) }}
                         </span>
                       }
                     </div>
@@ -2150,71 +2177,6 @@
           </div>
         }
 
-        @if (subModal()?.kind === 'create-tramo') {
-          @let subTramoAsset = subModal()!.asset;
-          @let preview = createTramoPreview();
-
-          <div class="modal-head">
-            <div>
-              <h3>Crear tramo</h3>
-              <p class="modal-sub">{{ subTramoAsset.name }}</p>
-            </div>
-            <button class="close-btn" (click)="closeSubModal()" type="button" aria-label="Cerrar">
-              <svg lucideX [size]="18"></svg>
-            </button>
-          </div>
-
-          <div class="modal-body">
-            <p class="modal-hint">
-              Generá un tramo a la fecha elegida. El interés del período se calcula automáticamente
-              con la T.N.A. ({{ fmtPct(subTramoAsset.tna) }}) y se capitaliza al saldo.
-            </p>
-            <div [formGroup]="createTramoForm">
-              <div class="cfg-field">
-                <label class="cfg-label" for="sub-tramo-date">Fecha del tramo</label>
-                <input
-                  id="sub-tramo-date"
-                  class="text-input"
-                  formControlName="movementDate"
-                  type="date"
-                  [min]="minMovementDate()"
-                  [max]="todayIso()"
-                />
-              </div>
-            </div>
-
-            @if (preview) {
-              <div class="tramo-preview">
-                <div class="tramo-preview__item">
-                  <span class="detail-label">Días</span>
-                  <span class="detail-value">{{ preview.dias }}</span>
-                </div>
-                <div class="tramo-preview__item">
-                  <span class="detail-label">Interés a capitalizar</span>
-                  <span class="detail-value tramo-cell--highlight">
-                    {{ subTramoAsset.currency === 'ARS' ? fmtARS(preview.interes) : fmtUSD(preview.interes) }}
-                  </span>
-                </div>
-              </div>
-            }
-            @if (movFormError()) {
-              <p class="form-error" role="alert">{{ movFormError() }}</p>
-            }
-          </div>
-
-          <div class="modal-footer">
-            <button type="button" class="btn-ghost" (click)="closeSubModal()">Cancelar</button>
-            <button
-              type="button"
-              class="btn-confirm"
-              [disabled]="createTramoForm.invalid || !preview || preview.dias <= 0"
-              (click)="submitCreateTramo()"
-            >
-              Crear tramo
-            </button>
-          </div>
-        }
-
         @if (subModal()?.kind === 'edit-tramo-interest') {
           @let subEditAsset = subModal()!.asset;
           @let editMov = subModal()!.mov!;
@@ -2231,7 +2193,7 @@
 
           <div class="modal-body">
             <p class="modal-hint">
-              @if (editMov.type === 'REVALUO') {
+              @if (subModal()!.editField === 'amount') {
                 Ajustá el interés realizado de este tramo (se capitaliza al saldo).
               } @else {
                 Ajustá el interés efectivamente generado en este tramo. No afecta a los demás tramos
@@ -2258,7 +2220,7 @@
           </div>
 
           <div class="modal-footer">
-            @if (editMov.type !== 'REVALUO' && editMov.interestOverride != null) {
+            @if (subModal()!.editField === 'override' && editMov.interestOverride != null) {
               <button type="button" class="btn-ghost" (click)="restoreTramoTNA()">Restaurar T.N.A.</button>
             }
             <button type="button" class="btn-ghost" (click)="closeSubModal()">Cancelar</button>

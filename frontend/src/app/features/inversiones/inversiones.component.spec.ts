@@ -102,9 +102,16 @@ function buildSpies() {
   macroSpy.getLatestOficialRate.and.returnValue(of(MOCK_RATE));
   macroSpy.getLatestMepRate.and.returnValue(of(MOCK_RATE));
 
-  const currencySpy = jasmine.createSpyObj<CurrencyService>('CurrencyService', [], {
+  const currencySpy = jasmine.createSpyObj<CurrencyService>('CurrencyService', ['convert', 'toggle'], {
     currentRateARS: signal<string | null>('1062.50'),
     selected:       signal<'ARS' | 'USD'>('ARS'),
+  });
+  currencySpy.convert.and.callFake((amount: number, fromCcy: 'ARS' | 'USD') => {
+    const sel = currencySpy.selected();
+    if (sel === fromCcy) return amount;
+    const rate = parseFloat(currencySpy.currentRateARS() ?? '');
+    if (!rate) return null;
+    return fromCcy === 'ARS' ? amount / rate : amount * rate;
   });
 
   return { investSpy, accountSpy, macroSpy, currencySpy };
@@ -115,13 +122,15 @@ function buildSpies() {
 describe('InversionesComponent', () => {
   let fixture:   ComponentFixture<InversionesComponent>;
   let component: InversionesComponent;
-  let investSpy: jasmine.SpyObj<InvestmentService>;
-  let macroSpy:  jasmine.SpyObj<MacroService>;
+  let investSpy:    jasmine.SpyObj<InvestmentService>;
+  let macroSpy:     jasmine.SpyObj<MacroService>;
+  let currencySpy:  jasmine.SpyObj<CurrencyService>;
 
   beforeEach(async () => {
     const spies = buildSpies();
-    investSpy = spies.investSpy;
-    macroSpy  = spies.macroSpy;
+    investSpy   = spies.investSpy;
+    macroSpy    = spies.macroSpy;
+    currencySpy = spies.currencySpy;
 
     await TestBed.configureTestingModule({
       imports: [InversionesComponent, ReactiveFormsModule],
@@ -160,6 +169,472 @@ describe('InversionesComponent', () => {
     // FCI inv-1: suscripcion 500k + suscripcion 100k = 600k
     // LETRA inv-2: principal 850k
     expect(component.capitalARS()).toBe(600000 + 850000);
+  });
+
+  // ── 2a. Capital activo (excluye vencidos y rescatados en su totalidad) ──────
+
+  describe('isActivo / capitalARS excluye vencidos y rescatados en su totalidad', () => {
+    it('excluye un PLAZO_FIJO vencido pero incluye uno vigente', () => {
+      const vencido: InvestmentResponse = {
+        id: 'pf-venc', name: 'PF Vencido', type: 'PLAZO_FIJO', currency: 'ARS',
+        principal: 500000, purchaseDate: '2025-01-01', maturityDate: '2025-06-01',
+        tna: 40, accountId: null, accountName: null, autoTrack: false, externalId: null,
+        createdAt: '', updatedAt: '', movements: [], valuations: [],
+      };
+      const vigente: InvestmentResponse = { ...vencido, id: 'pf-vig', maturityDate: '2099-01-01', principal: 300000 };
+      component.assets.set([vencido, vigente]);
+
+      expect(component.isActivo(vencido)).toBeFalse();
+      expect(component.isActivo(vigente)).toBeTrue();
+      expect(component.capitalARS()).toBe(300000);
+    });
+
+    it('excluye un FCI cuyo saldo neteó a 0 tras un rescate total (sigue en assets())', () => {
+      const fciCerrado: InvestmentResponse = {
+        ...MOCK_ASSETS[0], id: 'fci-cerrado',
+        movements: [
+          { id: 'm1', movementDate: '2026-01-01', type: 'SUSCRIPCION', amount: 100000, units: null, createdAt: '' },
+          { id: 'm2', movementDate: '2026-02-01', type: 'RESCATE',     amount: 100000, units: null, createdAt: '' },
+        ],
+      };
+      component.assets.set([fciCerrado]);
+
+      expect(component.isActivo(fciCerrado)).toBeFalse();
+      expect(component.capitalARS()).toBe(0);
+      expect(component.assets().length).toBe(1);
+    });
+
+    it('excluye una LETRA vencida aunque tenga nominales sin rescatar (saldo > 0)', () => {
+      const letraVencida: InvestmentResponse = { ...MOCK_ASSETS[1], id: 'letra-venc', maturityDate: '2025-01-01' };
+      component.assets.set([letraVencida]);
+
+      expect(component.isActivo(letraVencida)).toBeFalse();
+      expect(component.capitalARS()).toBe(0);
+    });
+
+    it('capitalARS/capitalUSD filtran por currency sin mezclar activos', () => {
+      const usdAsset: InvestmentResponse = {
+        ...MOCK_ASSETS[1], id: 'letra-usd', currency: 'USD', maturityDate: '2099-01-01', principal: 1000,
+        movements: [{ id: 'mu1', movementDate: '2026-02-01', type: 'SUSCRIPCION', amount: 1000, units: 1000, createdAt: '' }],
+      };
+      component.assets.set([MOCK_ASSETS[1], usdAsset]);
+
+      expect(component.capitalARS()).toBe(850000);
+      expect(component.capitalUSD()).toBe(1000);
+    });
+  });
+
+  describe('capitalMostrado / fmtMontoSel — toggle bimonetario', () => {
+    it('capitalMostrado convierte capitalUSD a ARS cuando selected() es ARS', () => {
+      const usdAsset: InvestmentResponse = {
+        ...MOCK_ASSETS[1], id: 'letra-usd', currency: 'USD', maturityDate: '2099-01-01', principal: 1000,
+        movements: [{ id: 'mu1', movementDate: '2026-02-01', type: 'SUSCRIPCION', amount: 1000, units: 1000, createdAt: '' }],
+      };
+      component.assets.set([MOCK_ASSETS[1], usdAsset]);
+      const rate = 1062.50;
+      expect(component.capitalMostrado()).toBeCloseTo(850000 + 1000 * rate, 2);
+    });
+
+    it('capitalMostrado convierte capitalARS a USD cuando selected() es USD', () => {
+      const usdAsset: InvestmentResponse = {
+        ...MOCK_ASSETS[1], id: 'letra-usd', currency: 'USD', maturityDate: '2099-01-01', principal: 1000,
+        movements: [{ id: 'mu1', movementDate: '2026-02-01', type: 'SUSCRIPCION', amount: 1000, units: 1000, createdAt: '' }],
+      };
+      component.assets.set([MOCK_ASSETS[1], usdAsset]);
+      currencySpy.selected.set('USD');
+      const rate = 1062.50;
+      expect(component.capitalMostrado()).toBeCloseTo(850000 / rate + 1000, 4);
+    });
+
+    it('fmtMontoSel degrada al monto nativo formateado cuando no hay cotización disponible', () => {
+      currencySpy.selected.set('USD');
+      currencySpy.convert.and.returnValue(null);
+      expect(component.fmtMontoSel(500000, 'ARS')).toBe(component.fmtARS(500000));
+      expect(component.fmtMontoSel(500, 'USD')).toBe(component.fmtUSD(500));
+    });
+  });
+
+  // ── 2b-i. Ganancia real por rango de fechas (tramos por mes calendario) ────
+
+  describe('overlapDias / gananciaEnRango', () => {
+    const isoDate = (d: Date) => [
+      d.getFullYear(), String(d.getMonth() + 1).padStart(2, '0'), String(d.getDate()).padStart(2, '0'),
+    ].join('-');
+
+    it('overlapDias da 0 cuando los rangos no se solapan', () => {
+      expect((component as any).overlapDias('2026-01-01', '2026-01-10', '2026-02-01', '2026-02-10')).toBe(0);
+    });
+
+    it('overlapDias da los días completos cuando un rango contiene al otro', () => {
+      expect((component as any).overlapDias('2026-01-01', '2026-01-31', '2026-01-10', '2026-01-20')).toBe(10);
+    });
+
+    it('overlapDias da 0 cuando el rango tiene 0 días (startA === endA)', () => {
+      expect((component as any).overlapDias('2026-01-01', '2026-01-01', '2026-01-01', '2026-02-01')).toBe(0);
+    });
+
+    it('gananciaEnRango PLAZO_FIJO: sólo cuenta desde purchaseDate si se compró a mitad del mes en curso', () => {
+      const today   = new Date();
+      const desde   = isoDate(new Date(today.getFullYear(), today.getMonth(), 1));
+      const hasta   = isoDate(today);
+      const midDay  = Math.max(1, Math.min(today.getDate(), 15));
+      const purchaseDate = isoDate(new Date(today.getFullYear(), today.getMonth(), midDay));
+      const pf: InvestmentResponse = {
+        id: 'pf-mid', name: 'PF', type: 'PLAZO_FIJO', currency: 'ARS',
+        principal: 100000, purchaseDate, maturityDate: null,
+        tna: 36.5, accountId: null, accountName: null, autoTrack: false, externalId: null,
+        createdAt: '', updatedAt: '', movements: [], valuations: [],
+      };
+      const diasEsperados = Math.floor(
+        (new Date(today.getFullYear(), today.getMonth(), today.getDate()).getTime()
+          - new Date(today.getFullYear(), today.getMonth(), midDay).getTime()) / 86400000,
+      );
+      const esperado = 100000 * (36.5 / 100) * (diasEsperados / 365);
+      expect(component.gananciaEnRango(pf, desde, hasta)).toBeCloseTo(esperado, 2);
+    });
+
+    it('gananciaEnRango PLAZO_FIJO vencido el mes pasado: 0 en el rango del mes actual', () => {
+      const today = new Date();
+      const desdeActual = isoDate(new Date(today.getFullYear(), today.getMonth(), 1));
+      const hastaActual = isoDate(today);
+      const pf: InvestmentResponse = {
+        id: 'pf-venc-pasado', name: 'PF', type: 'PLAZO_FIJO', currency: 'ARS',
+        principal: 100000, purchaseDate: '2020-01-01',
+        maturityDate: isoDate(new Date(today.getFullYear(), today.getMonth() - 1, 15)),
+        tna: 36.5, accountId: null, accountName: null, autoTrack: false, externalId: null,
+        createdAt: '', updatedAt: '', movements: [], valuations: [],
+      };
+      expect(component.gananciaEnRango(pf, desdeActual, hastaActual)).toBe(0);
+    });
+
+    it('gananciaEnRango FCI: el rango exacto del tramo devuelve el 100% de su interés; sin solape da 0', () => {
+      const fci: InvestmentResponse = {
+        ...MOCK_ASSETS[0],
+        movements: [{ id: 'm1', movementDate: '2020-01-01', type: 'SUSCRIPCION', amount: 100000, units: null, createdAt: '' }],
+      };
+      const tramos  = component.calcTramosFCI(fci);
+      const enCurso = tramos.find(t => t.enCurso)!;
+      const completo = component.gananciaEnRango(fci, enCurso.mov!.movementDate, enCurso.endDate);
+      expect(completo).toBeCloseTo(enCurso.intereses, 6);
+
+      expect(component.gananciaEnRango(fci, '1999-01-01', '1999-02-01')).toBe(0);
+    });
+
+    it('gananciaEnRango FCI sin movimientos da 0 para cualquier rango', () => {
+      const fciVacio: InvestmentResponse = { ...MOCK_ASSETS[0], movements: [] };
+      expect(component.gananciaEnRango(fciVacio, '2020-01-01', '2026-12-31')).toBe(0);
+    });
+
+    it('gananciaEnRango familia CP: el rango exacto del tramo en curso devuelve el 100% de su ganancia', () => {
+      const asset   = MOCK_ASSETS[1]; // LETRA
+      const tramos  = component.calcTramosCP(asset);
+      const enCurso = tramos.find(t => t.enCurso)!;
+      const completo = component.gananciaEnRango(asset, enCurso.startDate, enCurso.endDate);
+      expect(completo).toBeCloseTo(enCurso.ganancia, 6);
+    });
+  });
+
+  // ── 2b-ii. Ganancia del mes en curso vs. mes pasado y tasa real mensual ─────
+
+  describe('gananciaMesActual / gananciaMesAnterior', () => {
+    it('suman activos activos (isActivo) de ambas monedas, convirtiendo USD a la moneda seleccionada', () => {
+      const today = new Date();
+      const isoDate = (d: Date) => [
+        d.getFullYear(), String(d.getMonth() + 1).padStart(2, '0'), String(d.getDate()).padStart(2, '0'),
+      ].join('-');
+      const desdeActual   = isoDate(new Date(today.getFullYear(), today.getMonth(), 1));
+      const hastaActual   = isoDate(today);
+      const desdeAnterior = isoDate(new Date(today.getFullYear(), today.getMonth() - 1, 1));
+      const hastaAnterior = desdeActual;
+
+      const pfActivo: InvestmentResponse = {
+        id: 'pf-1', name: 'PF', type: 'PLAZO_FIJO', currency: 'ARS',
+        principal: 100000, purchaseDate: '2020-01-01', maturityDate: '2099-01-01',
+        tna: 36, accountId: null, accountName: null, autoTrack: false, externalId: null,
+        createdAt: '', updatedAt: '', movements: [], valuations: [],
+      };
+      const pfUSD:     InvestmentResponse = { ...pfActivo, id: 'pf-usd',  currency: 'USD' };
+      const pfVencido: InvestmentResponse = { ...pfActivo, id: 'pf-venc', maturityDate: '2020-06-01' };
+
+      component.assets.set([pfActivo, pfUSD, pfVencido]);
+
+      const rate = 1062.50; // coincide con el mock de currentRateARS en buildSpies()
+      const esperadoActual =
+        component.gananciaEnRango(pfActivo, desdeActual, hastaActual) +
+        component.gananciaEnRango(pfUSD, desdeActual, hastaActual) * rate;
+      const esperadoAnterior =
+        component.gananciaEnRango(pfActivo, desdeAnterior, hastaAnterior) +
+        component.gananciaEnRango(pfUSD, desdeAnterior, hastaAnterior) * rate;
+
+      expect(component.gananciaMesActual()).toBeCloseTo(esperadoActual, 2);
+      expect(component.gananciaMesAnterior()).toBeCloseTo(esperadoAnterior, 2);
+    });
+
+    it('al togglear a USD, convierte la porción ARS en vez de la USD', () => {
+      const today = new Date();
+      const isoDate = (d: Date) => [
+        d.getFullYear(), String(d.getMonth() + 1).padStart(2, '0'), String(d.getDate()).padStart(2, '0'),
+      ].join('-');
+      const desdeActual = isoDate(new Date(today.getFullYear(), today.getMonth(), 1));
+      const hastaActual = isoDate(today);
+
+      const pfActivo: InvestmentResponse = {
+        id: 'pf-1', name: 'PF', type: 'PLAZO_FIJO', currency: 'ARS',
+        principal: 100000, purchaseDate: '2020-01-01', maturityDate: '2099-01-01',
+        tna: 36, accountId: null, accountName: null, autoTrack: false, externalId: null,
+        createdAt: '', updatedAt: '', movements: [], valuations: [],
+      };
+      const pfUSD: InvestmentResponse = { ...pfActivo, id: 'pf-usd', currency: 'USD' };
+      component.assets.set([pfActivo, pfUSD]);
+
+      currencySpy.selected.set('USD');
+
+      const rate = 1062.50;
+      const esperado =
+        component.gananciaEnRango(pfActivo, desdeActual, hastaActual) / rate +
+        component.gananciaEnRango(pfUSD, desdeActual, hastaActual);
+
+      expect(component.gananciaMesActual()).toBeCloseTo(esperado, 6);
+    });
+  });
+
+  describe('gananciaMesEstimada / variacionEstimadaPct', () => {
+    it('el último día del mes coincide exactamente con gananciaMesActual (factor de proyección 1)', () => {
+      const today = new Date();
+      const ultimoDia = new Date(today.getFullYear(), today.getMonth() + 1, 0).getDate();
+      if (today.getDate() !== ultimoDia) {
+        // Sólo aplica el día exacto de cierre de mes; en cualquier otro día se salta (se cubre con el caso general).
+        return;
+      }
+      const pf: InvestmentResponse = {
+        id: 'pf-ultimo-dia', name: 'PF', type: 'PLAZO_FIJO', currency: 'ARS',
+        principal: 100000, purchaseDate: '2020-01-01', maturityDate: '2099-01-01',
+        tna: 36, accountId: null, accountName: null, autoTrack: false, externalId: null,
+        createdAt: '', updatedAt: '', movements: [], valuations: [],
+      };
+      component.assets.set([pf]);
+      expect(component.gananciaMesEstimada()).toBeCloseTo(component.gananciaMesActual(), 6);
+    });
+
+    it('proyecta gananciaMesActual al total de días del mes según los días transcurridos', () => {
+      const today = new Date();
+      const diasEnMes  = new Date(today.getFullYear(), today.getMonth() + 1, 0).getDate();
+      const diasHoy    = today.getDate();
+      const pf: InvestmentResponse = {
+        id: 'pf-proy', name: 'PF', type: 'PLAZO_FIJO', currency: 'ARS',
+        principal: 100000, purchaseDate: '2020-01-01', maturityDate: '2099-01-01',
+        tna: 36, accountId: null, accountName: null, autoTrack: false, externalId: null,
+        createdAt: '', updatedAt: '', movements: [], valuations: [],
+      };
+      component.assets.set([pf]);
+
+      const esperado = component.gananciaMesActual() * (diasEnMes / diasHoy);
+      expect(component.gananciaMesEstimada()).toBeCloseTo(esperado, 6);
+    });
+
+    it('da 0 cuando gananciaMesActual es 0 (sin activos)', () => {
+      component.assets.set([]);
+      expect(component.gananciaMesActual()).toBe(0);
+      expect(component.gananciaMesEstimada()).toBe(0);
+    });
+
+    it('variacionEstimadaPct da null cuando no hay ganancia el mes pasado (sin base de comparación)', () => {
+      component.assets.set([]);
+      expect(component.gananciaMesAnterior()).toBe(0);
+      expect(component.variacionEstimadaPct()).toBeNull();
+    });
+
+    it('variacionEstimadaPct calcula el % de variación entre la estimación del mes y el mes pasado', () => {
+      const pf: InvestmentResponse = {
+        id: 'pf-var', name: 'PF', type: 'PLAZO_FIJO', currency: 'ARS',
+        principal: 100000, purchaseDate: '2020-01-01', maturityDate: '2099-01-01',
+        tna: 36, accountId: null, accountName: null, autoTrack: false, externalId: null,
+        createdAt: '', updatedAt: '', movements: [], valuations: [],
+      };
+      component.assets.set([pf]);
+
+      const estimada  = component.gananciaMesEstimada();
+      const anterior  = component.gananciaMesAnterior();
+      const esperado  = anterior !== 0 ? ((estimada - anterior) / Math.abs(anterior)) * 100 : null;
+
+      if (esperado === null) {
+        expect(component.variacionEstimadaPct()).toBeNull();
+      } else {
+        expect(component.variacionEstimadaPct()).toBeCloseTo(esperado, 6);
+      }
+    });
+  });
+
+  describe('tasaEfectivaMensual / tasaRealMensual', () => {
+    it('tasaEfectivaMensual da 0 si no hay capital activo (evita división por 0)', () => {
+      component.assets.set([]);
+      expect(component.tasaEfectivaMensual()).toBe(0);
+    });
+
+    it('tasaRealMensual da null si no hay datos de inflación disponibles', async () => {
+      const spies = buildSpies();
+      spies.macroSpy.getLatestInflation.and.returnValue(throwError(() => new Error('sin datos')));
+
+      await TestBed.resetTestingModule();
+      await TestBed.configureTestingModule({
+        imports: [InversionesComponent, ReactiveFormsModule],
+        providers: [
+          provideHttpClient(),
+          provideHttpClientTesting(),
+          { provide: InvestmentService, useValue: spies.investSpy    },
+          { provide: AccountService,    useValue: spies.accountSpy   },
+          { provide: MacroService,      useValue: spies.macroSpy     },
+          { provide: CurrencyService,   useValue: spies.currencySpy  },
+        ],
+      })
+      .overrideComponent(InversionesComponent, { set: { schemas: [NO_ERRORS_SCHEMA] } })
+      .compileComponents();
+
+      const f = TestBed.createComponent(InversionesComponent);
+      const c = f.componentInstance;
+      f.detectChanges();
+
+      expect(c.tasaRealMensual()).toBeNull();
+    });
+
+    it('tasaRealMensual aplica Fisher mensual entre tasaEfectivaMensual e IPC', () => {
+      const pf: InvestmentResponse = {
+        id: 'pf-tasa', name: 'PF', type: 'PLAZO_FIJO', currency: 'ARS',
+        principal: 1000000, purchaseDate: '2020-01-01', maturityDate: '2099-01-01',
+        tna: 60, accountId: null, accountName: null, autoTrack: false, externalId: null,
+        createdAt: '', updatedAt: '', movements: [], valuations: [],
+      };
+      component.assets.set([pf]);
+
+      const tem = component.tasaEfectivaMensual();
+      const ipcMensual = parseFloat(MOCK_INFLATION.monthlyRate);
+      const esperado = ((1 + tem / 100) / (1 + ipcMensual / 100) - 1) * 100;
+
+      expect(component.tasaRealMensual()).toBeCloseTo(esperado, 6);
+    });
+  });
+
+  // ── 2b. Total capital + intereses ──────────────────────────────────────────
+
+  describe('calcMontoTotal', () => {
+    const pf: InvestmentResponse = {
+      id: 'inv-pf', name: 'PF Banco', type: 'PLAZO_FIJO', currency: 'ARS',
+      principal: 1000000, purchaseDate: '2026-06-01', maturityDate: '2026-07-01',
+      tna: 36.5, accountId: null, accountName: null,
+      autoTrack: false, externalId: null,
+      createdAt: '2026-06-01T00:00:00Z', updatedAt: '2026-06-01T00:00:00Z',
+      movements: [], valuations: [],
+    };
+
+    it('PLAZO_FIJO: capital + intereses del plazo completo hasta el vencimiento', () => {
+      // 30 días, TNA 36.5% → interés = 1.000.000 × 0,365 × 30/365 = 30.000
+      expect(component.calcInteresesVencimiento(pf)).toBeCloseTo(30000, 2);
+      expect(component.calcMontoTotal(pf)).toBeCloseTo(1030000, 2);
+    });
+
+    it('PLAZO_FIJO sin vencimiento: usa los intereses devengados a la fecha', () => {
+      const sinVenc = { ...pf, maturityDate: null };
+      expect(component.calcMontoTotal(sinVenc))
+        .toBeCloseTo(sinVenc.principal + component.calcIntereses(sinVenc), 2);
+    });
+
+    it('FCI (Cuenta Remunerada): saldo actual + interés devengado del tramo en curso', () => {
+      const fci = component.assets().find(a => a.type === 'FCI')!;
+      const enCurso = component.calcTramosFCI(fci).find(t => t.enCurso)!;
+      expect(component.calcMontoTotal(fci))
+        .toBeCloseTo(component.calcSaldoFCI(fci) + enCurso.intereses, 2);
+    });
+
+    it('LETRA/BONO/ON/cuotapartes: devuelve el valor actual (ya incluye la ganancia)', () => {
+      const letra = component.assets().find(a => a.type === 'LETRA')!;
+      expect(component.calcMontoTotal(letra)).toBe(component.saldoBase(letra));
+    });
+  });
+
+  // ── 2c. calcTNA ────────────────────────────────────────────────────────────
+
+  describe('calcTNA', () => {
+    it('FCI: devuelve asset.tna directo', () => {
+      const fci = component.assets().find(a => a.type === 'FCI')!;
+      expect(component.calcTNA(fci)).toBe(fci.tna);
+    });
+
+    it('PLAZO_FIJO: devuelve asset.tna directo', () => {
+      const pf: InvestmentResponse = {
+        id: 'inv-pf', name: 'PF Banco', type: 'PLAZO_FIJO', currency: 'ARS',
+        principal: 1000000, purchaseDate: '2026-06-01', maturityDate: '2026-07-01',
+        tna: 36.5, accountId: null, accountName: null,
+        autoTrack: false, externalId: null,
+        createdAt: '2026-06-01T00:00:00Z', updatedAt: '2026-06-01T00:00:00Z',
+        movements: [], valuations: [],
+      };
+      expect(component.calcTNA(pf)).toBe(36.5);
+    });
+
+    it('LETRA/BONO/ON/cuotapartes: anualiza la ganancia realizada por interés simple sobre el capital', () => {
+      const letra = component.assets().find(a => a.type === 'LETRA')!;
+      const dias = component.diasPeriodo(letra);
+      const esperado = (component.calcIntereses(letra) / letra.principal) * (365 / dias) * 100;
+      expect(component.calcTNA(letra)).toBeCloseTo(esperado, 6);
+    });
+
+    it('LETRA/BONO/ON/cuotapartes con principal 0: devuelve 0 (evita división por cero)', () => {
+      const letra = component.assets().find(a => a.type === 'LETRA')!;
+      const sinPrincipal = { ...letra, principal: 0 };
+      expect(component.calcTNA(sinPrincipal)).toBe(0);
+    });
+  });
+
+  // ── 2d. calcTEA (distinta de calcTIR fuera del caso trivial) ────────────────
+
+  describe('calcTEA', () => {
+    it('CP con una sola suscripción y sin flujos intermedios: calcTEA ≈ calcTIR (caso trivial)', () => {
+      const cp: InvestmentResponse = {
+        id: 'cp-una', name: 'CP Una Suscripcion', type: 'FCI_CUOTAPARTES', currency: 'ARS',
+        principal: 100000, purchaseDate: '2026-01-01', maturityDate: null, tna: 0,
+        accountId: null, accountName: null, autoTrack: false, externalId: null,
+        createdAt: '', updatedAt: '',
+        movements: [
+          { id: 'm1', movementDate: '2026-01-01', type: 'SUSCRIPCION', amount: 100000, units: 400, createdAt: '' },
+        ],
+        valuations: [
+          { id: 'v1', valuationDate: '2026-06-01', pricePerUnit: 300, source: 'MANUAL', createdAt: '' },
+        ],
+      };
+      expect(component.calcTEA(cp)).toBeCloseTo(component.calcTIR(cp), 4);
+    });
+
+    it('CP con dos suscripciones en fechas distintas: calcTEA difiere de calcTIR', () => {
+      const cp: InvestmentResponse = {
+        id: 'cp-dos', name: 'CP Dos Suscripciones', type: 'FCI_CUOTAPARTES', currency: 'ARS',
+        principal: 700000, purchaseDate: '2026-01-01', maturityDate: null, tna: 0,
+        accountId: null, accountName: null, autoTrack: false, externalId: null,
+        createdAt: '', updatedAt: '',
+        movements: [
+          { id: 'm1', movementDate: '2026-01-01', type: 'SUSCRIPCION', amount: 500000, units: 400, createdAt: '' },
+          { id: 'm2', movementDate: '2026-03-15', type: 'SUSCRIPCION', amount: 200000, units: 150, createdAt: '' },
+        ],
+        valuations: [
+          { id: 'v1', valuationDate: '2026-06-01', pricePerUnit: 1500, source: 'MANUAL', createdAt: '' },
+        ],
+      };
+      expect(component.calcTEA(cp)).not.toBeCloseTo(component.calcTIR(cp), 4);
+    });
+
+    it('PLAZO_FIJO: anualiza por compounding la tasa nominal del período', () => {
+      const pf: InvestmentResponse = {
+        id: 'inv-pf', name: 'PF Banco', type: 'PLAZO_FIJO', currency: 'ARS',
+        principal: 1000000, purchaseDate: '2026-06-01', maturityDate: '2026-07-01',
+        tna: 36.5, accountId: null, accountName: null,
+        autoTrack: false, externalId: null,
+        createdAt: '2026-06-01T00:00:00Z', updatedAt: '2026-06-01T00:00:00Z',
+        movements: [], valuations: [],
+      };
+      const d = component.diasPeriodo(pf);
+      const tasaPer = (pf.tna / 100) * (d / 365);
+      const esperado = (Math.pow(1 + tasaPer, 365 / d) - 1) * 100;
+      expect(component.calcTEA(pf)).toBeCloseTo(esperado, 6);
+    });
   });
 
   // ── 3. openCreate ──────────────────────────────────────────────────────────
@@ -276,6 +751,19 @@ describe('InversionesComponent', () => {
     expect(result).toMatch(/1[\.,]234[\.,]567/);
   });
 
+  it('fmtARSPrecio conserva decimales de precisión (2 a 4)', () => {
+    const result = component.fmtARSPrecio(1001.3);
+    expect(result).toContain('$');
+    expect(result).not.toContain('US$');
+    expect(result).toMatch(/1[\.,]001,3/);
+  });
+
+  it('fmtUSDPrecio conserva decimales de precisión (2 a 4)', () => {
+    const result = component.fmtUSDPrecio(1001.3456);
+    expect(result).toContain('US$');
+    expect(result).toMatch(/1[\.,]001,3456/);
+  });
+
   // ── 10. tintFor ──────────────────────────────────────────────────────────
 
   it('tintFor retorna colores del array rotativo', () => {
@@ -349,9 +837,9 @@ describe('InversionesComponent', () => {
     expect(tramos[1].mov?.type).toBe('RESCATE');
     expect(tramos[1].saldo).toBe(500000);
     expect(tramos[1].enCurso).toBeTrue();
-    // El total de intereses no cambia respecto del modelo anterior
-    const totalInt = tramos.filter(t => t.mov?.type !== 'REVALUO').reduce((a, t) => a + t.intereses, 0);
-    expect(component['calcInteresesFCI'](asset)).toBeCloseTo(totalInt, 6);
+    // La sumatoria de intereses suma todos los tramos
+    const totalInt = tramos.reduce((a, t) => a + t.intereses, 0);
+    expect(component.calcIntereses(asset)).toBeCloseTo(totalInt, 6);
   });
 
   // ── Cuenta Remunerada: override de interés y crear tramo ─────────────────
@@ -374,31 +862,28 @@ describe('InversionesComponent', () => {
     expect(tramos[1].mov?.type).toBe('RESCATE');
     expect(tramos[1].intereses).toBe(0);
     // El total de intereses refleja el override
-    expect(component['calcInteresesFCI'](asset)).toBeCloseTo(8000, 6);
+    expect(component.calcIntereses(asset)).toBeCloseTo(8000, 6);
   });
 
-  it('submitCreateTramo crea un REVALUO con el interés autocalculado por TNA para la fecha elegida', () => {
+  it('displayValuations colapsa las automáticas a una por mes y conserva TODAS las manuales', () => {
     const asset: InvestmentResponse = {
-      ...MOCK_ASSETS[0],
-      tna: 19,
-      movements: [
-        { id: 's1', movementDate: '2026-05-01', type: 'SUSCRIPCION', amount: 1000000, units: null, createdAt: '' },
+      ...MOCK_ASSETS[1],
+      valuations: [
+        // Automáticas diarias de marzo → sólo la última (03-31) debe quedar
+        { id: 'a1', valuationDate: '2026-03-05', pricePerUnit: 100, source: 'ARGENTINADATOS', createdAt: '' },
+        { id: 'a2', valuationDate: '2026-03-20', pricePerUnit: 101, source: 'ARGENTINADATOS', createdAt: '' },
+        { id: 'a3', valuationDate: '2026-03-31', pricePerUnit: 102, source: 'ARGENTINADATOS', createdAt: '' },
+        // Manuales → todas
+        { id: 'm1', valuationDate: '2026-03-10', pricePerUnit: 150, source: 'MANUAL', createdAt: '' },
+        { id: 'm2', valuationDate: '2026-04-15', pricePerUnit: 160, source: 'MANUAL', createdAt: '' },
       ],
     };
-    component.assets.set([asset]);
-    investSpy.addMovement.and.returnValue(of(asset));
-
-    component.openCreateTramoModal(asset);
-    component.createTramoForm.setValue({ movementDate: '2026-06-29' });
-    component.submitCreateTramo();
-
-    // 59 días entre 01/05 y 29/06; interés = 1.000.000 × 19% × 59/365 ≈ 30.712,33
-    const esperado = Math.round(1000000 * 0.19 * 59 / 365 * 100) / 100;
-    expect(investSpy.addMovement).toHaveBeenCalledWith('inv-1', jasmine.objectContaining({
-      movementDate: '2026-06-29',
-      type:         'REVALUO',
-      amount:       esperado,
-    }));
+    const shown = component.displayValuations(asset);
+    // 1 automática (03-31) + 2 manuales = 3
+    expect(shown.length).toBe(3);
+    expect(shown.map(v => v.id)).toEqual(['m1', 'a3', 'm2']); // ordenadas por fecha
+    expect(shown.find(v => v.id === 'a1')).toBeUndefined();
+    expect(shown.find(v => v.id === 'a2')).toBeUndefined();
   });
 
   it('submitEditTramo en un tramo SUSCRIPCION guarda interestOverride (no amount)', () => {
@@ -435,6 +920,46 @@ describe('InversionesComponent', () => {
     component.restoreTramoTNA();
 
     expect(investSpy.updateMovement).toHaveBeenCalledWith('inv-1', 's1', { interestOverride: null });
+  });
+
+  it('al elegir REVALUO en el modal de movimiento FCI precarga el interés por TNA a la fecha elegida', () => {
+    const asset: InvestmentResponse = {
+      ...MOCK_ASSETS[0],
+      tna: 19,
+      movements: [
+        { id: 's1', movementDate: '2026-05-01', type: 'SUSCRIPCION', amount: 1000000, units: null, createdAt: '' },
+      ],
+    };
+    component.openAddMovementModal(asset);
+    component.addMovementForm.controls.movementDate.setValue('2026-06-29');
+    component.addMovementForm.controls.type.setValue('REVALUO');
+
+    // 59 días entre 01/05 y 29/06; interés = 1.000.000 × 19% × 59/365 ≈ 30.712,33
+    const esperado = Math.round(1000000 * 0.19 * 59 / 365 * 100) / 100;
+    expect(component.addMovementForm.controls.amount.value).toBe(esperado);
+  });
+
+  it('la precarga de REVALUO se recalcula al cambiar la fecha y no pisa tipos SUSCRIPCION/RESCATE', () => {
+    const asset: InvestmentResponse = {
+      ...MOCK_ASSETS[0],
+      tna: 19,
+      movements: [
+        { id: 's1', movementDate: '2026-05-01', type: 'SUSCRIPCION', amount: 1000000, units: null, createdAt: '' },
+      ],
+    };
+    component.openAddMovementModal(asset);
+
+    // En SUSCRIPCION no se precarga nada.
+    component.addMovementForm.controls.movementDate.setValue('2026-06-29');
+    expect(component.addMovementForm.controls.amount.value).toBeNull();
+
+    // Al pasar a REVALUO se precarga; al mover la fecha se recalcula.
+    component.addMovementForm.controls.type.setValue('REVALUO');
+    const a59 = component.addMovementForm.controls.amount.value;
+    component.addMovementForm.controls.movementDate.setValue('2026-05-31');
+    const a30 = component.addMovementForm.controls.amount.value;
+    expect(a59).toBeCloseTo(Math.round(1000000 * 0.19 * 59 / 365 * 100) / 100, 2);
+    expect(a30).toBeCloseTo(Math.round(1000000 * 0.19 * 30 / 365 * 100) / 100, 2);
   });
 
   it('un interestOverride en un movimiento LETRA no afecta los tramos CP (aislamiento)', () => {
@@ -478,11 +1003,18 @@ describe('InversionesComponent', () => {
       ],
     };
     const tramos = component.calcTramosFCI(asset);
-    const cierre = tramos.find(t => t.mov?.id === 'rv');
-    expect(cierre).toBeDefined();
-    expect(cierre!.mov?.autoGenerated).toBeTrue();
-    // El REVALUO de cierre capitaliza: su interés es el monto registrado
-    expect(cierre!.intereses).toBe(30000);
+    // Atribución hacia atrás: el REVALUO cierra el tramo de la suscripción, cuyo interés
+    // es el monto realizado del revalúo (no la proyección por TNA).
+    const cerrado = tramos.find(t => t.mov?.id === 's1');
+    expect(cerrado).toBeDefined();
+    expect(cerrado!.intereses).toBe(30000);
+    expect(cerrado!.closingRevaluo?.id).toBe('rv');
+    expect(cerrado!.closingRevaluo?.autoGenerated).toBeTrue();
+    // El tramo que abre el propio REVALUO devenga por TNA sobre el saldo capitalizado (1.030.000).
+    const abierto = tramos.find(t => t.mov?.id === 'rv');
+    expect(abierto).toBeDefined();
+    expect(abierto!.saldo).toBe(1030000);
+    expect(abierto!.intereses).toBeCloseTo(1030000 * 0.19 * (abierto!.dias / 365), 2);
   });
 
   it('calcTramosCP marca endAutoGenerated en la valuación de cierre de mes', () => {
@@ -572,7 +1104,10 @@ describe('InversionesComponent', () => {
       expect(tramos[tramos.length - 1].enCurso).toBeTrue();
     });
 
-    it('calcTramosCP excluye la valuación del mes en curso: el tramo en curso cubre el mes actual', () => {
+    it('calcTramosCP: el tramo en curso usa la última valuación conocida como endPrice (no repite prevPrice fijo)', () => {
+      // Suscripción muy anterior (precio implícito $500) + valuación automática de hoy a $600:
+      // no forma un límite de tramo (es del mes en curso), pero sí es la última valuación conocida,
+      // que ahora debe reflejarse como endPrice del tramo en curso.
       const today = new Date();
       const todayStr = [
         today.getFullYear(),
@@ -585,21 +1120,69 @@ describe('InversionesComponent', () => {
           { id: 'm1', movementDate: '2025-01-01', type: 'SUSCRIPCION', amount: 100000, units: 200, createdAt: '' },
         ],
         valuations: [
-          { id: 'v1', valuationDate: todayStr, pricePerUnit: 600, source: 'MANUAL' as const, createdAt: '' },
+          { id: 'v1', valuationDate: todayStr, pricePerUnit: 600, source: 'ARGENTINADATOS' as const, createdAt: '' },
         ],
       };
       const tramos = component.calcTramosCP(assetHoy);
-      // La valuación de hoy (mes en curso) no genera un límite mensual; el tramo en curso la cubre.
+      const enCurso = tramos.find(t => t.enCurso);
+      expect(enCurso).toBeDefined();
+      expect(enCurso!.endPrice).toBeCloseTo(600, 4);
+      // Precio implícito de arranque ($500) distinto al de hoy ($600) → ganancia/tna/tea ya no son 0 fijos.
+      expect(enCurso!.ganancia).toBeCloseTo(200 * (600 - 500), 2);
+      expect(enCurso!.tna).not.toBe(0);
+      expect(enCurso!.tea).not.toBe(0);
+    });
+
+    it('calcTramosCP excluye la valuación AUTOMÁTICA del mes en curso: el tramo en curso cubre el mes actual', () => {
+      const today = new Date();
+      const todayStr = [
+        today.getFullYear(),
+        String(today.getMonth() + 1).padStart(2, '0'),
+        String(today.getDate()).padStart(2, '0'),
+      ].join('-');
+      const assetHoy: InvestmentResponse = {
+        ...asset,
+        movements: [
+          { id: 'm1', movementDate: '2025-01-01', type: 'SUSCRIPCION', amount: 100000, units: 200, createdAt: '' },
+        ],
+        valuations: [
+          { id: 'v1', valuationDate: todayStr, pricePerUnit: 600, source: 'ARGENTINADATOS' as const, createdAt: '' },
+        ],
+      };
+      const tramos = component.calcTramosCP(assetHoy);
+      // La valuación automática de hoy (mes en curso) no genera un límite mensual; el tramo en curso la cubre.
       expect(tramos.some(t => t.enCurso)).toBeTrue();
       expect(tramos.every(t => t.dias > 0)).toBeTrue();
     });
 
-    it('calcTramosCP agrupa valuaciones diarias en un tramo por mes (no uno por día)', () => {
+    it('calcTramosCP incluye una valuación MANUAL del mes en curso como tramo (regla del usuario)', () => {
+      const today = new Date();
+      const yesterday = new Date(today.getTime() - 86400000);
+      const iso = (d: Date) => [
+        d.getFullYear(), String(d.getMonth() + 1).padStart(2, '0'), String(d.getDate()).padStart(2, '0'),
+      ].join('-');
+      // Suscripción muy anterior + valuación manual AYER (mes en curso) → debe cerrar un tramo a esa fecha.
+      const assetManualHoy: InvestmentResponse = {
+        ...asset,
+        movements: [
+          { id: 'm1', movementDate: '2024-01-01', type: 'SUSCRIPCION', amount: 100000, units: 200, createdAt: '' },
+        ],
+        valuations: [
+          { id: 'v1', valuationDate: iso(yesterday), pricePerUnit: 600, source: 'MANUAL' as const, createdAt: '' },
+        ],
+      };
+      const tramos = component.calcTramosCP(assetManualHoy);
+      // El corte manual de ayer genera un tramo cerrado con esa fecha, además del tramo en curso.
+      expect(tramos.some(t => !t.enCurso && t.endDate === iso(yesterday))).toBeTrue();
+      expect(tramos.some(t => t.enCurso)).toBeTrue();
+    });
+
+    it('calcTramosCP agrupa valuaciones AUTOMÁTICAS diarias en un tramo por mes (no uno por día)', () => {
       // Suscripción en febrero + ~5 valuaciones diarias en marzo y ~5 en abril (meses pasados).
       const dailyMar = ['2026-03-02', '2026-03-09', '2026-03-16', '2026-03-23', '2026-03-30']
-        .map((d, i) => ({ id: `vm${i}`, valuationDate: d, pricePerUnit: 100 + i, source: 'MANUAL' as const, createdAt: '' }));
+        .map((d, i) => ({ id: `vm${i}`, valuationDate: d, pricePerUnit: 100 + i, source: 'ARGENTINADATOS' as const, createdAt: '' }));
       const dailyApr = ['2026-04-06', '2026-04-13', '2026-04-20', '2026-04-27', '2026-04-30']
-        .map((d, i) => ({ id: `va${i}`, valuationDate: d, pricePerUnit: 110 + i, source: 'MANUAL' as const, createdAt: '' }));
+        .map((d, i) => ({ id: `va${i}`, valuationDate: d, pricePerUnit: 110 + i, source: 'ARGENTINADATOS' as const, createdAt: '' }));
       const assetDiario: InvestmentResponse = {
         ...asset,
         movements: [
@@ -618,7 +1201,7 @@ describe('InversionesComponent', () => {
 
     it('calcTramosCP agrega un corte extra cuando hay una operación a mitad de mes', () => {
       const dailyMar = ['2026-03-10', '2026-03-20', '2026-03-31']
-        .map((d, i) => ({ id: `vm${i}`, valuationDate: d, pricePerUnit: 100 + i, source: 'MANUAL' as const, createdAt: '' }));
+        .map((d, i) => ({ id: `vm${i}`, valuationDate: d, pricePerUnit: 100 + i, source: 'ARGENTINADATOS' as const, createdAt: '' }));
       const sinOperacion: InvestmentResponse = {
         ...asset,
         movements: [
@@ -677,6 +1260,53 @@ describe('InversionesComponent', () => {
       expect(tramoRevaluo.valuacionId).toBeUndefined();
       expect(tramos[1].enCurso).toBeTrue();
     });
+
+    // ── Rendimiento efectivo y TIR acumulada por tramo ────────────────────────
+
+    it('calcTramosCP: el tramo en curso tiene tirAcumulada exactamente igual a calcTIR(asset)', () => {
+      const tramos = component.calcTramosCP(asset);
+      const enCurso = tramos[tramos.length - 1];
+      expect(enCurso.enCurso).toBeTrue();
+      expect(enCurso.tirAcumulada).toBe(component.calcTIR(asset));
+    });
+
+    it('calcTramosCP: un tramo cerrado intermedio tiene tasaEfectiva = (ganancia/capitalInicio)×100, distinta de tna/tea', () => {
+      const tramos = component.calcTramosCP(asset);
+      const cerrado = tramos.find(t => !t.enCurso);
+      expect(cerrado).toBeDefined();
+      const capitalInicio = cerrado!.units * cerrado!.startPrice;
+      const tasaEsperada = capitalInicio > 0 ? (cerrado!.ganancia / capitalInicio) * 100 : 0;
+      expect(cerrado!.tasaEfectiva).toBeCloseTo(tasaEsperada, 6);
+      if (cerrado!.dias !== 365) {
+        expect(cerrado!.tasaEfectiva).not.toBeCloseTo(cerrado!.tna, 6);
+        expect(cerrado!.tasaEfectiva).not.toBeCloseTo(cerrado!.tea, 6);
+      }
+    });
+
+    it('tirAcumuladaCP con una sola suscripción y valorFinal = capital inicial da TIR ≈ 0', () => {
+      const assetUnaSuscripcion: InvestmentResponse = {
+        ...asset,
+        movements: [
+          { id: 'm1', movementDate: '2026-01-01', type: 'SUSCRIPCION', amount: 100000, units: 200, createdAt: '' },
+        ],
+        valuations: [],
+      };
+      const tir = (component as any).tirAcumuladaCP(assetUnaSuscripcion, '2026-06-01', 100000);
+      expect(tir).toBeCloseTo(0, 4);
+    });
+
+    it('tirAcumuladaCP con movements vacíos hasta hastaFecha devuelve 0', () => {
+      const assetSinMovs: InvestmentResponse = {
+        ...asset,
+        movements: [
+          { id: 'm1', movementDate: '2026-09-01', type: 'SUSCRIPCION', amount: 100000, units: 200, createdAt: '' },
+        ],
+        valuations: [],
+      };
+      // Todos los movimientos son posteriores a hastaFecha → no quedan movimientos en el filtro.
+      const tir = (component as any).tirAcumuladaCP(assetSinMovs, '2026-01-01', 100000);
+      expect(tir).toBe(0);
+    });
   });
 
   // ── REVALUO en FCI Money Market ───────────────────────────────────────────
@@ -699,24 +1329,42 @@ describe('InversionesComponent', () => {
       expect(component.calcSaldoFCI(assetConRevaluo)).toBeCloseTo(515000, 0);
     });
 
-    it('calcTramosFCI usa el amount real del REVALUO como intereses del tramo', () => {
+    it('calcTramosFCI atribuye el amount del REVALUO al tramo que CIERRA (el anterior)', () => {
       const tramos = component.calcTramosFCI(assetConRevaluo);
-      const tramoRevaluo = tramos.find(t => t.mov?.type === 'REVALUO');
-      expect(tramoRevaluo).toBeDefined();
-      expect(tramoRevaluo!.intereses).toBeCloseTo(15000, 0);
-    });
-
-    it('calcInteresesFCI excluye el monto del REVALUO del estimado de intereses', () => {
-      const tramos = component.calcTramosFCI(assetConRevaluo);
-      // Con atribución hacia adelante, el último movimiento (el REVALUO) es el tramo en curso.
+      // El tramo de la suscripción (01/01 → 01/04) lo cierra el revalúo: interés realizado 15.000.
+      const tramoSusc = tramos.find(t => t.mov?.id === 'm1');
+      expect(tramoSusc).toBeDefined();
+      expect(tramoSusc!.intereses).toBeCloseTo(15000, 0);
+      expect(tramoSusc!.closingRevaluo?.id).toBe('r1');
+      // El tramo en curso (abierto por el revalúo) proyecta por TNA sobre el saldo capitalizado.
       const encurso = tramos.find(t => t.enCurso);
       expect(encurso).toBeDefined();
       expect(encurso!.mov?.type).toBe('REVALUO');
-      // El monto del REVALUO no se cuenta como interés estimado (queda en el saldo/NAV).
-      const tramosNoRevaluo = tramos.filter(t => t.mov?.type !== 'REVALUO');
-      const interesesEstimados = tramosNoRevaluo.reduce((acc, t) => acc + t.intereses, 0);
-      expect(component['calcInteresesFCI'](assetConRevaluo)).toBeCloseTo(interesesEstimados, 6);
-      expect(interesesEstimados).toBeGreaterThanOrEqual(0);
+      expect(encurso!.saldo).toBeCloseTo(515000, 0);
+      expect(encurso!.intereses).toBeCloseTo(515000 * 0.655 * (encurso!.dias / 365), 2);
+    });
+
+    it('calcIntereses suma TODOS los intereses generados: el realizado por REVALUO + la proyección en curso', () => {
+      const tramos = component.calcTramosFCI(assetConRevaluo);
+      const encurso = tramos.find(t => t.enCurso)!;
+      expect(component.calcIntereses(assetConRevaluo)).toBeCloseTo(15000 + encurso.intereses, 6);
+    });
+
+    it('calcMontoTotal = saldo capitalizado + interés del tramo en curso (no re-suma el revalúo)', () => {
+      const encurso = component.calcTramosFCI(assetConRevaluo).find(t => t.enCurso)!;
+      expect(component.calcMontoTotal(assetConRevaluo)).toBeCloseTo(515000 + encurso.intereses, 6);
+    });
+
+    it('editar el tramo cerrado por un REVALUO actualiza el amount de ese revalúo (capitaliza)', () => {
+      component.assets.set([assetConRevaluo]);
+      investSpy.updateMovement.and.returnValue(of(assetConRevaluo));
+
+      const tramoSusc = component.calcTramosFCI(assetConRevaluo).find(t => t.mov?.id === 'm1')!;
+      component.openEditTramoModal(assetConRevaluo, tramoSusc);
+      component.editTramoForm.setValue({ intereses: 20000 });
+      component.submitEditTramo();
+
+      expect(investSpy.updateMovement).toHaveBeenCalledWith('inv-1', 'r1', { amount: 20000 });
     });
   });
 
@@ -1385,6 +2033,24 @@ describe('InversionesComponent', () => {
       };
       // 10000 nominales × VN=1 = 10000
       expect(component.calcValorActualCP(letraSinValuaciones)).toBeCloseTo(10000, 0);
+    });
+
+    it('LETRA sin valuaciones: el tramo en curso usa endPrice = 1 (fallback zero-coupon)', () => {
+      const letraSinValuaciones: InvestmentResponse = {
+        id: 'l-3', name: 'LECAP Test', type: 'LETRA', currency: 'ARS',
+        principal: 9500,
+        purchaseDate: '2026-01-01', maturityDate: '2026-12-31',
+        tna: 0, accountId: null, accountName: null, autoTrack: false, externalId: null,
+        createdAt: '', updatedAt: '',
+        movements: [
+          { id: 'm1', movementDate: '2026-01-01', type: 'SUSCRIPCION', amount: 9500, units: 10000, createdAt: '' },
+        ],
+        valuations: [],
+      };
+      const tramos = component.calcTramosCP(letraSinValuaciones);
+      const enCurso = tramos.find(t => t.enCurso);
+      expect(enCurso).toBeDefined();
+      expect(enCurso!.endPrice).toBe(1);
     });
 
     it('LETRA sin valuaciones: calcGananciaCP = 10000 − 9500 = 500', () => {
