@@ -6,12 +6,16 @@ import com.vectis.backend.domain.entity.InvestmentAssetType;
 import com.vectis.backend.domain.entity.InvestmentMovement;
 import com.vectis.backend.domain.entity.InvestmentMovementType;
 import com.vectis.backend.domain.entity.InvestmentValuation;
+import com.vectis.backend.domain.entity.Transaction;
+import com.vectis.backend.domain.entity.TransactionType;
 import com.vectis.backend.domain.entity.User;
+import com.vectis.backend.dto.InvestmentCollectResponse;
 import com.vectis.backend.dto.InvestmentMovementRequest;
 import com.vectis.backend.dto.InvestmentMovementUpdateRequest;
 import com.vectis.backend.dto.InvestmentRequest;
 import com.vectis.backend.dto.InvestmentResponse;
 import com.vectis.backend.dto.InvestmentValuationRequest;
+import com.vectis.backend.exception.InvestmentDeleteBlockedException;
 import com.vectis.backend.exception.InvestmentMovementNotFoundException;
 import com.vectis.backend.exception.InvestmentNotFoundException;
 import com.vectis.backend.exception.InvestmentValuationNotFoundException;
@@ -21,6 +25,8 @@ import com.vectis.backend.repository.AccountRepository;
 import com.vectis.backend.repository.InvestmentMovementRepository;
 import com.vectis.backend.repository.InvestmentRepository;
 import com.vectis.backend.repository.InvestmentValuationRepository;
+import com.vectis.backend.repository.TransactionRepository;
+import com.vectis.backend.util.InvestmentValuationCalculator;
 import lombok.RequiredArgsConstructor;
 import org.springframework.http.HttpStatus;
 import org.springframework.stereotype.Service;
@@ -29,7 +35,11 @@ import org.springframework.transaction.annotation.Transactional;
 import java.math.BigDecimal;
 import java.math.RoundingMode;
 import java.time.LocalDate;
+import java.time.OffsetDateTime;
+import java.time.ZoneOffset;
 import java.util.List;
+import java.util.Objects;
+import java.util.Optional;
 import java.util.UUID;
 
 @Service
@@ -44,6 +54,8 @@ public class InvestmentService {
     private final InvestmentMapper               investmentMapper;
     private final FciValuationSyncService        fciValuationSyncService;
     private final PpiValuationSyncService        ppiValuationSyncService;
+    private final TransactionRepository          transactionRepository;
+    private final MonthPeriodService             monthPeriodService;
 
     public List<InvestmentResponse> getInvestments(UUID userId) {
         return investmentRepository.findAllByUser_IdOrderByCreatedAtAsc(userId)
@@ -54,7 +66,23 @@ public class InvestmentService {
 
     @Transactional
     public InvestmentResponse createInvestment(InvestmentRequest request, User user) {
-        Account account = resolveAccount(request.accountId(), user);
+        Account account = resolveAccount(request.accountId(), user, request.currency());
+        boolean includeInCashflow = resolveIncludeInCashflow(request.includeInCashflow());
+
+        LocalDate purchaseDate = request.purchaseDate();
+        // En la práctica esto sólo dispara hoy para Plazo Fijo (el resto de los tipos arranca en
+        // 0 y el capital se arma con addMovement). Gatea sobre TODA la creación: si el mes está
+        // cerrado se rechaza el alta completa, no sólo la transacción.
+        boolean generatesTransaction = account != null
+                && includeInCashflow
+                && request.principal().signum() > 0;
+
+        if (generatesTransaction
+                && !monthPeriodService.isOpen(user.getId(), purchaseDate.getYear(), purchaseDate.getMonthValue())) {
+            throw new VectisException(
+                    "No se puede crear la inversión: el mes de la fecha de compra ya está cerrado",
+                    HttpStatus.CONFLICT);
+        }
 
         InvestmentAsset asset = InvestmentAsset.builder()
                 .user(user)
@@ -63,15 +91,35 @@ public class InvestmentService {
                 .type(request.type())
                 .currency(request.currency())
                 .principal(request.principal())
-                .purchaseDate(request.purchaseDate())
+                .purchaseDate(purchaseDate)
                 .maturityDate(request.maturityDate())
                 // FIX 4: guard against null TNA for types that don't require it
                 .tna(request.tna() != null ? request.tna() : BigDecimal.ZERO)
                 .autoTrack(request.autoTrack())
                 .externalId(request.externalId())
+                .includeInCashflow(includeInCashflow)
                 .build();
 
         InvestmentAsset saved = investmentRepository.save(asset);
+
+        if (generatesTransaction) {
+            Transaction tx = Transaction.builder()
+                    .user(user)
+                    .type(TransactionType.EXPENSE)
+                    .description("Suscripción inversión: " + saved.getName())
+                    .amount(saved.getPrincipal())
+                    .ccy(saved.getCurrency())
+                    .account(account)
+                    .transactionDate(purchaseDate)
+                    .dueDate(purchaseDate)
+                    .installment(false)
+                    .investmentAsset(saved)
+                    .investmentMovement(null)
+                    .investmentSourceType("SUSCRIPCION")
+                    .build();
+            transactionRepository.save(tx);
+        }
+
         saved = backfillValuationsIfApplicable(saved);
         return investmentMapper.toResponse(saved);
     }
@@ -81,7 +129,11 @@ public class InvestmentService {
         InvestmentAsset asset = investmentRepository.findByIdAndUser_Id(id, user.getId())
                 .orElseThrow(() -> new InvestmentNotFoundException(id));
 
-        Account account = resolveAccount(request.accountId(), user);
+        Account account = resolveAccount(request.accountId(), user, request.currency());
+
+        UUID       oldAccountId = asset.getAccount() != null ? asset.getAccount().getId() : null;
+        String     oldCurrency  = asset.getCurrency();
+        BigDecimal oldPrincipal = asset.getPrincipal();
 
         asset.setName(request.name());
         asset.setType(request.type());
@@ -93,19 +145,67 @@ public class InvestmentService {
         asset.setAccount(account);
         asset.setAutoTrack(request.autoTrack());
         asset.setExternalId(request.externalId());
+        asset.setIncludeInCashflow(resolveIncludeInCashflow(request.includeInCashflow()));
 
         // For movement-tracked types, principal is derived from movements — do not overwrite it
-        if (asset.getType() != InvestmentAssetType.FCI
-                && asset.getType() != InvestmentAssetType.FCI_CUOTAPARTES
-                && asset.getType() != InvestmentAssetType.LETRA
-                && asset.getType() != InvestmentAssetType.BONO
-                && asset.getType() != InvestmentAssetType.ON) {
+        boolean isMovementTracked = asset.getType() == InvestmentAssetType.FCI
+                || asset.getType() == InvestmentAssetType.FCI_CUOTAPARTES
+                || asset.getType() == InvestmentAssetType.LETRA
+                || asset.getType() == InvestmentAssetType.BONO
+                || asset.getType() == InvestmentAssetType.ON;
+        if (!isMovementTracked) {
             asset.setPrincipal(request.principal());
+        }
+
+        UUID newAccountId = account != null ? account.getId() : null;
+        boolean accountChanged   = !Objects.equals(oldAccountId, newAccountId);
+        boolean currencyChanged  = !Objects.equals(oldCurrency, asset.getCurrency());
+        boolean principalChanged = !isMovementTracked && oldPrincipal.compareTo(asset.getPrincipal()) != 0;
+
+        if (accountChanged || currencyChanged || principalChanged) {
+            syncLinkedSuscripcionTransaction(asset, account, user);
         }
 
         InvestmentAsset saved = investmentRepository.save(asset);
         saved = backfillValuationsIfApplicable(saved);
         return investmentMapper.toResponse(saved);
+    }
+
+    /**
+     * Sincroniza la Transaction de suscripción generada en {@link #createInvestment} (cuenta, moneda,
+     * monto) cuando el update cambia alguno de esos campos en la inversión ya creada. Sin esto, la
+     * transacción ya contabilizada (afectó el saldo real y el cashflow de su mes) queda divergiendo
+     * silenciosamente de los datos actuales de la inversión — particularmente delicado si cambia la
+     * moneda en este sistema bimonetario.
+     *
+     * <p>Si el mes de esa transacción ya cerró, se bloquea el update con 409 en lugar de permitir el
+     * drift. Si no hay transacción vinculada (p. ej. la inversión nunca generó una en su alta), no hay
+     * nada que sincronizar.
+     */
+    private void syncLinkedSuscripcionTransaction(InvestmentAsset asset, Account newAccount, User user) {
+        Optional<Transaction> linkedTx = transactionRepository
+                .findAllByInvestmentAsset_IdAndDeletedAtIsNull(asset.getId())
+                .stream()
+                .filter(tx -> tx.getInvestmentMovement() == null
+                        && "SUSCRIPCION".equals(tx.getInvestmentSourceType()))
+                .findFirst();
+
+        if (linkedTx.isEmpty()) {
+            return;
+        }
+
+        Transaction tx = linkedTx.get();
+        if (!monthPeriodService.isOpen(
+                user.getId(), tx.getTransactionDate().getYear(), tx.getTransactionDate().getMonthValue())) {
+            throw new VectisException(
+                    "No se puede modificar: la transacción de suscripción vinculada pertenece a un mes ya cerrado",
+                    HttpStatus.CONFLICT);
+        }
+
+        tx.setAccount(newAccount);
+        tx.setCcy(asset.getCurrency());
+        tx.setAmount(asset.getPrincipal());
+        transactionRepository.save(tx);
     }
 
     /**
@@ -127,12 +227,87 @@ public class InvestmentService {
         return filled > 0 ? investmentRepository.save(asset) : asset;
     }
 
+    /**
+     * Elimina una inversión. Bloqueada por completo si alguna de sus transacciones vinculadas
+     * cae en un mes ya cerrado (usar {@link #collectInvestment} en ese caso). Si todas están en
+     * meses abiertos, se revierten (soft-delete) antes de borrar el activo.
+     */
     @Transactional
     public void deleteInvestment(UUID id, User user) {
         InvestmentAsset asset = investmentRepository.findByIdAndUser_Id(id, user.getId())
                 .orElseThrow(() -> new InvestmentNotFoundException(id));
 
+        List<Transaction> linkedTxs = transactionRepository.findAllByInvestmentAsset_IdAndDeletedAtIsNull(id);
+
+        boolean anyClosed = linkedTxs.stream().anyMatch(tx -> !monthPeriodService.isOpen(
+                user.getId(), tx.getTransactionDate().getYear(), tx.getTransactionDate().getMonthValue()));
+
+        if (anyClosed) {
+            throw new InvestmentDeleteBlockedException(id);
+        }
+
+        OffsetDateTime now = OffsetDateTime.now(ZoneOffset.UTC);
+        for (Transaction tx : linkedTxs) {
+            tx.setDeletedAt(now);
+        }
+        transactionRepository.saveAll(linkedTxs);
+
+        // NOTA: no releer `linkedTxs`/relanzar queries sobre investment_asset_id después de este
+        // delete dentro de la misma transacción: el ON DELETE SET NULL de V042 nulea la FK a nivel
+        // de base de datos, pero Hibernate no actualiza las entidades Transaction ya cargadas en el
+        // Persistence Context — quedarían con investmentAsset apuntando a un id borrado hasta el
+        // próximo refresh/reload.
         investmentRepository.delete(asset);
+    }
+
+    /**
+     * Cobra (liquida) una inversión: acredita el valor actual del activo como ingreso a la cuenta
+     * vinculada con fecha de hoy y borra la inversión. A diferencia de {@link #deleteInvestment},
+     * siempre está permitido (incluso con historial en meses cerrados) y NO revierte transacciones
+     * históricas — quedan intactas como movimientos legítimos ya sucedidos (pierden su referencia
+     * al activo por el ON DELETE SET NULL de la migración V042).
+     *
+     * <p>El monto acreditado es {@link #calculateCurrentValue}, NO {@code asset.getPrincipal()}
+     * directo: para FCI/PLAZO_FIJO el principal ya representa el valor actual, pero para la familia
+     * cuotapartes (FCI_CUOTAPARTES/LETRA/BONO/ON) el principal es sólo el costo de adquisición —
+     * el valor de mercado real depende de la última valuación registrada.
+     *
+     * <p>NOTA: no releer `asset` (ni sus asociaciones vía la FK de investment_asset_id) después de este
+     * delete dentro de la misma transacción — mismo motivo que en {@link #deleteInvestment}.
+     */
+    @Transactional
+    public InvestmentCollectResponse collectInvestment(UUID id, User user) {
+        InvestmentAsset asset = investmentRepository.findByIdAndUser_Id(id, user.getId())
+                .orElseThrow(() -> new InvestmentNotFoundException(id));
+
+        BigDecimal amount   = calculateCurrentValue(asset);
+        String     currency = asset.getCurrency();
+        boolean transactionCreated = asset.getAccount() != null
+                && asset.isIncludeInCashflow()
+                && amount.signum() > 0;
+
+        if (transactionCreated) {
+            LocalDate today = LocalDate.now();
+            Transaction tx = Transaction.builder()
+                    .user(user)
+                    .type(TransactionType.INCOME)
+                    .description("Cobro inversión: " + asset.getName())
+                    .amount(amount)
+                    .ccy(currency)
+                    .account(asset.getAccount())
+                    .transactionDate(today)
+                    .dueDate(today)
+                    .installment(false)
+                    .investmentAsset(asset)
+                    .investmentMovement(null)
+                    .investmentSourceType("COLLECTION")
+                    .build();
+            transactionRepository.save(tx);
+        }
+
+        investmentRepository.delete(asset);
+
+        return new InvestmentCollectResponse(id, amount, currency, transactionCreated);
     }
 
     // ── Movement CRUD (FCI / FCI_CUOTAPARTES) ────────────────────────────────
@@ -145,6 +320,16 @@ public class InvestmentService {
         // Los movimientos pueden registrarse en cualquier fecha (incluso anterior a otros):
         // los tramos y el saldo se recalculan ordenando por fecha. Sólo validamos el rescate.
         validateRescate(asset, request);
+
+        // Sólo SUSCRIPCION/RESCATE generan Transaction — REVALUO nunca lo hace (decisión de
+        // producto: los revalúos sólo actualizan el valor de la inversión, nunca tocan la cuenta).
+        boolean isTransactable = request.type() == InvestmentMovementType.SUSCRIPCION
+                || request.type() == InvestmentMovementType.RESCATE;
+        if (isTransactable && !monthPeriodService.isOpen(
+                user.getId(), request.movementDate().getYear(), request.movementDate().getMonthValue())) {
+            throw new VectisException(
+                    "No se puede registrar el movimiento: el mes está cerrado", HttpStatus.CONFLICT);
+        }
 
         InvestmentMovement movement = InvestmentMovement.builder()
                 .investmentAsset(asset)
@@ -168,6 +353,27 @@ public class InvestmentService {
             if (price != null) {
                 upsertValuationForMovement(asset, request.movementDate(), price);
             }
+        }
+
+        if (isTransactable && asset.getAccount() != null && asset.isIncludeInCashflow()) {
+            // saveAndFlush para asegurar el id del movimiento antes de vincular la transacción.
+            InvestmentMovement savedMovement = movementRepository.saveAndFlush(movement);
+            boolean isSuscripcion = request.type() == InvestmentMovementType.SUSCRIPCION;
+            Transaction tx = Transaction.builder()
+                    .user(user)
+                    .type(isSuscripcion ? TransactionType.EXPENSE : TransactionType.INCOME)
+                    .description((isSuscripcion ? "Suscripción" : "Rescate") + " inversión: " + asset.getName())
+                    .amount(request.amount())
+                    .ccy(asset.getCurrency())
+                    .account(asset.getAccount())
+                    .transactionDate(request.movementDate())
+                    .dueDate(request.movementDate())
+                    .installment(false)
+                    .investmentAsset(asset)
+                    .investmentMovement(savedMovement)
+                    .investmentSourceType(request.type().name())
+                    .build();
+            transactionRepository.save(tx);
         }
 
         InvestmentAsset saved = investmentRepository.save(asset);
@@ -194,6 +400,9 @@ public class InvestmentService {
         InvestmentMovement movement = movementRepository.findByIdAndInvestmentAsset_Id(movId, investmentId)
                 .orElseThrow(() -> new InvestmentMovementNotFoundException(movId));
 
+        // Si el movimiento dejó una Transaction vinculada, bloquear la edición si su mes ya cerró.
+        assertLinkedTransactionMonthOpen(movId, user.getId());
+
         // amount: solo se actualiza si viene presente (tramo REVALUO).
         if (request.amount() != null) {
             movement.setAmount(request.amount());
@@ -215,6 +424,12 @@ public class InvestmentService {
         InvestmentMovement movement = movementRepository.findByIdAndInvestmentAsset_Id(movId, investmentId)
                 .orElseThrow(() -> new InvestmentMovementNotFoundException(movId));
 
+        // Si el movimiento dejó una Transaction vinculada, bloquear el borrado si su mes ya cerró;
+        // si está abierto, se revierte (soft-delete) más abajo, tras remover el movimiento.
+        Optional<Transaction> linkedTx = transactionRepository.findByInvestmentMovement_IdAndDeletedAtIsNull(movId);
+        linkedTx.ifPresent(tx -> assertMonthOpenForDate(tx.getTransactionDate(), user.getId(),
+                "No se puede eliminar: la transacción vinculada pertenece a un mes ya cerrado"));
+
         asset.getMovements().remove(movement);
         recalculatePrincipal(asset);
 
@@ -226,6 +441,11 @@ public class InvestmentService {
         if (isCuotaparteFamily(asset.getType())) {
             removeOperationValuationIfOrphan(asset, movement.getMovementDate());
         }
+
+        linkedTx.ifPresent(tx -> {
+            tx.setDeletedAt(OffsetDateTime.now(ZoneOffset.UTC));
+            transactionRepository.save(tx);
+        });
 
         InvestmentAsset saved = investmentRepository.save(asset);
         return investmentMapper.toResponse(saved);
@@ -352,6 +572,16 @@ public class InvestmentService {
                 && "MANUAL".equals(v.getSource()));
     }
 
+    /**
+     * Valor de mercado actual del activo — la base correcta para acreditar en {@link #collectInvestment}.
+     * Delega en {@link InvestmentValuationCalculator}, la misma utilidad que usa {@link InvestmentMapper}
+     * para poblar {@code InvestmentResponse#currentValue}, de forma que ambos compartan una única
+     * implementación en vez de calcular el mismo número por caminos distintos.
+     */
+    private BigDecimal calculateCurrentValue(InvestmentAsset asset) {
+        return InvestmentValuationCalculator.calculateCurrentValue(asset);
+    }
+
     private void recalculatePrincipal(InvestmentAsset asset) {
         BigDecimal balance = asset.getMovements().stream()
                 .map(m -> switch (m.getType()) {
@@ -415,12 +645,36 @@ public class InvestmentService {
                 .reduce(BigDecimal.ZERO, BigDecimal::add);
     }
 
-    private Account resolveAccount(UUID accountId, User user) {
+    private Account resolveAccount(UUID accountId, User user, String currency) {
         if (accountId == null) {
             return null;
         }
-        return accountRepository.findByIdAndUser_Id(accountId, user.getId())
+        Account account = accountRepository.findByIdAndUser_Id(accountId, user.getId())
                 .orElseThrow(() -> new VectisException(
                         "La cuenta no pertenece al usuario autenticado", HttpStatus.FORBIDDEN));
+
+        if (!account.getCcy().equals(currency)) {
+            throw new VectisException(
+                    "La moneda de la inversión no coincide con la moneda de la cuenta vinculada",
+                    HttpStatus.CONFLICT);
+        }
+        return account;
+    }
+
+    /** {@code includeInCashflow} usa Boolean (no primitivo) para poder distinguir "ausente" de "false"; default true. */
+    private boolean resolveIncludeInCashflow(Boolean requested) {
+        return requested == null || requested;
+    }
+
+    private void assertLinkedTransactionMonthOpen(UUID movementId, UUID userId) {
+        transactionRepository.findByInvestmentMovement_IdAndDeletedAtIsNull(movementId)
+                .ifPresent(tx -> assertMonthOpenForDate(tx.getTransactionDate(), userId,
+                        "No se puede modificar: la transacción vinculada pertenece a un mes ya cerrado"));
+    }
+
+    private void assertMonthOpenForDate(LocalDate date, UUID userId, String messageIfClosed) {
+        if (!monthPeriodService.isOpen(userId, date.getYear(), date.getMonthValue())) {
+            throw new VectisException(messageIfClosed, HttpStatus.CONFLICT);
+        }
     }
 }

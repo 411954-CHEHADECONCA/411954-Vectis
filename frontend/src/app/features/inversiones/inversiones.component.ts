@@ -42,6 +42,7 @@ import { CurrencyService }   from '../../core/services/currency.service';
 import {
   FciFundOption,
   InstrumentOption,
+  InvestmentCollectResponse,
   InvestmentResponse,
   InvestmentRequest,
   InvestmentAssetType,
@@ -58,7 +59,7 @@ import { AccountResponse }   from '../../core/models/account.models';
 import { InflationResponse } from '../../core/models/macro.models';
 
 type ModalState = {
-  kind:       'type-select' | 'form-create' | 'form-edit' | 'delete';
+  kind:       'type-select' | 'form-create' | 'form-edit' | 'delete' | 'collect';
   assetType?: InvestmentAssetType;
   id?:        string;
   label?:     string;
@@ -355,6 +356,7 @@ export class InversionesComponent implements OnInit {
     dias:         new FormControl<number | null>(null, [Validators.required, Validators.min(1)]),
     tna:          new FormControl<number | null>(null, [Validators.required, Validators.min(0)]),
     accountId:    new FormControl<string | null>(null),
+    includeInCashflow: new FormControl(true, { nonNullable: true }),
   });
 
   private readonly _pfValues = toSignal(this.plazoFijoForm.valueChanges, {
@@ -393,6 +395,7 @@ export class InversionesComponent implements OnInit {
     purchaseDate: new FormControl('', { nonNullable: true, validators: [Validators.required] }),
     initialAmount: new FormControl<number | null>(null, [Validators.min(0.01)]),
     accountId:    new FormControl<string | null>(null),
+    includeInCashflow: new FormControl(true, { nonNullable: true }),
   });
 
   readonly addMovementForm = new FormGroup({
@@ -410,6 +413,7 @@ export class InversionesComponent implements OnInit {
     purchaseDate: new FormControl('', { nonNullable: true, validators: [Validators.required] }),
     accountId:    new FormControl<string | null>(null),
     externalId:   new FormControl<string | null>(null),
+    includeInCashflow: new FormControl(true, { nonNullable: true }),
   });
 
   readonly addMovementCPForm = new FormGroup({
@@ -438,6 +442,7 @@ export class InversionesComponent implements OnInit {
     maturityDate: new FormControl('', { nonNullable: true, validators: [Validators.required] }),
     accountId:    new FormControl<string | null>(null),
     externalId:   new FormControl<string | null>(null),
+    includeInCashflow: new FormControl(true, { nonNullable: true }),
   }, { validators: maturityAfterPurchaseValidator });
 
   // Kept for backwards compat with existing tests
@@ -1044,11 +1049,11 @@ export class InversionesComponent implements OnInit {
   openCreate(): void {
     this.plazoFijoForm.reset({
       name: '', currency: 'ARS', principal: null,
-      purchaseDate: this.todayIso(), dias: null, tna: null, accountId: null,
+      purchaseDate: this.todayIso(), dias: null, tna: null, accountId: null, includeInCashflow: true,
     });
-    this.fciForm.reset({ name: '', currency: 'ARS', tna: null, purchaseDate: this.todayIso(), initialAmount: null, accountId: null });
-    this.fciCPForm.reset({ name: '', currency: 'ARS', accountId: null });
-    this.letraForm.reset({ name: '', currency: 'ARS', purchaseDate: this.todayIso(), maturityDate: '', accountId: null });
+    this.fciForm.reset({ name: '', currency: 'ARS', tna: null, purchaseDate: this.todayIso(), initialAmount: null, accountId: null, includeInCashflow: true });
+    this.fciCPForm.reset({ name: '', currency: 'ARS', accountId: null, includeInCashflow: true });
+    this.letraForm.reset({ name: '', currency: 'ARS', purchaseDate: this.todayIso(), maturityDate: '', accountId: null, includeInCashflow: true });
     this.formError.set(null);
     this.movFormError.set(null);
     this.modal.set({ kind: 'type-select' });
@@ -1065,15 +1070,15 @@ export class InversionesComponent implements OnInit {
     this.priceSource.set(null);
     this.editingAssetType.set(type);
     if (type === 'FCI') {
-      this.fciForm.reset({ name: '', currency: 'ARS', tna: null, purchaseDate: this.todayIso(), initialAmount: null, accountId: null });
+      this.fciForm.reset({ name: '', currency: 'ARS', tna: null, purchaseDate: this.todayIso(), initialAmount: null, accountId: null, includeInCashflow: true });
     }
     if (type === 'FCI_CUOTAPARTES') {
       this.selectedFciCategory.set('mercadoDinero');
-      this.fciCPForm.reset({ name: '', currency: 'ARS', purchaseDate: this.todayIso(), accountId: null, externalId: null });
+      this.fciCPForm.reset({ name: '', currency: 'ARS', purchaseDate: this.todayIso(), accountId: null, externalId: null, includeInCashflow: true });
       this.addMovementCPForm.reset({ movementDate: this.todayIso(), type: 'SUSCRIPCION', amount: null, units: null, pricePerUnit: null });
     }
     if (type === 'LETRA' || type === 'BONO' || type === 'ON') {
-      this.letraForm.reset({ name: '', currency: 'ARS', purchaseDate: this.todayIso(), maturityDate: '', accountId: null, externalId: null });
+      this.letraForm.reset({ name: '', currency: 'ARS', purchaseDate: this.todayIso(), maturityDate: '', accountId: null, externalId: null, includeInCashflow: true });
       this.addMovementCPForm.reset({ movementDate: this.todayIso(), type: 'SUSCRIPCION', amount: null, units: null, pricePerUnit: null });
     }
     this.modal.update(m => m ? { ...m, kind: 'form-create', assetType: type } : null);
@@ -1086,19 +1091,20 @@ export class InversionesComponent implements OnInit {
     this.editingValuationId.set(null);
 
     if (asset.type === 'FCI') {
-      this.fciForm.reset({ name: '', currency: 'ARS', tna: null, purchaseDate: asset.purchaseDate ?? this.todayIso(), initialAmount: null, accountId: null });
+      this.fciForm.reset({ name: '', currency: 'ARS', tna: null, purchaseDate: asset.purchaseDate ?? this.todayIso(), initialAmount: null, accountId: null, includeInCashflow: true });
       this.fciForm.patchValue({
         name:      asset.name ?? '',
         currency:  (asset.currency as 'ARS' | 'USD') ?? 'ARS',
         tna:       asset.tna != null ? Number(asset.tna) : null,
         accountId: asset.accountId ?? null,
+        includeInCashflow: asset.includeInCashflow ?? true,
       });
       this.modal.set({ kind: 'form-edit', assetType: asset.type, id: asset.id, asset });
       return;
     }
 
     if (asset.type === 'FCI_CUOTAPARTES') {
-      this.fciCPForm.reset({ name: asset.name, currency: asset.currency, purchaseDate: asset.purchaseDate ?? this.todayIso(), accountId: asset.accountId, externalId: asset.externalId ?? null });
+      this.fciCPForm.reset({ name: asset.name, currency: asset.currency, purchaseDate: asset.purchaseDate ?? this.todayIso(), accountId: asset.accountId, externalId: asset.externalId ?? null, includeInCashflow: asset.includeInCashflow ?? true });
       this.trackingMode.set(asset.autoTrack ? 'auto' : 'manual');
       // Preseleccionar la categoría del fondo (si está en el catálogo) para que las pills sean coherentes.
       const fund = this.fciFunds().find(f => f.fondo === asset.externalId);
@@ -1121,6 +1127,7 @@ export class InversionesComponent implements OnInit {
         maturityDate: asset.maturityDate ?? '',
         accountId:    asset.accountId ?? null,
         externalId:   asset.externalId ?? null,
+        includeInCashflow: asset.includeInCashflow ?? true,
       });
       this.trackingMode.set(asset.autoTrack ? 'auto' : 'manual');
       if (asset.autoTrack && asset.externalId) {
@@ -1144,12 +1151,32 @@ export class InversionesComponent implements OnInit {
       dias,
       tna:          asset.tna,
       accountId:    asset.accountId,
+      includeInCashflow: asset.includeInCashflow ?? true,
     });
     this.modal.set({ kind: 'form-edit', assetType: asset.type, id: asset.id });
   }
 
   openDelete(asset: InvestmentResponse): void {
     this.modal.set({ kind: 'delete', id: asset.id, label: asset.name });
+  }
+
+  openCollect(asset: InvestmentResponse): void {
+    this.formError.set(null);
+    this.modal.set({ kind: 'collect', id: asset.id, label: asset.name, asset });
+  }
+
+  /** Monto que se acreditaría al cobrar: el mismo valor mostrado en la tabla para el activo. */
+  collectAmountPreview(asset: InvestmentResponse): number {
+    return this.saldoBase(asset);
+  }
+
+  /** true si cobrar generará un movimiento de cuenta (hay cuenta vinculada e incluida en cashflow). */
+  collectWillCreateMovement(asset: InvestmentResponse): boolean {
+    return !!asset.accountId && asset.includeInCashflow;
+  }
+
+  collectAccountName(asset: InvestmentResponse): string | null {
+    return asset.accountName ?? null;
   }
 
   closeModal(): void {
@@ -1758,7 +1785,7 @@ export class InversionesComponent implements OnInit {
   // ── Submit ────────────────────────────────────────────────────────────────
   submit(): void {
     const m = this.modal();
-    if (!m || m.kind === 'delete' || m.kind === 'type-select' || this.submitting()) return;
+    if (!m || m.kind === 'delete' || m.kind === 'collect' || m.kind === 'type-select' || this.submitting()) return;
 
     if (m.assetType === 'FCI') {
       this.submitFCI(m);
@@ -1791,6 +1818,7 @@ export class InversionesComponent implements OnInit {
       accountId:    raw.accountId || null,
       autoTrack:    false,
       externalId:   null,
+      includeInCashflow: raw.includeInCashflow,
     };
 
     const isEdit = m.kind === 'form-edit';
@@ -1836,6 +1864,7 @@ export class InversionesComponent implements OnInit {
       accountId:    raw.accountId || null,
       autoTrack:    false,
       externalId:   null,
+      includeInCashflow: raw.includeInCashflow,
     };
 
     const isEdit = m.kind === 'form-edit';
@@ -1926,6 +1955,7 @@ export class InversionesComponent implements OnInit {
       accountId:    raw.accountId || null,
       autoTrack:    isAutoTrack,
       externalId:   isAutoTrack ? (raw.externalId || null) : null,
+      includeInCashflow: raw.includeInCashflow,
     };
 
     const isEdit = m.kind === 'form-edit';
@@ -2016,6 +2046,7 @@ export class InversionesComponent implements OnInit {
       accountId:    raw.accountId || null,
       autoTrack:    isAutoTrack,
       externalId:   isAutoTrack ? (raw.externalId || null) : null,
+      includeInCashflow: raw.includeInCashflow,
     };
 
     const isEdit = m.kind === 'form-edit';
@@ -2084,6 +2115,23 @@ export class InversionesComponent implements OnInit {
       error: (err: HttpErrorResponse) => {
         this.submitting.set(false);
         this.formError.set(err.error?.message ?? 'No se pudo eliminar el activo');
+      },
+    });
+  }
+
+  confirmCollect(): void {
+    const m = this.modal();
+    if (!m?.id || this.submitting()) return;
+    this.submitting.set(true);
+    this.investmentService.collectInvestment(m.id).subscribe({
+      next: (_res: InvestmentCollectResponse) => {
+        this.assets.update(list => list.filter(a => a.id !== m.id));
+        this.submitting.set(false);
+        this.closeModal();
+      },
+      error: (err: HttpErrorResponse) => {
+        this.submitting.set(false);
+        this.formError.set(err.error?.message ?? 'No se pudo cobrar el activo');
       },
     });
   }

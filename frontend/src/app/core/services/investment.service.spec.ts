@@ -4,6 +4,7 @@ import { InvestmentService } from './investment.service';
 import {
   FciFundOption,
   InstrumentOption,
+  InvestmentCollectResponse,
   InvestmentMovementRequest,
   InvestmentRequest,
   InvestmentResponse,
@@ -24,6 +25,7 @@ const MOCK_INVESTMENT: InvestmentResponse = {
   accountName:  null,
   autoTrack:    false,
   externalId:   null,
+  includeInCashflow: true,
   createdAt:    '2026-06-01T00:00:00Z',
   updatedAt:    '2026-06-01T00:00:00Z',
   movements:    [],
@@ -41,6 +43,7 @@ const MOCK_REQUEST: InvestmentRequest = {
   accountId:    null,
   autoTrack:    false,
   externalId:   null,
+  includeInCashflow: true,
 };
 
 describe('InvestmentService', () => {
@@ -106,6 +109,23 @@ describe('InvestmentService', () => {
     const req = httpMock.expectOne(r => r.url === `${baseUrl}/${id}` && r.method === 'DELETE');
     expect(req.request.method).toBe('DELETE');
     req.flush(null);
+  });
+
+  it('collectInvestment() hace POST a /api/investments/{id}/collect', () => {
+    const id = 'inv-1';
+    const mockResponse: InvestmentCollectResponse = {
+      investmentId: id, amount: 1200000, currency: 'ARS', transactionCreated: true,
+    };
+
+    service.collectInvestment(id).subscribe(res => {
+      expect(res.investmentId).toBe(id);
+      expect(res.amount).toBe(1200000);
+      expect(res.transactionCreated).toBeTrue();
+    });
+
+    const req = httpMock.expectOne(r => r.url === `${baseUrl}/${id}/collect` && r.method === 'POST');
+    expect(req.request.body).toEqual({});
+    req.flush(mockResponse);
   });
 
   it('addMovement() hace POST a /api/investments/{id}/movements con el body correcto', () => {

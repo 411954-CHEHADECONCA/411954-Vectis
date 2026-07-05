@@ -5,6 +5,7 @@ import com.vectis.backend.domain.entity.User;
 import com.vectis.backend.dto.FciFundDto;
 import com.vectis.backend.dto.InstrumentDto;
 import com.vectis.backend.dto.InstrumentPriceResponse;
+import com.vectis.backend.dto.InvestmentCollectResponse;
 import com.vectis.backend.dto.MarketApiStatusDto;
 import com.vectis.backend.dto.InvestmentMovementRequest;
 import com.vectis.backend.dto.InvestmentMovementUpdateRequest;
@@ -119,6 +120,9 @@ public class InvestmentController {
             content = @Content(schema = @Schema(implementation = ErrorResponse.class))),
         @ApiResponse(responseCode = "404", description = "Activo no encontrado",
             content = @Content(schema = @Schema(implementation = ErrorResponse.class))),
+        @ApiResponse(responseCode = "409", description = "El activo tiene transacciones vinculadas en un mes ya cerrado: "
+                + "no se puede eliminar (usar \"Cobrar\" en su lugar)",
+            content = @Content(schema = @Schema(implementation = ErrorResponse.class))),
         @ApiResponse(responseCode = "500", description = "Error interno del servidor",
             content = @Content(schema = @Schema(implementation = ErrorResponse.class)))
     })
@@ -126,6 +130,29 @@ public class InvestmentController {
             @PathVariable UUID id,
             @AuthenticationPrincipal User user) {
         investmentService.deleteInvestment(id, user);
+    }
+
+    @PostMapping("/{id}/collect")
+    @Operation(summary = "Cobrar (liquidar) un activo de inversión",
+               description = "Acredita el capital actualizado como ingreso en la cuenta vinculada (fecha de hoy) "
+                       + "y elimina la inversión. A diferencia de eliminar, siempre está permitido —incluso con "
+                       + "historial en meses cerrados— y no revierte transacciones históricas, que quedan intactas.")
+    @ApiResponses({
+        @ApiResponse(responseCode = "200", description = "Inversión cobrada y eliminada",
+            content = @Content(schema = @Schema(implementation = InvestmentCollectResponse.class))),
+        @ApiResponse(responseCode = "401", description = "Token JWT ausente o inválido",
+            content = @Content(schema = @Schema(implementation = ErrorResponse.class))),
+        @ApiResponse(responseCode = "403", description = "No se puede cobrar un activo de otro usuario",
+            content = @Content(schema = @Schema(implementation = ErrorResponse.class))),
+        @ApiResponse(responseCode = "404", description = "Activo no encontrado",
+            content = @Content(schema = @Schema(implementation = ErrorResponse.class))),
+        @ApiResponse(responseCode = "500", description = "Error interno del servidor",
+            content = @Content(schema = @Schema(implementation = ErrorResponse.class)))
+    })
+    public InvestmentCollectResponse collectInvestment(
+            @PathVariable UUID id,
+            @AuthenticationPrincipal User user) {
+        return investmentService.collectInvestment(id, user);
     }
 
     // ── Movements (FCI) ──────────────────────────────────────────────────────

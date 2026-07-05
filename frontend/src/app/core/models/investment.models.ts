@@ -53,6 +53,7 @@ export interface InvestmentResponse {
   accountName:  string | null;
   autoTrack:    boolean;
   externalId:   string | null;
+  includeInCashflow: boolean;
   createdAt:    string;
   updatedAt:    string;
   movements:    InvestmentMovement[];
@@ -70,6 +71,14 @@ export interface InvestmentRequest {
   accountId:    string | null;
   autoTrack:    boolean;
   externalId:   string | null;
+  includeInCashflow: boolean;
+}
+
+export interface InvestmentCollectResponse {
+  investmentId:      string;
+  amount:            number;
+  currency:          'ARS' | 'USD';
+  transactionCreated: boolean;
 }
 
 export const ASSET_TYPE_LABELS: Record<InvestmentAssetType, string> = {

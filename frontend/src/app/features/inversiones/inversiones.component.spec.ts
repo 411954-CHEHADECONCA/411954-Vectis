@@ -26,7 +26,7 @@ const MOCK_ASSETS: InvestmentResponse[] = [
     id: 'inv-1', name: 'FCI Ahorro', type: 'FCI', currency: 'ARS',
     principal: 0, purchaseDate: '2026-01-10', maturityDate: null,
     tna: 65.5, accountId: null, accountName: null,
-    autoTrack: false, externalId: null,
+    autoTrack: false, externalId: null, includeInCashflow: true,
     createdAt: '2026-06-01T00:00:00Z', updatedAt: '2026-06-01T00:00:00Z',
     movements: MOCK_FCI_MOVEMENTS,
     valuations: [],
@@ -35,7 +35,7 @@ const MOCK_ASSETS: InvestmentResponse[] = [
     id: 'inv-2', name: 'LECAP S31G5', type: 'LETRA', currency: 'ARS',
     principal: 850000, purchaseDate: '2026-02-01', maturityDate: '2026-08-31',
     tna: 72.0, accountId: null, accountName: null,
-    autoTrack: false, externalId: null,
+    autoTrack: false, externalId: null, includeInCashflow: true,
     createdAt: '2026-06-01T00:00:00Z', updatedAt: '2026-06-01T00:00:00Z',
     // 850000 nominales × VN=1 → calcValorActualCP = 850000 (usada en capitalARS)
     movements: [
@@ -73,7 +73,7 @@ const MOCK_INSTRUMENTS: InstrumentOption[] = [
 
 function buildSpies() {
   const investSpy = jasmine.createSpyObj<InvestmentService>('InvestmentService', [
-    'getInvestments', 'createInvestment', 'updateInvestment', 'deleteInvestment',
+    'getInvestments', 'createInvestment', 'updateInvestment', 'deleteInvestment', 'collectInvestment',
     'addMovement', 'updateMovement', 'deleteMovement', 'addValuation', 'updateValuation', 'deleteValuation',
     'getFciFunds', 'getInstruments', 'getFciVcp', 'getInstrumentPrice',
   ]);
@@ -81,6 +81,9 @@ function buildSpies() {
   investSpy.createInvestment.and.returnValue(of({ ...MOCK_ASSETS[0] }));
   investSpy.updateInvestment.and.returnValue(of({ ...MOCK_ASSETS[1], name: 'LECAP Actualizada' }));
   investSpy.deleteInvestment.and.returnValue(of(undefined));
+  investSpy.collectInvestment.and.returnValue(of({
+    investmentId: MOCK_ASSETS[0].id, amount: 500000, currency: 'ARS', transactionCreated: true,
+  }));
   investSpy.addMovement.and.returnValue(of({ ...MOCK_ASSETS[0] }));
   investSpy.updateMovement.and.returnValue(of({ ...MOCK_ASSETS[0] }));
   investSpy.deleteMovement.and.returnValue(of({ ...MOCK_ASSETS[0], movements: [] }));
@@ -178,7 +181,7 @@ describe('InversionesComponent', () => {
       const vencido: InvestmentResponse = {
         id: 'pf-venc', name: 'PF Vencido', type: 'PLAZO_FIJO', currency: 'ARS',
         principal: 500000, purchaseDate: '2025-01-01', maturityDate: '2025-06-01',
-        tna: 40, accountId: null, accountName: null, autoTrack: false, externalId: null,
+        tna: 40, accountId: null, accountName: null, autoTrack: false, externalId: null, includeInCashflow: true,
         createdAt: '', updatedAt: '', movements: [], valuations: [],
       };
       const vigente: InvestmentResponse = { ...vencido, id: 'pf-vig', maturityDate: '2099-01-01', principal: 300000 };
@@ -282,7 +285,7 @@ describe('InversionesComponent', () => {
       const pf: InvestmentResponse = {
         id: 'pf-mid', name: 'PF', type: 'PLAZO_FIJO', currency: 'ARS',
         principal: 100000, purchaseDate, maturityDate: null,
-        tna: 36.5, accountId: null, accountName: null, autoTrack: false, externalId: null,
+        tna: 36.5, accountId: null, accountName: null, autoTrack: false, externalId: null, includeInCashflow: true,
         createdAt: '', updatedAt: '', movements: [], valuations: [],
       };
       const diasEsperados = Math.floor(
@@ -301,7 +304,7 @@ describe('InversionesComponent', () => {
         id: 'pf-venc-pasado', name: 'PF', type: 'PLAZO_FIJO', currency: 'ARS',
         principal: 100000, purchaseDate: '2020-01-01',
         maturityDate: isoDate(new Date(today.getFullYear(), today.getMonth() - 1, 15)),
-        tna: 36.5, accountId: null, accountName: null, autoTrack: false, externalId: null,
+        tna: 36.5, accountId: null, accountName: null, autoTrack: false, externalId: null, includeInCashflow: true,
         createdAt: '', updatedAt: '', movements: [], valuations: [],
       };
       expect(component.gananciaEnRango(pf, desdeActual, hastaActual)).toBe(0);
@@ -350,7 +353,7 @@ describe('InversionesComponent', () => {
       const pfActivo: InvestmentResponse = {
         id: 'pf-1', name: 'PF', type: 'PLAZO_FIJO', currency: 'ARS',
         principal: 100000, purchaseDate: '2020-01-01', maturityDate: '2099-01-01',
-        tna: 36, accountId: null, accountName: null, autoTrack: false, externalId: null,
+        tna: 36, accountId: null, accountName: null, autoTrack: false, externalId: null, includeInCashflow: true,
         createdAt: '', updatedAt: '', movements: [], valuations: [],
       };
       const pfUSD:     InvestmentResponse = { ...pfActivo, id: 'pf-usd',  currency: 'USD' };
@@ -381,7 +384,7 @@ describe('InversionesComponent', () => {
       const pfActivo: InvestmentResponse = {
         id: 'pf-1', name: 'PF', type: 'PLAZO_FIJO', currency: 'ARS',
         principal: 100000, purchaseDate: '2020-01-01', maturityDate: '2099-01-01',
-        tna: 36, accountId: null, accountName: null, autoTrack: false, externalId: null,
+        tna: 36, accountId: null, accountName: null, autoTrack: false, externalId: null, includeInCashflow: true,
         createdAt: '', updatedAt: '', movements: [], valuations: [],
       };
       const pfUSD: InvestmentResponse = { ...pfActivo, id: 'pf-usd', currency: 'USD' };
@@ -409,7 +412,7 @@ describe('InversionesComponent', () => {
       const pf: InvestmentResponse = {
         id: 'pf-ultimo-dia', name: 'PF', type: 'PLAZO_FIJO', currency: 'ARS',
         principal: 100000, purchaseDate: '2020-01-01', maturityDate: '2099-01-01',
-        tna: 36, accountId: null, accountName: null, autoTrack: false, externalId: null,
+        tna: 36, accountId: null, accountName: null, autoTrack: false, externalId: null, includeInCashflow: true,
         createdAt: '', updatedAt: '', movements: [], valuations: [],
       };
       component.assets.set([pf]);
@@ -423,7 +426,7 @@ describe('InversionesComponent', () => {
       const pf: InvestmentResponse = {
         id: 'pf-proy', name: 'PF', type: 'PLAZO_FIJO', currency: 'ARS',
         principal: 100000, purchaseDate: '2020-01-01', maturityDate: '2099-01-01',
-        tna: 36, accountId: null, accountName: null, autoTrack: false, externalId: null,
+        tna: 36, accountId: null, accountName: null, autoTrack: false, externalId: null, includeInCashflow: true,
         createdAt: '', updatedAt: '', movements: [], valuations: [],
       };
       component.assets.set([pf]);
@@ -448,7 +451,7 @@ describe('InversionesComponent', () => {
       const pf: InvestmentResponse = {
         id: 'pf-var', name: 'PF', type: 'PLAZO_FIJO', currency: 'ARS',
         principal: 100000, purchaseDate: '2020-01-01', maturityDate: '2099-01-01',
-        tna: 36, accountId: null, accountName: null, autoTrack: false, externalId: null,
+        tna: 36, accountId: null, accountName: null, autoTrack: false, externalId: null, includeInCashflow: true,
         createdAt: '', updatedAt: '', movements: [], valuations: [],
       };
       component.assets.set([pf]);
@@ -501,7 +504,7 @@ describe('InversionesComponent', () => {
       const pf: InvestmentResponse = {
         id: 'pf-tasa', name: 'PF', type: 'PLAZO_FIJO', currency: 'ARS',
         principal: 1000000, purchaseDate: '2020-01-01', maturityDate: '2099-01-01',
-        tna: 60, accountId: null, accountName: null, autoTrack: false, externalId: null,
+        tna: 60, accountId: null, accountName: null, autoTrack: false, externalId: null, includeInCashflow: true,
         createdAt: '', updatedAt: '', movements: [], valuations: [],
       };
       component.assets.set([pf]);
@@ -521,7 +524,7 @@ describe('InversionesComponent', () => {
       id: 'inv-pf', name: 'PF Banco', type: 'PLAZO_FIJO', currency: 'ARS',
       principal: 1000000, purchaseDate: '2026-06-01', maturityDate: '2026-07-01',
       tna: 36.5, accountId: null, accountName: null,
-      autoTrack: false, externalId: null,
+      autoTrack: false, externalId: null, includeInCashflow: true,
       createdAt: '2026-06-01T00:00:00Z', updatedAt: '2026-06-01T00:00:00Z',
       movements: [], valuations: [],
     };
@@ -564,7 +567,7 @@ describe('InversionesComponent', () => {
         id: 'inv-pf', name: 'PF Banco', type: 'PLAZO_FIJO', currency: 'ARS',
         principal: 1000000, purchaseDate: '2026-06-01', maturityDate: '2026-07-01',
         tna: 36.5, accountId: null, accountName: null,
-        autoTrack: false, externalId: null,
+        autoTrack: false, externalId: null, includeInCashflow: true,
         createdAt: '2026-06-01T00:00:00Z', updatedAt: '2026-06-01T00:00:00Z',
         movements: [], valuations: [],
       };
@@ -592,7 +595,7 @@ describe('InversionesComponent', () => {
       const cp: InvestmentResponse = {
         id: 'cp-una', name: 'CP Una Suscripcion', type: 'FCI_CUOTAPARTES', currency: 'ARS',
         principal: 100000, purchaseDate: '2026-01-01', maturityDate: null, tna: 0,
-        accountId: null, accountName: null, autoTrack: false, externalId: null,
+        accountId: null, accountName: null, autoTrack: false, externalId: null, includeInCashflow: true,
         createdAt: '', updatedAt: '',
         movements: [
           { id: 'm1', movementDate: '2026-01-01', type: 'SUSCRIPCION', amount: 100000, units: 400, createdAt: '' },
@@ -608,7 +611,7 @@ describe('InversionesComponent', () => {
       const cp: InvestmentResponse = {
         id: 'cp-dos', name: 'CP Dos Suscripciones', type: 'FCI_CUOTAPARTES', currency: 'ARS',
         principal: 700000, purchaseDate: '2026-01-01', maturityDate: null, tna: 0,
-        accountId: null, accountName: null, autoTrack: false, externalId: null,
+        accountId: null, accountName: null, autoTrack: false, externalId: null, includeInCashflow: true,
         createdAt: '', updatedAt: '',
         movements: [
           { id: 'm1', movementDate: '2026-01-01', type: 'SUSCRIPCION', amount: 500000, units: 400, createdAt: '' },
@@ -626,7 +629,7 @@ describe('InversionesComponent', () => {
         id: 'inv-pf', name: 'PF Banco', type: 'PLAZO_FIJO', currency: 'ARS',
         principal: 1000000, purchaseDate: '2026-06-01', maturityDate: '2026-07-01',
         tna: 36.5, accountId: null, accountName: null,
-        autoTrack: false, externalId: null,
+        autoTrack: false, externalId: null, includeInCashflow: true,
         createdAt: '2026-06-01T00:00:00Z', updatedAt: '2026-06-01T00:00:00Z',
         movements: [], valuations: [],
       };
@@ -646,6 +649,83 @@ describe('InversionesComponent', () => {
     expect(component.plazoFijoForm.controls.currency.value).toBe('ARS');
     expect(component.plazoFijoForm.controls.principal.value).toBeNull();
     expect(component.formError()).toBeNull();
+  });
+
+  // ── includeInCashflow: default true en los 4 formularios ────────────────────
+
+  describe('includeInCashflow — default en los 4 formularios', () => {
+    it('plazoFijoForm.includeInCashflow es true por defecto', () => {
+      component.openCreate();
+      expect(component.plazoFijoForm.controls.includeInCashflow.value).toBeTrue();
+    });
+
+    it('fciForm.includeInCashflow es true por defecto', () => {
+      component.openCreate();
+      component.selectType('FCI');
+      expect(component.fciForm.controls.includeInCashflow.value).toBeTrue();
+    });
+
+    it('fciCPForm.includeInCashflow es true por defecto', () => {
+      component.openCreate();
+      component.selectType('FCI_CUOTAPARTES');
+      expect(component.fciCPForm.controls.includeInCashflow.value).toBeTrue();
+    });
+
+    it('letraForm.includeInCashflow es true por defecto', () => {
+      component.openCreate();
+      component.selectType('LETRA');
+      expect(component.letraForm.controls.includeInCashflow.value).toBeTrue();
+    });
+  });
+
+  // ── includeInCashflow: presente en el payload de creación de cada tipo ──────
+
+  describe('includeInCashflow — presente en el payload de submit', () => {
+    it('submit de PLAZO_FIJO envía includeInCashflow en el request', () => {
+      component.openCreate();
+      component.selectType('PLAZO_FIJO');
+      component.plazoFijoForm.setValue({
+        name: 'PF Test', currency: 'ARS',
+        principal: 500000, purchaseDate: '2026-06-01',
+        dias: 30, tna: 60.0, accountId: null, includeInCashflow: false,
+      });
+      investSpy.createInvestment.and.returnValue(of({ ...MOCK_ASSETS[1], id: 'inv-new' }));
+      component.submit();
+      const req = investSpy.createInvestment.calls.mostRecent().args[0];
+      expect(req.includeInCashflow).toBeFalse();
+    });
+
+    it('submit de FCI envía includeInCashflow en el request', () => {
+      component.openCreate();
+      component.selectType('FCI');
+      component.fciForm.patchValue({ name: 'FCI Test', currency: 'ARS', tna: 65, purchaseDate: '2026-02-15', includeInCashflow: false });
+      investSpy.createInvestment.and.returnValue(of({ ...MOCK_ASSETS[0], id: 'new-fci' }));
+      component.submit();
+      const req = investSpy.createInvestment.calls.mostRecent().args[0];
+      expect(req.includeInCashflow).toBeFalse();
+    });
+
+    it('submit de FCI_CUOTAPARTES envía includeInCashflow en el request', () => {
+      component.openCreate();
+      component.selectType('FCI_CUOTAPARTES');
+      component.setTrackingMode('manual');
+      component.fciCPForm.patchValue({ name: 'FCI CP Test', currency: 'ARS', purchaseDate: '2026-02-15', includeInCashflow: false });
+      investSpy.createInvestment.and.returnValue(of({ ...MOCK_ASSETS[0], id: 'new-cp', type: 'FCI_CUOTAPARTES' }));
+      component.submit();
+      const req = investSpy.createInvestment.calls.mostRecent().args[0];
+      expect(req.includeInCashflow).toBeFalse();
+    });
+
+    it('submit de LETRA/BONO/ON envía includeInCashflow en el request', () => {
+      component.openCreate();
+      component.selectType('LETRA');
+      component.setTrackingMode('manual');
+      component.letraForm.patchValue({ name: 'LECAP Test', purchaseDate: '2026-06-01', maturityDate: '2026-12-31', includeInCashflow: false });
+      investSpy.createInvestment.and.returnValue(of({ ...MOCK_ASSETS[1], id: 'new-letra' }));
+      component.submit();
+      const req = investSpy.createInvestment.calls.mostRecent().args[0];
+      expect(req.includeInCashflow).toBeFalse();
+    });
   });
 
   // ── 3b. Selector de categoría FCI Cuotaparte ───────────────────────────────
@@ -700,7 +780,7 @@ describe('InversionesComponent', () => {
     component.plazoFijoForm.setValue({
       name: 'PF Test', currency: 'ARS',
       principal: 500000, purchaseDate: '2026-06-01',
-      dias: 30, tna: 60.0, accountId: null,
+      dias: 30, tna: 60.0, accountId: null, includeInCashflow: true,
     });
     // Mock returns MOCK_ASSETS[0] (FCI) but we just verify the call and modal close
     investSpy.createInvestment.and.returnValue(of({
@@ -731,6 +811,56 @@ describe('InversionesComponent', () => {
     expect(investSpy.deleteInvestment).toHaveBeenCalledWith(asset.id);
     const remaining = component.assets().find(a => a.id === asset.id);
     expect(remaining).toBeUndefined();
+  });
+
+  // ── 7b. Cobrar ───────────────────────────────────────────────────────────
+
+  describe('Cobrar', () => {
+    it('openCollect abre el modal "collect" con el activo seleccionado', () => {
+      const asset = MOCK_ASSETS[1]; // LETRA — accountId null
+      component.openCollect(asset);
+      expect(component.modal()?.kind).toBe('collect');
+      expect(component.modal()?.asset?.id).toBe(asset.id);
+    });
+
+    it('collectWillCreateMovement es false cuando el activo no tiene cuenta vinculada', () => {
+      const asset = { ...MOCK_ASSETS[1], accountId: null };
+      expect(component.collectWillCreateMovement(asset)).toBeFalse();
+    });
+
+    it('collectWillCreateMovement es true cuando hay cuenta vinculada e includeInCashflow', () => {
+      const asset = { ...MOCK_ASSETS[1], accountId: 'acc-1', accountName: 'Cuenta Pesos', includeInCashflow: true };
+      expect(component.collectWillCreateMovement(asset)).toBeTrue();
+      expect(component.collectAccountName(asset)).toBe('Cuenta Pesos');
+    });
+
+    it('collectWillCreateMovement es false cuando includeInCashflow es false aunque haya cuenta', () => {
+      const asset = { ...MOCK_ASSETS[1], accountId: 'acc-1', accountName: 'Cuenta Pesos', includeInCashflow: false };
+      expect(component.collectWillCreateMovement(asset)).toBeFalse();
+    });
+
+    it('confirmCollect llama a collectInvestment, quita el activo de la lista y cierra el modal', () => {
+      const asset = MOCK_ASSETS[0];
+      investSpy.collectInvestment.and.returnValue(of({
+        investmentId: asset.id, amount: 500000, currency: 'ARS', transactionCreated: false,
+      }));
+      component.openCollect(asset);
+      component.confirmCollect();
+      expect(investSpy.collectInvestment).toHaveBeenCalledWith(asset.id);
+      expect(component.assets().find(a => a.id === asset.id)).toBeUndefined();
+      expect(component.modal()).toBeNull();
+    });
+
+    it('confirmCollect surfacea err.error.message en formError cuando falla', () => {
+      const asset = MOCK_ASSETS[0];
+      investSpy.collectInvestment.and.returnValue(
+        throwError(() => ({ error: { message: 'No se pudo cobrar: mes cerrado' } })),
+      );
+      component.openCollect(asset);
+      component.confirmCollect();
+      expect(component.formError()).toBe('No se pudo cobrar: mes cerrado');
+      expect(component.assets().find(a => a.id === asset.id)).toBeDefined();
+    });
   });
 
   // ── 8. toggleExpanded ────────────────────────────────────────────────────
@@ -1068,7 +1198,7 @@ describe('InversionesComponent', () => {
       asset = {
         id: 'cp-1', name: 'FCI CP Test', type: 'FCI_CUOTAPARTES', currency: 'ARS',
         principal: 700000, purchaseDate: '2026-01-01', maturityDate: null, tna: 0,
-        accountId: null, accountName: null, autoTrack: false, externalId: null,
+        accountId: null, accountName: null, autoTrack: false, externalId: null, includeInCashflow: true,
         createdAt: '', updatedAt: '',
         movements: [
           { id: 'm1', movementDate: '2026-01-01', type: 'SUSCRIPCION', amount: 500000, units: 400, createdAt: '' },
@@ -1375,7 +1505,7 @@ describe('InversionesComponent', () => {
         principal: 97000,       // 1000 nominales a $97
         purchaseDate: '2026-01-01', maturityDate: '2026-12-31',
         tna: 0, accountId: null, accountName: null,
-        autoTrack: false, externalId: null,
+        autoTrack: false, externalId: null, includeInCashflow: true,
         createdAt: '2026-01-01T00:00:00Z', updatedAt: '2026-01-01T00:00:00Z',
         movements: [
           { id: 'm1', movementDate: '2026-01-01', type: 'SUSCRIPCION', amount: 97000, units: 1000, createdAt: '2026-01-01T00:00:00Z' },
@@ -1598,7 +1728,7 @@ describe('InversionesComponent', () => {
       investSpy.createInvestment.and.returnValue(of({ ...MOCK_ASSETS[0], id: 'new-fci' }));
       component.openCreate();
       component.selectType('FCI');
-      component.fciForm.setValue({ name: 'FCI Test', currency: 'ARS', tna: 65.0, purchaseDate: component['todayIso'](), initialAmount: null, accountId: null });
+      component.fciForm.setValue({ name: 'FCI Test', currency: 'ARS', tna: 65.0, purchaseDate: component['todayIso'](), initialAmount: null, accountId: null, includeInCashflow: true });
       component.submit();
       expect(investSpy.createInvestment).toHaveBeenCalled();
       expect(component.modal()).toBeNull();
@@ -2024,7 +2154,7 @@ describe('InversionesComponent', () => {
         id: 'l-1', name: 'LECAP Test', type: 'LETRA', currency: 'ARS',
         principal: 9500,
         purchaseDate: '2026-01-01', maturityDate: '2026-12-31',
-        tna: 0, accountId: null, accountName: null, autoTrack: false, externalId: null,
+        tna: 0, accountId: null, accountName: null, autoTrack: false, externalId: null, includeInCashflow: true,
         createdAt: '', updatedAt: '',
         movements: [
           { id: 'm1', movementDate: '2026-01-01', type: 'SUSCRIPCION', amount: 9500, units: 10000, createdAt: '' },
@@ -2040,7 +2170,7 @@ describe('InversionesComponent', () => {
         id: 'l-3', name: 'LECAP Test', type: 'LETRA', currency: 'ARS',
         principal: 9500,
         purchaseDate: '2026-01-01', maturityDate: '2026-12-31',
-        tna: 0, accountId: null, accountName: null, autoTrack: false, externalId: null,
+        tna: 0, accountId: null, accountName: null, autoTrack: false, externalId: null, includeInCashflow: true,
         createdAt: '', updatedAt: '',
         movements: [
           { id: 'm1', movementDate: '2026-01-01', type: 'SUSCRIPCION', amount: 9500, units: 10000, createdAt: '' },
@@ -2058,7 +2188,7 @@ describe('InversionesComponent', () => {
         id: 'l-2', name: 'LECAP Test', type: 'LETRA', currency: 'ARS',
         principal: 9500,
         purchaseDate: '2026-01-01', maturityDate: '2026-12-31',
-        tna: 0, accountId: null, accountName: null, autoTrack: false, externalId: null,
+        tna: 0, accountId: null, accountName: null, autoTrack: false, externalId: null, includeInCashflow: true,
         createdAt: '', updatedAt: '',
         movements: [
           { id: 'm1', movementDate: '2026-01-01', type: 'SUSCRIPCION', amount: 9500, units: 10000, createdAt: '' },

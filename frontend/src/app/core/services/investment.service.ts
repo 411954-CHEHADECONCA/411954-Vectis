@@ -6,6 +6,7 @@ import { environment } from '../../../environments/environment';
 import {
   FciFundOption,
   InstrumentOption,
+  InvestmentCollectResponse,
   InvestmentMovementRequest,
   InvestmentMovementUpdateRequest,
   InvestmentRequest,
@@ -33,6 +34,10 @@ export class InvestmentService {
 
   deleteInvestment(id: string): Observable<void> {
     return this.http.delete<void>(`${this.baseUrl}/${id}`);
+  }
+
+  collectInvestment(id: string): Observable<InvestmentCollectResponse> {
+    return this.http.post<InvestmentCollectResponse>(`${this.baseUrl}/${id}/collect`, {});
   }
 
   addMovement(investmentId: string, req: InvestmentMovementRequest): Observable<InvestmentResponse> {

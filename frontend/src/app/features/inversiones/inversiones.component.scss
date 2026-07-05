@@ -81,6 +81,7 @@
   display: inline-flex;
   align-items: center;
   justify-content: center;
+  gap: 8px;
   padding: 11px 22px;
   background: var(--color-primary-container);
   color: var(--color-on-primary-container);
@@ -536,6 +537,12 @@
   border-color: color-mix(in srgb, var(--color-primary) 30%, transparent);
 }
 
+.icon-btn--accent:hover {
+  background: color-mix(in srgb, var(--color-primary) 12%, transparent);
+  color: var(--color-primary);
+  border-color: color-mix(in srgb, var(--color-primary) 30%, transparent);
+}
+
 // ── Empty state ───────────────────────────────────────────────────────────────
 
 .empty-state {
@@ -698,6 +705,50 @@
   letter-spacing: 0.01em;
 }
 
+.cfg-checkbox-field {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  cursor: pointer;
+  font-size: var(--text-sm);
+  color: var(--color-on-surface-variant);
+  user-select: none;
+}
+
+.cfg-checkbox {
+  width: 18px;
+  height: 18px;
+  flex: 0 0 auto;
+  appearance: none;
+  border: 1px solid var(--color-outline-variant);
+  border-radius: var(--radius-sm);
+  background: var(--color-surface-container-low);
+  cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  transition: background-color var(--dur-fast) var(--ease-standard), border-color var(--dur-fast) var(--ease-standard);
+
+  &:checked {
+    background: var(--color-primary);
+    border-color: var(--color-primary);
+
+    &::after {
+      content: '';
+      width: 5px;
+      height: 9px;
+      border: solid var(--color-on-primary);
+      border-width: 0 2px 2px 0;
+      transform: rotate(45deg) translate(-1px, -1px);
+    }
+  }
+
+  &:focus-visible {
+    outline: 2px solid var(--color-primary);
+    outline-offset: 2px;
+  }
+}
+
 .text-input {
   width: 100%;
   box-sizing: border-box;
@@ -795,6 +846,11 @@
   margin: 8px auto 14px;
 }
 
+.delete-icon--accent {
+  background: var(--color-primary-container);
+  color: var(--color-on-primary-container);
+}
+
 .delete-title {
   font-size: var(--text-body-lg);
   font-weight: var(--weight-semibold);
@@ -812,6 +868,11 @@
   padding: 0 24px;
 
   strong { color: var(--color-on-surface); }
+}
+
+.delete-body--muted {
+  font-style: italic;
+  opacity: 0.85;
 }
 
 // ── Reduced motion ────────────────────────────────────────────────────────────

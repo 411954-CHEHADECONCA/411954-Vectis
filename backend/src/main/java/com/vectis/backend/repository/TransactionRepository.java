@@ -40,6 +40,12 @@ public interface TransactionRepository extends JpaRepository<Transaction, UUID> 
     /**
      * Suma de montos agrupada por categoría para un tipo (INCOME/EXPENSE) y período.
      * Criterio de fecha idéntico al de {@link #search}: tarjeta por dueDate, cuenta por transactionDate.
+     *
+     * <p>Excluye explícitamente las transacciones vinculadas a un activo de inversión
+     * ({@code investmentAsset IS NOT NULL}), aunque tengan una categoría asignada manualmente
+     * (p. ej. editada desde Movimientos): esas ya se contabilizan en la sección de inversiones del
+     * cashflow (SUSCRIPCION) o como ingreso sintético "Rescates de inversión" (RESCATE) — sin este
+     * filtro, asignarles categoría las duplicaría en ambas secciones.
      */
     @Query("""
         SELECT t.category.id     AS categoryId,
@@ -50,6 +56,7 @@ public interface TransactionRepository extends JpaRepository<Transaction, UUID> 
         FROM Transaction t
         WHERE t.user.id = :userId AND t.deletedAt IS NULL AND t.type = :type
           AND t.transferGroupId IS NULL
+          AND t.investmentAsset IS NULL
           AND ((t.card IS NOT NULL AND t.dueDate         BETWEEN :from AND :to)
             OR (t.card IS NULL    AND t.transactionDate  BETWEEN :from AND :to))
         GROUP BY t.category.id, t.category.name, t.category.icon, t.category.color
@@ -61,6 +68,29 @@ public interface TransactionRepository extends JpaRepository<Transaction, UUID> 
                                                     @Param("to") LocalDate to);
 
     Optional<Transaction> findByIdAndDeletedAtIsNull(UUID id);
+
+    /** Transacciones vinculadas a un activo de inversión (para bloquear/revertir al eliminar). */
+    List<Transaction> findAllByInvestmentAsset_IdAndDeletedAtIsNull(UUID investmentAssetId);
+
+    /** Transacción vinculada a un movimiento puntual de inversión (para sincronizar/revertir al editar o borrar). */
+    Optional<Transaction> findByInvestmentMovement_IdAndDeletedAtIsNull(UUID investmentMovementId);
+
+    /**
+     * Transacciones de inversión (suscripción/rescate) del período, con su activo ya cargado
+     * (evita N+1 al agrupar por activo en {@link com.vectis.backend.service.CashflowService}).
+     */
+    @EntityGraph(attributePaths = {"investmentAsset"})
+    @Query("""
+        SELECT t FROM Transaction t
+        WHERE t.user.id = :userId AND t.deletedAt IS NULL
+          AND t.investmentAsset IS NOT NULL
+          AND t.investmentSourceType IN ('SUSCRIPCION', 'RESCATE')
+          AND t.transactionDate BETWEEN :from AND :to
+        ORDER BY t.investmentAsset.id
+        """)
+    List<Transaction> findInvestmentTransactionsForCashflow(@Param("userId") UUID userId,
+                                                            @Param("from") LocalDate from,
+                                                            @Param("to") LocalDate to);
 
     /**
      * Deletes all projected transactions for a user within a date range.

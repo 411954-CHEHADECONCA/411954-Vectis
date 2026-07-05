@@ -4,8 +4,11 @@ import com.vectis.backend.domain.entity.Account;
 import com.vectis.backend.domain.entity.Category;
 import com.vectis.backend.domain.entity.CategoryBudget;
 import com.vectis.backend.domain.entity.CategoryType;
+import com.vectis.backend.domain.entity.InvestmentAsset;
+import com.vectis.backend.domain.entity.InvestmentAssetType;
 import com.vectis.backend.domain.entity.MonthPeriod;
 import com.vectis.backend.domain.entity.RecurringMovement;
+import com.vectis.backend.domain.entity.Transaction;
 import com.vectis.backend.domain.entity.TransactionType;
 import com.vectis.backend.domain.entity.User;
 import com.vectis.backend.dto.CashflowResponse;
@@ -671,6 +674,262 @@ class CashflowServiceTest {
         CashflowResponse result = cashflowService.getCashflow(user, year, month);
 
         assertThat(result.getOficialRateAtPeriod()).isNull();
+    }
+
+    // ─── buildInvestmentSection (AF411954 — Vincular Inversiones con Cuentas) ─
+
+    @Test
+    @DisplayName("investments: lee de Transaction real vinculada al activo (no de una categoría 'inversiones')")
+    void investments_readsFromRealInvestmentTransactions() {
+        LocalDate today    = LocalDate.now();
+        int year  = today.getYear();
+        int month = today.getMonthValue();
+        LocalDate firstDay = today.withDayOfMonth(1);
+        LocalDate lastDay  = firstDay.withDayOfMonth(firstDay.lengthOfMonth());
+
+        given(monthPeriodService.getStatus(eq(user), eq(year), eq(month), any(LocalDate.class))).willReturn("curso");
+        given(monthPeriodRepository.findByUser_IdAndYearAndMonth(userId, year, month)).willReturn(Optional.empty());
+        given(accountRepository.findAllByUser_IdAndIncludeInCashflowTrue(userId)).willReturn(Collections.emptyList());
+        given(transactionRepository.netMovementsForAccounts(eq(userId), anyList(), any(LocalDate.class)))
+                .willReturn(Collections.emptyList());
+        given(transactionRepository.groupByCategory(eq(userId), any(TransactionType.class), any(LocalDate.class), any(LocalDate.class)))
+                .willReturn(Collections.emptyList());
+        given(categoryBudgetRepository.findLatestPerCategoryOnOrBefore(userId, firstDay)).willReturn(Collections.emptyList());
+
+        InvestmentAsset asset = InvestmentAsset.builder()
+                .id(UUID.randomUUID()).name("LECAP S31G5")
+                .type(InvestmentAssetType.LETRA).currency("ARS")
+                .principal(new BigDecimal("500000.0000"))
+                .tna(BigDecimal.ZERO)
+                .build();
+        Transaction suscripcion = Transaction.builder()
+                .investmentAsset(asset).investmentSourceType("SUSCRIPCION")
+                .amount(new BigDecimal("500000.0000")).build();
+
+        given(transactionRepository.findInvestmentTransactionsForCashflow(userId, firstDay, lastDay))
+                .willReturn(List.of(suscripcion));
+
+        CashflowResponse result = cashflowService.getCashflow(user, year, month);
+
+        assertThat(result.getInvestments().instruments()).hasSize(1);
+        assertThat(result.getInvestments().instruments().get(0).name()).isEqualTo("LECAP S31G5");
+        assertThat(result.getInvestments().instruments().get(0).amount()).isEqualByComparingTo("500000.0000");
+        assertThat(result.getInvestments().total()).isEqualByComparingTo("500000.0000");
+    }
+
+    @Test
+    @DisplayName("investments: suma sólo SUSCRIPCION (bruto); el RESCATE del mismo activo no se netea acá")
+    void investments_onlySumsSuscripcionGross() {
+        LocalDate today    = LocalDate.now();
+        int year  = today.getYear();
+        int month = today.getMonthValue();
+        LocalDate firstDay = today.withDayOfMonth(1);
+        LocalDate lastDay  = firstDay.withDayOfMonth(firstDay.lengthOfMonth());
+
+        given(monthPeriodService.getStatus(eq(user), eq(year), eq(month), any(LocalDate.class))).willReturn("curso");
+        given(monthPeriodRepository.findByUser_IdAndYearAndMonth(userId, year, month)).willReturn(Optional.empty());
+        given(accountRepository.findAllByUser_IdAndIncludeInCashflowTrue(userId)).willReturn(Collections.emptyList());
+        given(transactionRepository.netMovementsForAccounts(eq(userId), anyList(), any(LocalDate.class)))
+                .willReturn(Collections.emptyList());
+        given(transactionRepository.groupByCategory(eq(userId), any(TransactionType.class), any(LocalDate.class), any(LocalDate.class)))
+                .willReturn(Collections.emptyList());
+        given(categoryBudgetRepository.findLatestPerCategoryOnOrBefore(userId, firstDay)).willReturn(Collections.emptyList());
+
+        UUID assetId = UUID.randomUUID();
+        InvestmentAsset asset = InvestmentAsset.builder()
+                .id(assetId).name("FCI Ahorro")
+                .type(InvestmentAssetType.FCI).currency("ARS")
+                .principal(new BigDecimal("400000.0000"))
+                .tna(BigDecimal.ZERO)
+                .build();
+        Transaction suscripcion = Transaction.builder()
+                .investmentAsset(asset).investmentSourceType("SUSCRIPCION")
+                .amount(new BigDecimal("500000.0000")).build();
+        Transaction rescate = Transaction.builder()
+                .investmentAsset(asset).investmentSourceType("RESCATE")
+                .amount(new BigDecimal("100000.0000")).build();
+
+        given(transactionRepository.findInvestmentTransactionsForCashflow(userId, firstDay, lastDay))
+                .willReturn(List.of(suscripcion, rescate));
+
+        CashflowResponse result = cashflowService.getCashflow(user, year, month);
+
+        // "Destinado a inversiones" queda en el bruto suscripto (500.000): el rescate no resta acá,
+        // se refleja aparte como ingreso (ver investments_rescateAppearsAsIncome).
+        assertThat(result.getInvestments().instruments()).hasSize(1);
+        assertThat(result.getInvestments().instruments().get(0).amount()).isEqualByComparingTo("500000.0000");
+    }
+
+    @Test
+    @DisplayName("investments: el RESCATE aparece como ingreso en 'Ingresos contabilizados', no netea la sección de inversiones")
+    void investments_rescateAppearsAsIncome() {
+        LocalDate today    = LocalDate.now();
+        int year  = today.getYear();
+        int month = today.getMonthValue();
+        LocalDate firstDay = today.withDayOfMonth(1);
+        LocalDate lastDay  = firstDay.withDayOfMonth(firstDay.lengthOfMonth());
+
+        given(monthPeriodService.getStatus(eq(user), eq(year), eq(month), any(LocalDate.class))).willReturn("curso");
+        given(monthPeriodRepository.findByUser_IdAndYearAndMonth(userId, year, month)).willReturn(Optional.empty());
+        given(accountRepository.findAllByUser_IdAndIncludeInCashflowTrue(userId)).willReturn(Collections.emptyList());
+        given(transactionRepository.netMovementsForAccounts(eq(userId), anyList(), any(LocalDate.class)))
+                .willReturn(Collections.emptyList());
+        given(transactionRepository.groupByCategory(eq(userId), any(TransactionType.class), any(LocalDate.class), any(LocalDate.class)))
+                .willReturn(Collections.emptyList());
+        given(categoryBudgetRepository.findLatestPerCategoryOnOrBefore(userId, firstDay)).willReturn(Collections.emptyList());
+
+        InvestmentAsset asset = InvestmentAsset.builder()
+                .id(UUID.randomUUID()).name("FCI Ahorro")
+                .type(InvestmentAssetType.FCI).currency("ARS")
+                .principal(new BigDecimal("300000.0000"))
+                .tna(BigDecimal.ZERO)
+                .build();
+        Transaction rescate = Transaction.builder()
+                .investmentAsset(asset).investmentSourceType("RESCATE")
+                .amount(new BigDecimal("80000.0000")).build();
+
+        given(transactionRepository.findInvestmentTransactionsForCashflow(userId, firstDay, lastDay))
+                .willReturn(List.of(rescate));
+
+        CashflowResponse result = cashflowService.getCashflow(user, year, month);
+
+        assertThat(result.getIncome().total()).isEqualByComparingTo("80000.0000");
+        assertThat(result.getIncome().byCategory()).hasSize(1);
+        assertThat(result.getIncome().byCategory().get(0).name()).isEqualTo("Rescates de inversión");
+        assertThat(result.getIncome().byCategory().get(0).amount()).isEqualByComparingTo("80000.0000");
+        assertThat(result.getIncome().byCategory().get(0).categoryId()).isNull();
+        // Ningún SUSCRIPCION en este caso: la sección de inversiones queda vacía.
+        assertThat(result.getInvestments().instruments()).isEmpty();
+    }
+
+    @Test
+    @DisplayName("investments: ignora transacciones con investmentSourceType distinto de SUSCRIPCION/RESCATE")
+    void investments_ignoresNonSuscripcionRescateSourceType() {
+        LocalDate today    = LocalDate.now();
+        int year  = today.getYear();
+        int month = today.getMonthValue();
+        LocalDate firstDay = today.withDayOfMonth(1);
+        LocalDate lastDay  = firstDay.withDayOfMonth(firstDay.lengthOfMonth());
+
+        given(monthPeriodService.getStatus(eq(user), eq(year), eq(month), any(LocalDate.class))).willReturn("curso");
+        given(monthPeriodRepository.findByUser_IdAndYearAndMonth(userId, year, month)).willReturn(Optional.empty());
+        given(accountRepository.findAllByUser_IdAndIncludeInCashflowTrue(userId)).willReturn(Collections.emptyList());
+        given(transactionRepository.netMovementsForAccounts(eq(userId), anyList(), any(LocalDate.class)))
+                .willReturn(Collections.emptyList());
+        given(transactionRepository.groupByCategory(eq(userId), any(TransactionType.class), any(LocalDate.class), any(LocalDate.class)))
+                .willReturn(Collections.emptyList());
+        given(categoryBudgetRepository.findLatestPerCategoryOnOrBefore(userId, firstDay)).willReturn(Collections.emptyList());
+
+        // Un COLLECTION filtrado defensivamente (no debería llegar por la query real, pero se
+        // verifica que buildInvestmentSection lo ignora igual si llegara).
+        InvestmentAsset asset = InvestmentAsset.builder()
+                .id(UUID.randomUUID()).name("Cobro viejo")
+                .type(InvestmentAssetType.LETRA).currency("ARS")
+                .principal(BigDecimal.ZERO).tna(BigDecimal.ZERO)
+                .build();
+        Transaction collection = Transaction.builder()
+                .investmentAsset(asset).investmentSourceType("COLLECTION")
+                .amount(new BigDecimal("999999.0000")).build();
+
+        given(transactionRepository.findInvestmentTransactionsForCashflow(userId, firstDay, lastDay))
+                .willReturn(List.of(collection));
+
+        CashflowResponse result = cashflowService.getCashflow(user, year, month);
+
+        assertThat(result.getInvestments().instruments()).isEmpty();
+        assertThat(result.getInvestments().total()).isEqualByComparingTo(BigDecimal.ZERO);
+    }
+
+    @Test
+    @DisplayName("investments: sin transacciones vinculadas (activo excluido del cashflow o sin cuenta) la sección queda vacía")
+    void investments_emptyWhenNoLinkedTransactions() {
+        LocalDate today    = LocalDate.now();
+        int year  = today.getYear();
+        int month = today.getMonthValue();
+        LocalDate firstDay = today.withDayOfMonth(1);
+        LocalDate lastDay  = firstDay.withDayOfMonth(firstDay.lengthOfMonth());
+
+        given(monthPeriodService.getStatus(eq(user), eq(year), eq(month), any(LocalDate.class))).willReturn("curso");
+        given(monthPeriodRepository.findByUser_IdAndYearAndMonth(userId, year, month)).willReturn(Optional.empty());
+        given(accountRepository.findAllByUser_IdAndIncludeInCashflowTrue(userId)).willReturn(Collections.emptyList());
+        given(transactionRepository.netMovementsForAccounts(eq(userId), anyList(), any(LocalDate.class)))
+                .willReturn(Collections.emptyList());
+        given(transactionRepository.groupByCategory(eq(userId), any(TransactionType.class), any(LocalDate.class), any(LocalDate.class)))
+                .willReturn(Collections.emptyList());
+        given(categoryBudgetRepository.findLatestPerCategoryOnOrBefore(userId, firstDay)).willReturn(Collections.emptyList());
+        given(transactionRepository.findInvestmentTransactionsForCashflow(userId, firstDay, lastDay))
+                .willReturn(Collections.emptyList());
+
+        CashflowResponse result = cashflowService.getCashflow(user, year, month);
+
+        assertThat(result.getInvestments().instruments()).isEmpty();
+        assertThat(result.getInvestments().total()).isEqualByComparingTo(BigDecimal.ZERO);
+        assertThat(result.getInvestments().pctOfPreBalance()).isNull();
+    }
+
+    @Test
+    @DisplayName("investments: puebla teaPct desde la TNA del activo cuando es positiva")
+    void investments_populatesTeaPctFromAssetTna() {
+        LocalDate today    = LocalDate.now();
+        int year  = today.getYear();
+        int month = today.getMonthValue();
+        LocalDate firstDay = today.withDayOfMonth(1);
+        LocalDate lastDay  = firstDay.withDayOfMonth(firstDay.lengthOfMonth());
+
+        given(monthPeriodService.getStatus(eq(user), eq(year), eq(month), any(LocalDate.class))).willReturn("curso");
+        given(monthPeriodRepository.findByUser_IdAndYearAndMonth(userId, year, month)).willReturn(Optional.empty());
+        given(accountRepository.findAllByUser_IdAndIncludeInCashflowTrue(userId)).willReturn(Collections.emptyList());
+        given(transactionRepository.netMovementsForAccounts(eq(userId), anyList(), any(LocalDate.class)))
+                .willReturn(Collections.emptyList());
+        given(transactionRepository.groupByCategory(eq(userId), any(TransactionType.class), any(LocalDate.class), any(LocalDate.class)))
+                .willReturn(Collections.emptyList());
+        given(categoryBudgetRepository.findLatestPerCategoryOnOrBefore(userId, firstDay)).willReturn(Collections.emptyList());
+
+        InvestmentAsset asset = InvestmentAsset.builder()
+                .id(UUID.randomUUID()).name("Plazo Fijo 60d")
+                .type(InvestmentAssetType.PLAZO_FIJO).currency("ARS")
+                .principal(new BigDecimal("300000.0000"))
+                .tna(new BigDecimal("60.0000"))
+                .build();
+        Transaction suscripcion = Transaction.builder()
+                .investmentAsset(asset).investmentSourceType("SUSCRIPCION")
+                .amount(new BigDecimal("300000.0000")).build();
+
+        given(transactionRepository.findInvestmentTransactionsForCashflow(userId, firstDay, lastDay))
+                .willReturn(List.of(suscripcion));
+
+        CashflowResponse result = cashflowService.getCashflow(user, year, month);
+
+        assertThat(result.getInvestments().instruments().get(0).teaPct()).isEqualByComparingTo("60.0000");
+    }
+
+    @Test
+    @DisplayName("closingBalance refleja una transacción de suscripción de inversión sin cambios de fórmula")
+    void closingBalance_reflectsInvestmentSubscriptionTransaction() {
+        LocalDate today    = LocalDate.now();
+        int year  = today.getYear();
+        int month = today.getMonthValue();
+        LocalDate firstDay = today.withDayOfMonth(1);
+        LocalDate lastDay  = firstDay.withDayOfMonth(firstDay.lengthOfMonth());
+
+        given(monthPeriodService.getStatus(eq(user), eq(year), eq(month), any(LocalDate.class))).willReturn("curso");
+        given(monthPeriodRepository.findByUser_IdAndYearAndMonth(userId, year, month)).willReturn(Optional.empty());
+        given(accountRepository.findAllByUser_IdAndIncludeInCashflowTrue(userId)).willReturn(List.of(account));
+        given(transactionRepository.groupByCategory(eq(userId), any(TransactionType.class), any(LocalDate.class), any(LocalDate.class)))
+                .willReturn(Collections.emptyList());
+        given(categoryBudgetRepository.findLatestPerCategoryOnOrBefore(userId, firstDay)).willReturn(Collections.emptyList());
+        given(transactionRepository.findInvestmentTransactionsForCashflow(userId, firstDay, lastDay))
+                .willReturn(Collections.emptyList());
+
+        // La suscripción de $30.000 ya impactó la cuenta como una Transaction EXPENSE real:
+        // netMovementsForAccounts (el mecanismo YA existente, sin cambios) refleja ese egreso.
+        given(transactionRepository.netMovementsForAccounts(eq(userId), anyList(), any(LocalDate.class)))
+                .willReturn(List.of(netProj(account.getId(), new BigDecimal("-30000.0000"))));
+
+        CashflowResponse result = cashflowService.getCashflow(user, year, month);
+
+        // account.balance (100000) + neto (-30000) = 70000, sin tocar ninguna fórmula de CashflowService.
+        assertThat(result.getClosingBalance().accounts().get(0).balance()).isEqualByComparingTo("70000.0000");
     }
 
     // ─── helpers ──────────────────────────────────────────────────────────────

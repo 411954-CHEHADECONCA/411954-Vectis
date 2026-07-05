@@ -236,6 +236,15 @@
                           <svg lucidePen [size]="15"></svg>
                         </button>
                         <button
+                          class="icon-btn icon-btn--accent"
+                          (click)="$event.stopPropagation(); openCollect(asset)"
+                          type="button"
+                          title="Cobrar"
+                          aria-label="Cobrar activo"
+                        >
+                          <svg lucideWallet [size]="15"></svg>
+                        </button>
+                        <button
                           class="icon-btn icon-btn--danger"
                           (click)="$event.stopPropagation(); openDelete(asset)"
                           type="button"
@@ -944,6 +953,11 @@
               </select>
             </div>
 
+            <label class="cfg-checkbox-field" for="pf-include-cashflow">
+              <input id="pf-include-cashflow" type="checkbox" class="cfg-checkbox" formControlName="includeInCashflow" />
+              <span>Incluir en cashflow</span>
+            </label>
+
             @if (formError()) {
               <p class="form-error" role="alert">{{ formError() }}</p>
             }
@@ -1080,6 +1094,11 @@
                 }
               </select>
             </div>
+
+            <label class="cfg-checkbox-field" for="fci-include-cashflow">
+              <input id="fci-include-cashflow" type="checkbox" class="cfg-checkbox" formControlName="includeInCashflow" />
+              <span>Incluir en cashflow</span>
+            </label>
 
             <!-- Apertura inicial (solo en creación) -->
             @if (modal()?.kind === 'form-create') {
@@ -1362,6 +1381,11 @@
                 }
               </select>
             </div>
+
+            <label class="cfg-checkbox-field" for="cp-include-cashflow">
+              <input id="cp-include-cashflow" type="checkbox" class="cfg-checkbox" formControlName="includeInCashflow" />
+              <span>Incluir en cashflow</span>
+            </label>
 
             <!-- Suscripción inicial (solo en creación) -->
             @if (modal()?.kind === 'form-create') {
@@ -1724,6 +1748,11 @@
               </select>
             </div>
 
+            <label class="cfg-checkbox-field" for="letra-include-cashflow">
+              <input id="letra-include-cashflow" type="checkbox" class="cfg-checkbox" formControlName="includeInCashflow" />
+              <span>Incluir en cashflow</span>
+            </label>
+
             <!-- Compra inicial (solo en modo crear) -->
             @if (modal()?.kind === 'form-create') {
               <div class="movements-section" [formGroup]="addMovementCPForm">
@@ -1892,6 +1921,53 @@
             </button>
           </div>
         </form>
+
+      </div>
+    </div>
+  }
+
+  <!-- ── Modal: collect ────────────────────────────────────────────────────── -->
+  @if (modal()?.kind === 'collect' && modal()?.asset; as collectAsset) {
+    <div class="backdrop" (click)="closeModal()" role="dialog" aria-modal="true">
+      <div class="modal modal--sm" (click)="$event.stopPropagation()">
+
+        <div class="modal-body" style="padding-top: 24px;">
+          <div class="delete-icon delete-icon--accent">
+            <svg lucideWallet [size]="22"></svg>
+          </div>
+          <p class="delete-title">Cobrar activo</p>
+          <p class="delete-body">
+            Se va a acreditar
+            <strong>{{ fmtMontoSel(collectAmountPreview(modal()!.asset!), modal()!.asset!.currency) }}</strong>
+            de <strong>{{ modal()?.label }}</strong> con fecha de hoy, y el activo se va a eliminar.
+            Esta acción no revierte los movimientos ya generados.
+          </p>
+          @if (collectWillCreateMovement(modal()!.asset!)) {
+            <p class="delete-body">
+              Se va a generar un ingreso en la cuenta <strong>{{ collectAccountName(modal()!.asset!) }}</strong>.
+            </p>
+          } @else {
+            <p class="delete-body delete-body--muted">
+              Esta inversión no tiene cuenta vinculada o está excluida del cashflow: no se va a generar ningún movimiento de cuenta.
+            </p>
+          }
+          @if (formError()) {
+            <p class="form-error" role="alert">{{ formError() }}</p>
+          }
+        </div>
+
+        <div class="modal-footer modal-footer--center">
+          <button type="button" class="btn-ghost" (click)="closeModal()">Cancelar</button>
+          <button
+            type="button"
+            class="btn-confirm"
+            (click)="confirmCollect()"
+            [disabled]="submitting()"
+          >
+            <svg lucideWallet [size]="16"></svg>
+            {{ submitting() ? 'Cobrando...' : 'Cobrar' }}
+          </button>
+        </div>
 
       </div>
     </div>

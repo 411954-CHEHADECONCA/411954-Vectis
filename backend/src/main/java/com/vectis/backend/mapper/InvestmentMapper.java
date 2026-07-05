@@ -6,6 +6,7 @@ import com.vectis.backend.domain.entity.InvestmentValuation;
 import com.vectis.backend.dto.InvestmentMovementResponse;
 import com.vectis.backend.dto.InvestmentResponse;
 import com.vectis.backend.dto.InvestmentValuationResponse;
+import com.vectis.backend.util.InvestmentValuationCalculator;
 import org.springframework.stereotype.Component;
 
 import java.util.List;
@@ -28,6 +29,7 @@ public class InvestmentMapper {
                 .type(asset.getType().name())
                 .currency(asset.getCurrency())
                 .principal(asset.getPrincipal())
+                .currentValue(InvestmentValuationCalculator.calculateCurrentValue(asset))
                 .purchaseDate(asset.getPurchaseDate())
                 .maturityDate(asset.getMaturityDate())
                 .tna(asset.getTna())
@@ -39,6 +41,7 @@ public class InvestmentMapper {
                 .externalId(asset.getExternalId())
                 .movements(movements)
                 .valuations(valuations)
+                .includeInCashflow(asset.isIncludeInCashflow())
                 .build();
     }
 

@@ -26,8 +26,13 @@ public record InvestmentResponse(
     @Schema(description = "Moneda", example = "ARS")
     String currency,
 
-    @Schema(description = "Capital invertido", example = "1000000.0000")
+    @Schema(description = "Capital invertido (costo de adquisición para la familia cuotapartes; ya incluye intereses capitalizados para FCI)", example = "1000000.0000")
     BigDecimal principal,
+
+    @Schema(description = "Valor de mercado actual del activo. Igual a `principal` para FCI y PLAZO_FIJO; "
+            + "para FCI_CUOTAPARTES/LETRA/BONO/ON es la tenencia valuada al último precio registrado "
+            + "(o el propio `principal` si todavía no hay valuación cargada)", example = "1050000.0000")
+    BigDecimal currentValue,
 
     @Schema(description = "Fecha de compra", example = "2026-01-15")
     LocalDate purchaseDate,
@@ -60,5 +65,8 @@ public record InvestmentResponse(
     List<InvestmentMovementResponse> movements,
 
     @Schema(description = "Valuaciones del activo (cortes de precio). Poblado sólo para FCI_CUOTAPARTES.")
-    List<InvestmentValuationResponse> valuations
+    List<InvestmentValuationResponse> valuations,
+
+    @Schema(description = "Indica si esta inversión participa del flujo de caja", example = "true")
+    boolean includeInCashflow
 ) {}

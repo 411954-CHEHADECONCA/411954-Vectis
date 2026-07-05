@@ -50,7 +50,12 @@ public record InvestmentRequest(
 
     @Schema(description = "Identificador externo del instrumento (nombre exacto del fondo FCI o ticker)", example = "Cocos Capital - Clase A")
     @Size(max = 255)
-    String externalId
+    String externalId,
+
+    @Schema(description = "Incluir esta inversión en el flujo de caja (default true si se omite). "
+            + "Usar Boolean (no boolean primitivo) para no confundir 'ausente' con 'false' al deserializar.",
+            example = "true", defaultValue = "true")
+    Boolean includeInCashflow
 ) {
 
     @AssertTrue(message = "La fecha de vencimiento debe ser posterior a la fecha de compra")

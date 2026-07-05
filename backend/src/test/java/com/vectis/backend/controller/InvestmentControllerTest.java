@@ -6,11 +6,13 @@ import com.vectis.backend.config.SecurityConfig;
 import com.vectis.backend.domain.entity.InvestmentMovementType;
 import com.vectis.backend.domain.entity.User;
 import com.vectis.backend.domain.entity.InvestmentAssetType;
+import com.vectis.backend.dto.InvestmentCollectResponse;
 import com.vectis.backend.dto.InvestmentMovementRequest;
 import com.vectis.backend.dto.InvestmentMovementUpdateRequest;
 import com.vectis.backend.dto.InvestmentRequest;
 import com.vectis.backend.dto.InvestmentResponse;
 import com.vectis.backend.dto.InvestmentValuationRequest;
+import com.vectis.backend.exception.InvestmentDeleteBlockedException;
 import com.vectis.backend.exception.InvestmentMovementNotFoundException;
 import com.vectis.backend.exception.InvestmentNotFoundException;
 import com.vectis.backend.exception.InvestmentValuationNotFoundException;
@@ -139,6 +141,7 @@ class InvestmentControllerTest {
                 new BigDecimal("65.00"),
                 null,
                 false,
+                null,
                 null);
 
         mockMvc.perform(post("/api/investments")
@@ -159,6 +162,7 @@ class InvestmentControllerTest {
                 new BigDecimal("65.00"),
                 null,
                 false,
+                null,
                 null);
 
         mockMvc.perform(post("/api/investments")
@@ -179,7 +183,8 @@ class InvestmentControllerTest {
                 null,
                 null,
                 true,   // autoTrack activado
-                null);  // externalId ausente — debe fallar
+                null,   // externalId ausente — debe fallar
+                null);
 
         mockMvc.perform(post("/api/investments")
                         .header(HttpHeaders.AUTHORIZATION, AUTH_HEADER)
@@ -199,7 +204,8 @@ class InvestmentControllerTest {
                 null,
                 null,
                 true,
-                "Cocos Capital - Clase A");
+                "Cocos Capital - Clase A",
+                null);
 
         InvestmentResponse response = buildResponse(UUID.randomUUID());
         given(investmentService.createInvestment(any(InvestmentRequest.class), any(User.class)))
@@ -266,6 +272,58 @@ class InvestmentControllerTest {
                 .when(investmentService).deleteInvestment(eq(id), any(User.class));
 
         mockMvc.perform(delete("/api/investments/" + id)
+                        .header(HttpHeaders.AUTHORIZATION, AUTH_HEADER))
+                .andExpect(status().isNotFound());
+    }
+
+    @Test
+    @DisplayName("DELETE /api/investments/{id} con movimientos en mes cerrado retorna 409")
+    void deleteInvestment_blockedByClosedMonth_returns409() throws Exception {
+        UUID id = UUID.randomUUID();
+        doThrow(new InvestmentDeleteBlockedException(id))
+                .when(investmentService).deleteInvestment(eq(id), any(User.class));
+
+        mockMvc.perform(delete("/api/investments/" + id)
+                        .header(HttpHeaders.AUTHORIZATION, AUTH_HEADER))
+                .andExpect(status().isConflict());
+    }
+
+    // ─── POST /api/investments/{id}/collect ───────────────────────────────────
+
+    @Test
+    @DisplayName("POST /{id}/collect sin token retorna 401")
+    void collectInvestment_withoutToken_returns401() throws Exception {
+        UUID id = UUID.randomUUID();
+
+        mockMvc.perform(post("/api/investments/" + id + "/collect"))
+                .andExpect(status().isUnauthorized());
+    }
+
+    @Test
+    @DisplayName("POST /{id}/collect con token retorna 200 y el resultado del cobro")
+    void collectInvestment_validRequest_returns200() throws Exception {
+        UUID id = UUID.randomUUID();
+        InvestmentCollectResponse response = new InvestmentCollectResponse(
+                id, new BigDecimal("1000000.0000"), "ARS", true);
+
+        given(investmentService.collectInvestment(eq(id), any(User.class))).willReturn(response);
+
+        mockMvc.perform(post("/api/investments/" + id + "/collect")
+                        .header(HttpHeaders.AUTHORIZATION, AUTH_HEADER))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.investmentId").value(id.toString()))
+                .andExpect(jsonPath("$.currency").value("ARS"))
+                .andExpect(jsonPath("$.transactionCreated").value(true));
+    }
+
+    @Test
+    @DisplayName("POST /{id}/collect cuando el activo no existe retorna 404")
+    void collectInvestment_assetNotFound_returns404() throws Exception {
+        UUID id = UUID.randomUUID();
+        given(investmentService.collectInvestment(eq(id), any(User.class)))
+                .willThrow(new InvestmentNotFoundException(id));
+
+        mockMvc.perform(post("/api/investments/" + id + "/collect")
                         .header(HttpHeaders.AUTHORIZATION, AUTH_HEADER))
                 .andExpect(status().isNotFound());
     }
@@ -493,6 +551,7 @@ class InvestmentControllerTest {
                 new BigDecimal("65.00"),
                 null,
                 false,
+                null,
                 null);
     }
 

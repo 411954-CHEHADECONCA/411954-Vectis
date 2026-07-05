@@ -62,6 +62,11 @@ public class InvestmentAsset {
     @Column(name = "external_id", length = 255)
     private String externalId;
 
+    /** Permite excluir un activo puntual del flujo de caja, independiente del flag a nivel cuenta. */
+    @Builder.Default
+    @Column(name = "include_in_cashflow", nullable = false)
+    private boolean includeInCashflow = true;
+
     @Builder.Default
     @OneToMany(mappedBy = "investmentAsset", cascade = CascadeType.ALL,
                fetch = FetchType.LAZY, orphanRemoval = true)
