@@ -32,20 +32,7 @@ public record AccountRequest(
     @DecimalMin(value = "0", message = "El saldo no puede ser negativo")
     BigDecimal balance,
 
-    @Schema(description = "Indica si la cuenta es remunerada (genera intereses)", example = "true")
-    @NotNull(message = "El campo remunerada es obligatorio")
-    Boolean remunerada,
-
-    @Schema(description = "TNA estimada (solo cuando remunerada=true)", example = "81.00")
-    @DecimalMin(value = "0", message = "La TNA no puede ser negativa")
-    @DecimalMax(value = "9999.9999", message = "La TNA excede el máximo permitido")
-    BigDecimal tna,
-
     @Schema(description = "Si la cuenta se incluye en el cálculo de cashflow mensual", example = "true")
     boolean includeInCashflow
 ) {
-    @AssertTrue(message = "La TNA es obligatoria cuando la cuenta es remunerada")
-    public boolean isTnaValidForRemunerada() {
-        return !Boolean.TRUE.equals(remunerada) || tna != null;
-    }
 }

@@ -6,6 +6,8 @@ import { environment } from '../../../environments/environment';
 import {
   FciFundOption,
   InstrumentOption,
+  InvestmentCollectPreviewResponse,
+  InvestmentCollectRequest,
   InvestmentCollectResponse,
   InvestmentMovementRequest,
   InvestmentMovementUpdateRequest,
@@ -36,8 +38,16 @@ export class InvestmentService {
     return this.http.delete<void>(`${this.baseUrl}/${id}`);
   }
 
-  collectInvestment(id: string): Observable<InvestmentCollectResponse> {
-    return this.http.post<InvestmentCollectResponse>(`${this.baseUrl}/${id}/collect`, {});
+  collectInvestment(id: string, req: InvestmentCollectRequest): Observable<InvestmentCollectResponse> {
+    return this.http.post<InvestmentCollectResponse>(`${this.baseUrl}/${id}/collect`, req);
+  }
+
+  /** Preview de capital/rendimiento a una fecha de cobro dada, sin persistir nada. */
+  previewCollect(id: string, date: string): Observable<InvestmentCollectPreviewResponse> {
+    return this.http.get<InvestmentCollectPreviewResponse>(
+      `${this.baseUrl}/${id}/collect-preview`,
+      { params: { date } },
+    );
   }
 
   addMovement(investmentId: string, req: InvestmentMovementRequest): Observable<InvestmentResponse> {

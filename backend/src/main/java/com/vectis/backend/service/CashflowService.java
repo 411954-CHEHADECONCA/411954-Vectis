@@ -112,16 +112,29 @@ public class CashflowService {
             List<CategorySummaryProjection> incomeRows  = transactionRepository.groupByCategory(userId, TransactionType.INCOME,  firstDay, lastDay);
             List<CategorySummaryProjection> expenseRows = transactionRepository.groupByCategory(userId, TransactionType.EXPENSE, firstDay, lastDay);
 
-            // Los RESCATE quedan sin categoría (van vinculados al activo, no a una categoría de
-            // usuario), así que `groupByCategory` los deja afuera por el INNER JOIN implícito de
-            // `t.category.id`. Se sincronizan acá como un ingreso más — coherente con que la cuenta
-            // ya los registró como Transaction tipo INCOME.
-            BigDecimal totalRescate = sumInvestmentRescateTotal(investmentTxs);
-            BigDecimal totalIncome  = sumProjections(incomeRows).add(totalRescate, MC);
-            BigDecimal totalExpense = sumProjections(expenseRows);
+            // Los RESCATE y los cobros de inversión (COLLECTION_CAPITAL/COLLECTION_YIELD) quedan sin
+            // categoría (van vinculados al activo, no a una categoría de usuario), así que
+            // `groupByCategory` los deja afuera por el INNER JOIN implícito de `t.category.id`. Se
+            // sincronizan acá como filas propias — coherente con que la cuenta ya los registró como
+            // Transaction real (INCOME o, en el caso de una pérdida de mercado al cobrar, EXPENSE).
+            BigDecimal totalRescate            = sumInvestmentSourceTypeTotal(investmentTxs, "RESCATE", TransactionType.INCOME);
+            BigDecimal totalCollectionCapital   = sumInvestmentSourceTypeTotal(investmentTxs, "COLLECTION_CAPITAL", TransactionType.INCOME);
+            BigDecimal totalCollectionYieldIn   = sumInvestmentSourceTypeTotal(investmentTxs, "COLLECTION_YIELD", TransactionType.INCOME);
+            BigDecimal totalCollectionYieldOut  = sumInvestmentSourceTypeTotal(investmentTxs, "COLLECTION_YIELD", TransactionType.EXPENSE);
 
-            income   = buildFlowSection(incomeRows,  totalIncome,  incomeBudgets, totalRescate);
-            expenses = buildFlowSection(expenseRows, totalExpense, expenseBudgets, BigDecimal.ZERO);
+            BigDecimal totalInvestmentIncome  = totalRescate.add(totalCollectionCapital, MC).add(totalCollectionYieldIn, MC);
+            BigDecimal totalIncome  = sumProjections(incomeRows).add(totalInvestmentIncome, MC);
+            BigDecimal totalExpense = sumProjections(expenseRows).add(totalCollectionYieldOut, MC);
+
+            Map<String, BigDecimal> incomeInvestmentRows = new LinkedHashMap<>();
+            incomeInvestmentRows.put("Rescates de inversión", totalRescate);
+            incomeInvestmentRows.put("Cobro de inversión (capital)", totalCollectionCapital);
+            incomeInvestmentRows.put("Cobro de inversión (rendimiento)", totalCollectionYieldIn);
+            Map<String, BigDecimal> expenseInvestmentRows = new LinkedHashMap<>();
+            expenseInvestmentRows.put("Cobro de inversión (pérdida)", totalCollectionYieldOut);
+
+            income   = buildFlowSection(incomeRows,  totalIncome,  incomeBudgets, incomeInvestmentRows);
+            expenses = buildFlowSection(expenseRows, totalExpense, expenseBudgets, expenseInvestmentRows);
         }
 
         // ── Pre-investment subtotal ───────────────────────────────────────────
@@ -226,7 +239,7 @@ public class CashflowService {
     private CashflowFlowSection buildFlowSection(List<CategorySummaryProjection> rows,
                                                   BigDecimal total,
                                                   Map<UUID, BigDecimal> budgets,
-                                                  BigDecimal investmentRescateTotal) {
+                                                  Map<String, BigDecimal> investmentReconciliationRows) {
         List<CashflowCategoryRow> categoryRows = new ArrayList<>(rows.stream()
                 .map(row -> {
                     BigDecimal pctOfTotal = total.compareTo(BigDecimal.ZERO) != 0
@@ -254,16 +267,23 @@ public class CashflowService {
                 })
                 .toList());
 
-        // Fila sintética para los rescates de inversión del período: no tienen categoría propia
-        // (van vinculados al activo), pero deben integrar el total de "Ingresos" ya que la cuenta
-        // los registró como Transaction tipo INCOME.
-        if (investmentRescateTotal != null && investmentRescateTotal.signum() > 0) {
+        // Filas sintéticas para los movimientos de inversión del período que no tienen categoría propia
+        // (van vinculados al activo, no a una categoría de usuario): rescates y cobros
+        // (capital/rendimiento/pérdida). Deben integrar el total de la sección ya que la cuenta ya los
+        // registró como Transaction real.
+        boolean anyInvestmentRow = false;
+        for (Map.Entry<String, BigDecimal> entry : investmentReconciliationRows.entrySet()) {
+            BigDecimal amount = entry.getValue();
+            if (amount == null || amount.signum() <= 0) continue;
             BigDecimal pctOfTotal = total.compareTo(BigDecimal.ZERO) != 0
-                    ? investmentRescateTotal.divide(total, MC).multiply(BigDecimal.valueOf(100), MC).setScale(2, RM)
+                    ? amount.divide(total, MC).multiply(BigDecimal.valueOf(100), MC).setScale(2, RM)
                     : BigDecimal.ZERO.setScale(2, RM);
             categoryRows.add(new CashflowCategoryRow(
-                    null, "Rescates de inversión", INVESTMENT_ICON, INVESTMENT_COLOR,
-                    investmentRescateTotal.setScale(4, RM), pctOfTotal, null, null));
+                    null, entry.getKey(), INVESTMENT_ICON, INVESTMENT_COLOR,
+                    amount.setScale(4, RM), pctOfTotal, null, null));
+            anyInvestmentRow = true;
+        }
+        if (anyInvestmentRow) {
             categoryRows.sort(Comparator.comparing(CashflowCategoryRow::amount).reversed());
         }
 
@@ -274,10 +294,15 @@ public class CashflowService {
         return new CashflowFlowSection(total.setScale(4, RM), totalBudgeted, categoryRows);
     }
 
-    /** Suma los RESCATE del período (transacciones de inversión sin categoría propia). */
-    private BigDecimal sumInvestmentRescateTotal(List<Transaction> investmentTxs) {
+    /**
+     * Suma el monto de las transacciones de inversión del período que coinciden con un
+     * {@code investmentSourceType} y {@code TransactionType} dados (transacciones sin categoría propia:
+     * RESCATE, COLLECTION_CAPITAL, COLLECTION_YIELD). Se distingue por tipo porque COLLECTION_YIELD
+     * puede aparecer como INCOME (rendimiento positivo) o EXPENSE (pérdida de mercado al cobrar).
+     */
+    private BigDecimal sumInvestmentSourceTypeTotal(List<Transaction> investmentTxs, String sourceType, TransactionType type) {
         return investmentTxs.stream()
-                .filter(tx -> "RESCATE".equals(tx.getInvestmentSourceType()))
+                .filter(tx -> sourceType.equals(tx.getInvestmentSourceType()) && tx.getType() == type)
                 .map(Transaction::getAmount)
                 .reduce(BigDecimal.ZERO, (a, b) -> a.add(b, MC));
     }
@@ -432,17 +457,19 @@ public class CashflowService {
      * {@code Transaction} y no {@code InvestmentMovement} porque el principal inicial de Plazo Fijo
      * y el cobro no dejan fila propia en movimientos — sólo transacción. Los revalúos nunca generan
      * transacción, así que quedan naturalmente excluidos por el filtro de {@code investmentSourceType}
-     * de la query. Agrupa por activo sumando sólo SUSCRIPCION (bruto): el RESCATE no se netea acá,
-     * se refleja aparte como un ingreso más en {@code buildFlowSection} (ver {@link #sumInvestmentRescateTotal}),
-     * ya que la cuenta ya lo registró como Transaction tipo INCOME. Aprovecha para poblar
-     * {@code teaPct} desde la TNA del activo cuando está definida y es positiva.
+     * de la query. Agrupa por activo sumando sólo SUSCRIPCION (bruto): el RESCATE y los cobros
+     * (COLLECTION_CAPITAL/COLLECTION_YIELD) no se netean acá, se reflejan aparte como filas de
+     * ingreso/egreso en {@code buildFlowSection} (ver {@link #sumInvestmentSourceTypeTotal}), ya que la
+     * cuenta ya los registró como Transaction real. Aprovecha para poblar {@code teaPct} desde la TNA
+     * del activo cuando está definida y es positiva.
      */
     private CashflowInvestmentSection buildInvestmentSection(List<Transaction> investmentTxs, BigDecimal preBalance) {
         Map<UUID, InvestmentAsset> assetsById = new LinkedHashMap<>();
         Map<UUID, BigDecimal> totalByAssetId = new LinkedHashMap<>();
         for (Transaction tx : investmentTxs) {
-            // Sólo SUSCRIPCION suma acá (bruto invertido). RESCATE y cualquier otro valor se ignoran:
-            // el rescate ya se contabilizó como ingreso, y REVALUO/COLLECTION nunca llegan por la query.
+            // Sólo SUSCRIPCION suma acá (bruto invertido). RESCATE, COLLECTION_CAPITAL y
+            // COLLECTION_YIELD se ignoran: ya se contabilizan como ingreso/egreso en buildFlowSection,
+            // y REVALUO nunca llega por la query.
             if (!"SUSCRIPCION".equals(tx.getInvestmentSourceType())) {
                 continue;
             }

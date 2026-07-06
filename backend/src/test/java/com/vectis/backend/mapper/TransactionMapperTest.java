@@ -95,7 +95,7 @@ class TransactionMapperTest {
         User user = User.builder().id(UUID.randomUUID()).email("u@v.com").fullName("U").passwordHash("h").build();
         Account account = Account.builder()
                 .id(UUID.randomUUID()).user(user).name("Galicia").kind("Banco").ccy("ARS")
-                .balance(BigDecimal.ZERO).remunerada(false)
+                .balance(BigDecimal.ZERO)
                 .createdAt(OffsetDateTime.now()).updatedAt(OffsetDateTime.now()).build();
 
         Transaction tx = Transaction.builder()

@@ -76,7 +76,7 @@ class CashflowServiceTest {
                 .id(UUID.randomUUID()).user(user)
                 .name("Cuenta Galicia").kind("Banco").ccy("ARS")
                 .balance(new BigDecimal("100000.0000"))
-                .remunerada(false).includeInCashflow(true)
+                .includeInCashflow(true)
                 .createdAt(OffsetDateTime.now()).updatedAt(OffsetDateTime.now())
                 .build();
     }
@@ -445,7 +445,7 @@ class CashflowServiceTest {
                 .id(UUID.randomUUID()).user(user)
                 .name("Cuenta cero").kind("Banco").ccy("ARS")
                 .balance(BigDecimal.ZERO)
-                .remunerada(false).includeInCashflow(true)
+                .includeInCashflow(true)
                 .createdAt(OffsetDateTime.now()).updatedAt(OffsetDateTime.now())
                 .build();
 
@@ -785,7 +785,7 @@ class CashflowServiceTest {
                 .tna(BigDecimal.ZERO)
                 .build();
         Transaction rescate = Transaction.builder()
-                .investmentAsset(asset).investmentSourceType("RESCATE")
+                .investmentAsset(asset).investmentSourceType("RESCATE").type(TransactionType.INCOME)
                 .amount(new BigDecimal("80000.0000")).build();
 
         given(transactionRepository.findInvestmentTransactionsForCashflow(userId, firstDay, lastDay))
@@ -799,6 +799,54 @@ class CashflowServiceTest {
         assertThat(result.getIncome().byCategory().get(0).amount()).isEqualByComparingTo("80000.0000");
         assertThat(result.getIncome().byCategory().get(0).categoryId()).isNull();
         // Ningún SUSCRIPCION en este caso: la sección de inversiones queda vacía.
+        assertThat(result.getInvestments().instruments()).isEmpty();
+    }
+
+    @Test
+    @DisplayName("investments: el cobro de una inversión (COLLECTION_CAPITAL/COLLECTION_YIELD) impacta el resultado operativo del mes, no queda en cero")
+    void investments_collectionImpactsOperativeResult() {
+        LocalDate today    = LocalDate.now();
+        int year  = today.getYear();
+        int month = today.getMonthValue();
+        LocalDate firstDay = today.withDayOfMonth(1);
+        LocalDate lastDay  = firstDay.withDayOfMonth(firstDay.lengthOfMonth());
+
+        given(monthPeriodService.getStatus(eq(user), eq(year), eq(month), any(LocalDate.class))).willReturn("curso");
+        given(monthPeriodRepository.findByUser_IdAndYearAndMonth(userId, year, month)).willReturn(Optional.empty());
+        given(accountRepository.findAllByUser_IdAndIncludeInCashflowTrue(userId)).willReturn(Collections.emptyList());
+        given(transactionRepository.netMovementsForAccounts(eq(userId), anyList(), any(LocalDate.class)))
+                .willReturn(Collections.emptyList());
+        given(transactionRepository.groupByCategory(eq(userId), any(TransactionType.class), any(LocalDate.class), any(LocalDate.class)))
+                .willReturn(Collections.emptyList());
+        given(categoryBudgetRepository.findLatestPerCategoryOnOrBefore(userId, firstDay)).willReturn(Collections.emptyList());
+
+        InvestmentAsset asset = InvestmentAsset.builder()
+                .id(UUID.randomUUID()).name("LECAP S31G5")
+                .type(InvestmentAssetType.LETRA).currency("ARS")
+                .principal(BigDecimal.ZERO).tna(BigDecimal.ZERO)
+                .build();
+        Transaction collectionCapital = Transaction.builder()
+                .investmentAsset(asset).investmentSourceType("COLLECTION_CAPITAL").type(TransactionType.INCOME)
+                .amount(new BigDecimal("1000000.0000")).build();
+        Transaction collectionYield = Transaction.builder()
+                .investmentAsset(asset).investmentSourceType("COLLECTION_YIELD").type(TransactionType.INCOME)
+                .amount(new BigDecimal("150000.0000")).build();
+
+        given(transactionRepository.findInvestmentTransactionsForCashflow(userId, firstDay, lastDay))
+                .willReturn(List.of(collectionCapital, collectionYield));
+
+        CashflowResponse result = cashflowService.getCashflow(user, year, month);
+
+        // Ni el capital ni el rendimiento del cobro tienen categoría propia, pero deben sumar igual
+        // al total de "Ingresos" y por lo tanto al resultado operativo del mes (no debe quedar en cero
+        // pese a que la cuenta efectivamente recibió $1.150.000).
+        assertThat(result.getIncome().total()).isEqualByComparingTo("1150000.0000");
+        assertThat(result.getIncome().byCategory())
+                .extracting("name")
+                .containsExactlyInAnyOrder("Cobro de inversión (capital)", "Cobro de inversión (rendimiento)");
+        assertThat(result.getPreInvestmentBalance().operativeResult()).isEqualByComparingTo("1150000.0000");
+        // El cobro tampoco duplica su marca en la sección de "Inversiones" (esa sección sólo agrupa
+        // el bruto SUSCRIPTO histórico, no el cobro).
         assertThat(result.getInvestments().instruments()).isEmpty();
     }
 

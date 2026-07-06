@@ -33,4 +33,25 @@ public interface InvestmentRepository extends JpaRepository<InvestmentAsset, UUI
     /** Returns all assets whose type is in the given list and have auto-tracking enabled. Used by DoctaValuationSyncService. */
     @Query("SELECT a FROM InvestmentAsset a WHERE a.type IN :types AND a.autoTrack = true")
     List<InvestmentAsset> findAllByTypesAndAutoTrackTrue(@Param("types") List<InvestmentAssetType> types);
+
+    /**
+     * Vínculos activos "cuenta remunerada": un FCI vinculado a una cuenta la vuelve remunerada.
+     * Batcheado por usuario para evitar N+1 en {@code AccountService#getAccounts}.
+     */
+    @Query("""
+        SELECT a.account.id AS accountId, a.tna AS tna, a.createdAt AS createdAt
+        FROM InvestmentAsset a
+        WHERE a.user.id = :userId AND a.type = com.vectis.backend.domain.entity.InvestmentAssetType.FCI
+          AND a.account IS NOT NULL
+        """)
+    List<FciAccountLinkView> findFciLinksByUser(@Param("userId") UUID userId);
+
+    /** Vínculo "cuenta remunerada" para una única cuenta — usado en create/update de cuenta. */
+    Optional<InvestmentAsset> findTopByAccount_IdAndTypeOrderByCreatedAtDesc(UUID accountId, InvestmentAssetType type);
+
+    interface FciAccountLinkView {
+        UUID getAccountId();
+        java.math.BigDecimal getTna();
+        java.time.OffsetDateTime getCreatedAt();
+    }
 }

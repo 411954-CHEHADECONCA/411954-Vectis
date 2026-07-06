@@ -2,6 +2,7 @@ package com.vectis.backend.service;
 
 import com.vectis.backend.domain.entity.Account;
 import com.vectis.backend.domain.entity.InvestmentAsset;
+import com.vectis.backend.domain.entity.InvestmentAssetStatus;
 import com.vectis.backend.domain.entity.InvestmentAssetType;
 import com.vectis.backend.domain.entity.InvestmentMovement;
 import com.vectis.backend.domain.entity.InvestmentMovementType;
@@ -9,6 +10,8 @@ import com.vectis.backend.domain.entity.InvestmentValuation;
 import com.vectis.backend.domain.entity.Transaction;
 import com.vectis.backend.domain.entity.TransactionType;
 import com.vectis.backend.domain.entity.User;
+import com.vectis.backend.dto.InvestmentCollectPreviewResponse;
+import com.vectis.backend.dto.InvestmentCollectRequest;
 import com.vectis.backend.dto.InvestmentCollectResponse;
 import com.vectis.backend.dto.InvestmentMovementRequest;
 import com.vectis.backend.dto.InvestmentMovementUpdateRequest;
@@ -128,6 +131,7 @@ public class InvestmentService {
     public InvestmentResponse updateInvestment(UUID id, InvestmentRequest request, User user) {
         InvestmentAsset asset = investmentRepository.findByIdAndUser_Id(id, user.getId())
                 .orElseThrow(() -> new InvestmentNotFoundException(id));
+        assertNotCollected(asset);
 
         Account account = resolveAccount(request.accountId(), user, request.currency());
 
@@ -261,53 +265,131 @@ public class InvestmentService {
     }
 
     /**
-     * Cobra (liquida) una inversión: acredita el valor actual del activo como ingreso a la cuenta
-     * vinculada con fecha de hoy y borra la inversión. A diferencia de {@link #deleteInvestment},
-     * siempre está permitido (incluso con historial en meses cerrados) y NO revierte transacciones
-     * históricas — quedan intactas como movimientos legítimos ya sucedidos (pierden su referencia
-     * al activo por el ON DELETE SET NULL de la migración V042).
-     *
-     * <p>El monto acreditado es {@link #calculateCurrentValue}, NO {@code asset.getPrincipal()}
-     * directo: para FCI/PLAZO_FIJO el principal ya representa el valor actual, pero para la familia
-     * cuotapartes (FCI_CUOTAPARTES/LETRA/BONO/ON) el principal es sólo el costo de adquisición —
-     * el valor de mercado real depende de la última valuación registrada.
-     *
-     * <p>NOTA: no releer `asset` (ni sus asociaciones vía la FK de investment_asset_id) después de este
-     * delete dentro de la misma transacción — mismo motivo que en {@link #deleteInvestment}.
+     * Precálculo del cobro (capital/rendimiento/total) a una fecha elegida, sin efectos: no persiste
+     * nada ni genera transacciones. Usado por el frontend para mostrar el desglose antes de confirmar.
      */
-    @Transactional
-    public InvestmentCollectResponse collectInvestment(UUID id, User user) {
+    public InvestmentCollectPreviewResponse previewCollect(UUID id, LocalDate date, User user) {
         InvestmentAsset asset = investmentRepository.findByIdAndUser_Id(id, user.getId())
                 .orElseThrow(() -> new InvestmentNotFoundException(id));
+        assertNotAlreadyCollected(asset);
 
-        BigDecimal amount   = calculateCurrentValue(asset);
-        String     currency = asset.getCurrency();
-        boolean transactionCreated = asset.getAccount() != null
-                && asset.isIncludeInCashflow()
-                && amount.signum() > 0;
+        InvestmentValuationCalculator.CollectBreakdown breakdown =
+                InvestmentValuationCalculator.calculateCollectBreakdown(asset, date);
+        boolean editableRendimiento = isEditableRendimientoType(asset.getType());
 
-        if (transactionCreated) {
-            LocalDate today = LocalDate.now();
-            Transaction tx = Transaction.builder()
-                    .user(user)
-                    .type(TransactionType.INCOME)
-                    .description("Cobro inversión: " + asset.getName())
-                    .amount(amount)
-                    .ccy(currency)
-                    .account(asset.getAccount())
-                    .transactionDate(today)
-                    .dueDate(today)
-                    .installment(false)
-                    .investmentAsset(asset)
-                    .investmentMovement(null)
-                    .investmentSourceType("COLLECTION")
-                    .build();
-            transactionRepository.save(tx);
+        return new InvestmentCollectPreviewResponse(
+                breakdown.capital(), breakdown.rendimiento(), breakdown.total(),
+                asset.getCurrency(), editableRendimiento);
+    }
+
+    /**
+     * Cobra (liquida) una inversión a la fecha elegida por el usuario: acredita capital y rendimiento
+     * como DOS ingresos separados a la cuenta vinculada, y marca el activo como {@code COBRADA} en vez
+     * de borrarlo — sigue visible con todas sus mutaciones bloqueadas salvo {@link #deleteInvestment}.
+     *
+     * <p>El split capital/rendimiento sale de {@link InvestmentValuationCalculator#calculateCollectBreakdown}.
+     * Para PLAZO_FIJO/FCI el rendimiento precalculado puede sobreescribirse con {@code request.rendimiento()}
+     * (validado no-negativo); para la familia cuotapartes ese override se ignora siempre, porque el
+     * rendimiento sale directo del valor de mercado a la fecha elegida.
+     */
+    @Transactional
+    public InvestmentCollectResponse collectInvestment(UUID id, InvestmentCollectRequest request, User user) {
+        InvestmentAsset asset = investmentRepository.findByIdAndUser_Id(id, user.getId())
+                .orElseThrow(() -> new InvestmentNotFoundException(id));
+        assertNotAlreadyCollected(asset);
+
+        LocalDate collectDate = request.collectDate();
+        if (!monthPeriodService.isOpen(user.getId(), collectDate.getYear(), collectDate.getMonthValue())) {
+            throw new VectisException(
+                    "No se puede cobrar: el mes elegido ya está cerrado", HttpStatus.CONFLICT);
         }
 
-        investmentRepository.delete(asset);
+        InvestmentValuationCalculator.CollectBreakdown breakdown =
+                InvestmentValuationCalculator.calculateCollectBreakdown(asset, collectDate);
+        boolean editableRendimiento = isEditableRendimientoType(asset.getType());
 
-        return new InvestmentCollectResponse(id, amount, currency, transactionCreated);
+        BigDecimal rendimiento = breakdown.rendimiento();
+        if (editableRendimiento && request.rendimiento() != null) {
+            if (request.rendimiento().signum() < 0) {
+                throw new VectisException(
+                        "El rendimiento no puede ser negativo", HttpStatus.UNPROCESSABLE_ENTITY);
+            }
+            rendimiento = request.rendimiento();
+        }
+
+        BigDecimal capital  = breakdown.capital();
+        BigDecimal amount   = capital.add(rendimiento);
+        String     currency = asset.getCurrency();
+
+        boolean transactionCreated = asset.getAccount() != null && asset.isIncludeInCashflow();
+        if (transactionCreated) {
+            if (capital.signum() > 0) {
+                transactionRepository.save(buildCollectTransaction(
+                        asset, user, TransactionType.INCOME, capital,
+                        "Cobro inversión (capital): ", collectDate, "COLLECTION_CAPITAL"));
+            }
+            // La familia cuotapartes puede arrojar un rendimiento negativo (pérdida real de mercado:
+            // el valor a la fecha de cobro es menor al capital). No se puede postear un monto negativo
+            // (transactions.amount tiene CHECK > 0), así que la pérdida se registra como un EXPENSE por
+            // el valor absoluto, en vez de omitirla — de lo contrario el capital completo se acreditaría
+            // ignorando la pérdida real.
+            if (rendimiento.signum() > 0) {
+                transactionRepository.save(buildCollectTransaction(
+                        asset, user, TransactionType.INCOME, rendimiento,
+                        "Cobro inversión (rendimiento): ", collectDate, "COLLECTION_YIELD"));
+            } else if (rendimiento.signum() < 0) {
+                transactionRepository.save(buildCollectTransaction(
+                        asset, user, TransactionType.EXPENSE, rendimiento.abs(),
+                        "Cobro inversión (pérdida): ", collectDate, "COLLECTION_YIELD"));
+            }
+        }
+
+        asset.setStatus(InvestmentAssetStatus.COBRADA);
+        asset.setCollectedAt(OffsetDateTime.now(ZoneOffset.UTC));
+        asset.setCollectDate(collectDate);
+        InvestmentAsset saved = investmentRepository.save(asset);
+
+        return new InvestmentCollectResponse(
+                id, amount, currency, transactionCreated, capital, rendimiento, collectDate, saved.getStatus().name());
+    }
+
+    private Transaction buildCollectTransaction(InvestmentAsset asset, User user, TransactionType type,
+                                                 BigDecimal amount, String descPrefix, LocalDate date,
+                                                 String sourceType) {
+        return Transaction.builder()
+                .user(user)
+                .type(type)
+                .description(descPrefix + asset.getName())
+                .amount(amount)
+                .ccy(asset.getCurrency())
+                .account(asset.getAccount())
+                .transactionDate(date)
+                .dueDate(date)
+                .installment(false)
+                .investmentAsset(asset)
+                .investmentMovement(null)
+                .investmentSourceType(sourceType)
+                .build();
+    }
+
+    /** PLAZO_FIJO y FCI devengan interés en el tiempo (rendimiento editable); la familia cuotapartes no. */
+    private boolean isEditableRendimientoType(InvestmentAssetType type) {
+        return type == InvestmentAssetType.PLAZO_FIJO || type == InvestmentAssetType.FCI;
+    }
+
+    /** Bloquea cualquier mutación sobre un activo ya cobrado — sólo {@link #deleteInvestment} sigue permitido. */
+    private void assertNotCollected(InvestmentAsset asset) {
+        if (asset.getStatus() == InvestmentAssetStatus.COBRADA) {
+            throw new VectisException(
+                    "No se puede modificar una inversión ya cobrada", HttpStatus.CONFLICT);
+        }
+    }
+
+    /** Guarda específica de los endpoints de cobro (preview/collect): evita cobrar dos veces el mismo activo. */
+    private void assertNotAlreadyCollected(InvestmentAsset asset) {
+        if (asset.getStatus() == InvestmentAssetStatus.COBRADA) {
+            throw new VectisException("La inversión ya fue cobrada", HttpStatus.CONFLICT);
+        }
     }
 
     // ── Movement CRUD (FCI / FCI_CUOTAPARTES) ────────────────────────────────
@@ -316,6 +398,7 @@ public class InvestmentService {
     public InvestmentResponse addMovement(UUID investmentId, InvestmentMovementRequest request, User user) {
         InvestmentAsset asset = investmentRepository.findWithMovementsByIdAndUser_Id(investmentId, user.getId())
                 .orElseThrow(() -> new InvestmentNotFoundException(investmentId));
+        assertNotCollected(asset);
 
         // Los movimientos pueden registrarse en cualquier fecha (incluso anterior a otros):
         // los tramos y el saldo se recalculan ordenando por fecha. Sólo validamos el rescate.
@@ -390,6 +473,7 @@ public class InvestmentService {
                                              InvestmentMovementUpdateRequest request, User user) {
         InvestmentAsset asset = investmentRepository.findWithMovementsByIdAndUser_Id(investmentId, user.getId())
                 .orElseThrow(() -> new InvestmentNotFoundException(investmentId));
+        assertNotCollected(asset);
 
         if (asset.getType() != InvestmentAssetType.FCI) {
             throw new VectisException(
@@ -420,6 +504,7 @@ public class InvestmentService {
     public InvestmentResponse deleteMovement(UUID investmentId, UUID movId, User user) {
         InvestmentAsset asset = investmentRepository.findWithMovementsByIdAndUser_Id(investmentId, user.getId())
                 .orElseThrow(() -> new InvestmentNotFoundException(investmentId));
+        assertNotCollected(asset);
 
         InvestmentMovement movement = movementRepository.findByIdAndInvestmentAsset_Id(movId, investmentId)
                 .orElseThrow(() -> new InvestmentMovementNotFoundException(movId));
@@ -457,6 +542,7 @@ public class InvestmentService {
     public InvestmentResponse addValuation(UUID investmentId, InvestmentValuationRequest request, User user) {
         InvestmentAsset asset = investmentRepository.findWithValuationsByIdAndUser_Id(investmentId, user.getId())
                 .orElseThrow(() -> new InvestmentNotFoundException(investmentId));
+        assertNotCollected(asset);
 
         // FIX 2: reject duplicate valuation date for this asset
         validateValuationDateUniqueness(asset, request.valuationDate(), null);
@@ -477,6 +563,7 @@ public class InvestmentService {
                                               InvestmentValuationRequest request, User user) {
         InvestmentAsset asset = investmentRepository.findWithValuationsByIdAndUser_Id(investmentId, user.getId())
                 .orElseThrow(() -> new InvestmentNotFoundException(investmentId));
+        assertNotCollected(asset);
 
         InvestmentValuation valuation = valuationRepository.findByIdAndInvestmentAsset_Id(valId, investmentId)
                 .orElseThrow(() -> new InvestmentValuationNotFoundException(valId));
@@ -496,6 +583,7 @@ public class InvestmentService {
     public InvestmentResponse deleteValuation(UUID investmentId, UUID valId, User user) {
         InvestmentAsset asset = investmentRepository.findWithValuationsByIdAndUser_Id(investmentId, user.getId())
                 .orElseThrow(() -> new InvestmentNotFoundException(investmentId));
+        assertNotCollected(asset);
 
         InvestmentValuation valuation = valuationRepository.findByIdAndInvestmentAsset_Id(valId, investmentId)
                 .orElseThrow(() -> new InvestmentValuationNotFoundException(valId));
@@ -570,16 +658,6 @@ public class InvestmentService {
         if (otherMovementSameDate) return;
         asset.getValuations().removeIf(v -> v.getValuationDate().equals(date)
                 && "MANUAL".equals(v.getSource()));
-    }
-
-    /**
-     * Valor de mercado actual del activo — la base correcta para acreditar en {@link #collectInvestment}.
-     * Delega en {@link InvestmentValuationCalculator}, la misma utilidad que usa {@link InvestmentMapper}
-     * para poblar {@code InvestmentResponse#currentValue}, de forma que ambos compartan una única
-     * implementación en vez de calcular el mismo número por caminos distintos.
-     */
-    private BigDecimal calculateCurrentValue(InvestmentAsset asset) {
-        return InvestmentValuationCalculator.calculateCurrentValue(asset);
     }
 
     private void recalculatePrincipal(InvestmentAsset asset) {

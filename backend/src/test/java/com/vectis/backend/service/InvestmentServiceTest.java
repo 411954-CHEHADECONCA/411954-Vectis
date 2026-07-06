@@ -2,12 +2,15 @@ package com.vectis.backend.service;
 
 import com.vectis.backend.domain.entity.Account;
 import com.vectis.backend.domain.entity.InvestmentAsset;
+import com.vectis.backend.domain.entity.InvestmentAssetStatus;
 import com.vectis.backend.domain.entity.InvestmentAssetType;
 import com.vectis.backend.domain.entity.InvestmentMovement;
 import com.vectis.backend.domain.entity.InvestmentMovementType;
 import com.vectis.backend.domain.entity.Transaction;
 import com.vectis.backend.domain.entity.TransactionType;
 import com.vectis.backend.domain.entity.User;
+import com.vectis.backend.dto.InvestmentCollectPreviewResponse;
+import com.vectis.backend.dto.InvestmentCollectRequest;
 import com.vectis.backend.dto.InvestmentCollectResponse;
 import com.vectis.backend.dto.InvestmentMovementRequest;
 import com.vectis.backend.dto.InvestmentMovementUpdateRequest;
@@ -93,7 +96,6 @@ class InvestmentServiceTest {
                 .kind("Banco")
                 .ccy("ARS")
                 .balance(new BigDecimal("100000.0000"))
-                .remunerada(false)
                 .includeInCashflow(true)
                 .createdAt(OffsetDateTime.now())
                 .updatedAt(OffsetDateTime.now())
@@ -379,7 +381,7 @@ class InvestmentServiceTest {
 
         Account newAccount = Account.builder()
                 .id(UUID.randomUUID()).user(user).name("Cuenta USD").kind("Banco")
-                .ccy("USD").balance(BigDecimal.ZERO).remunerada(false).includeInCashflow(true)
+                .ccy("USD").balance(BigDecimal.ZERO).includeInCashflow(true)
                 .createdAt(OffsetDateTime.now()).updatedAt(OffsetDateTime.now())
                 .build();
 
@@ -1870,85 +1872,171 @@ class InvestmentServiceTest {
     }
 
     @Test
-    @DisplayName("collectInvestment con cuenta vinculada e includeInCashflow crea una Transaction INCOME y borra el activo")
-    void collectInvestment_createsIncomeTransaction_andDeletesAsset() {
+    @DisplayName("collectInvestment PLAZO_FIJO en mes abierto marca COBRADA, setea collectDate y crea capital+rendimiento")
+    void collectInvestment_plazoFijo_marksCollected_createsTwoTransactions() {
         UUID assetId = UUID.randomUUID();
-        InvestmentAsset asset = buildAsset(assetId, account);
+        LocalDate purchaseDate = LocalDate.of(2026, 1, 1);
+        LocalDate collectDate  = purchaseDate.plusDays(100);
+        // TNA = 36.5% -> tasa diaria exacta = 0.365/365 = 0.001 -> interés = principal * 0.001 * 100 = 10% del capital.
+        InvestmentAsset asset = InvestmentAsset.builder()
+                .id(assetId).user(user).account(account)
+                .name("Plazo Fijo Test")
+                .type(InvestmentAssetType.PLAZO_FIJO).currency("ARS")
+                .principal(new BigDecimal("1000000.0000"))
+                .purchaseDate(purchaseDate)
+                .tna(new BigDecimal("36.5000"))
+                .includeInCashflow(true)
+                .createdAt(OffsetDateTime.now()).updatedAt(OffsetDateTime.now())
+                .build();
+
+        InvestmentCollectRequest req = new InvestmentCollectRequest(collectDate, null);
 
         given(investmentRepository.findByIdAndUser_Id(assetId, userId)).willReturn(Optional.of(asset));
+        given(investmentRepository.save(asset)).willReturn(asset);
 
-        InvestmentCollectResponse result = investmentService.collectInvestment(assetId, user);
+        InvestmentCollectResponse result = investmentService.collectInvestment(assetId, req, user);
 
         ArgumentCaptor<Transaction> txCaptor = ArgumentCaptor.forClass(Transaction.class);
-        verify(transactionRepository).save(txCaptor.capture());
-        Transaction tx = txCaptor.getValue();
-        assertThat(tx.getType()).isEqualTo(TransactionType.INCOME);
-        assertThat(tx.getAmount()).isEqualByComparingTo("1000000.0000");
-        assertThat(tx.getInvestmentSourceType()).isEqualTo("COLLECTION");
-        assertThat(tx.getInvestmentMovement()).isNull();
+        verify(transactionRepository, times(2)).save(txCaptor.capture());
+        List<Transaction> txs = txCaptor.getAllValues();
+        assertThat(txs).hasSize(2);
+        assertThat(txs).allMatch(tx -> tx.getTransactionDate().equals(collectDate));
+        assertThat(txs).allMatch(tx -> tx.getType() == TransactionType.INCOME);
+        assertThat(txs).anySatisfy(tx -> {
+            assertThat(tx.getInvestmentSourceType()).isEqualTo("COLLECTION_CAPITAL");
+            assertThat(tx.getAmount()).isEqualByComparingTo("1000000.0000");
+        });
+        assertThat(txs).anySatisfy(tx -> {
+            assertThat(tx.getInvestmentSourceType()).isEqualTo("COLLECTION_YIELD");
+            assertThat(tx.getAmount()).isEqualByComparingTo("100000.0000");
+        });
 
-        verify(investmentRepository).delete(asset);
+        assertThat(asset.getStatus()).isEqualTo(InvestmentAssetStatus.COBRADA);
+        assertThat(asset.getCollectDate()).isEqualTo(collectDate);
+        assertThat(asset.getCollectedAt()).isNotNull();
+        verify(investmentRepository).save(asset);
+
         assertThat(result.investmentId()).isEqualTo(assetId);
-        assertThat(result.amount()).isEqualByComparingTo("1000000.0000");
+        assertThat(result.capital()).isEqualByComparingTo("1000000.0000");
+        assertThat(result.rendimiento()).isEqualByComparingTo("100000.0000");
+        assertThat(result.amount()).isEqualByComparingTo("1100000.0000");
         assertThat(result.currency()).isEqualTo("ARS");
         assertThat(result.transactionCreated()).isTrue();
+        assertThat(result.collectDate()).isEqualTo(collectDate);
+        assertThat(result.status()).isEqualTo("COBRADA");
     }
 
     @Test
-    @DisplayName("collectInvestment sin cuenta vinculada NO crea Transaction pero borra el activo igual")
-    void collectInvestment_skipsTransaction_whenNoAccount() {
+    @DisplayName("collectInvestment con fecha en mes cerrado lanza 409 y no persiste nada")
+    void collectInvestment_monthClosed_throws409_persistsNothing() {
         UUID assetId = UUID.randomUUID();
-        InvestmentAsset asset = buildAsset(assetId, null);
+        InvestmentAsset asset = buildAsset(assetId, account);
+        LocalDate collectDate = LocalDate.of(2026, 2, 15);
+        InvestmentCollectRequest req = new InvestmentCollectRequest(collectDate, null);
 
         given(investmentRepository.findByIdAndUser_Id(assetId, userId)).willReturn(Optional.of(asset));
+        given(monthPeriodService.isOpen(userId, 2026, 2)).willReturn(false);
 
-        InvestmentCollectResponse result = investmentService.collectInvestment(assetId, user);
+        assertThatThrownBy(() -> investmentService.collectInvestment(assetId, req, user))
+                .isInstanceOf(VectisException.class)
+                .satisfies(ex -> assertThat(((VectisException) ex).getStatus()).isEqualTo(HttpStatus.CONFLICT));
 
+        assertThat(asset.getStatus()).isEqualTo(InvestmentAssetStatus.ACTIVA);
         verify(transactionRepository, never()).save(any());
-        verify(investmentRepository).delete(asset);
-        assertThat(result.transactionCreated()).isFalse();
+        verify(investmentRepository, never()).save(any());
     }
 
     @Test
-    @DisplayName("collectInvestment con includeInCashflow=false NO crea Transaction")
-    void collectInvestment_skipsTransaction_whenExcluded() {
+    @DisplayName("collectInvestment con rendimiento override negativo lanza 422 y no persiste nada")
+    void collectInvestment_negativeOverride_throws422_persistsNothing() {
         UUID assetId = UUID.randomUUID();
-        InvestmentAsset asset = buildAsset(assetId, account);
-        asset.setIncludeInCashflow(false);
+        InvestmentAsset asset = InvestmentAsset.builder()
+                .id(assetId).user(user).account(account)
+                .name("Plazo Fijo Test")
+                .type(InvestmentAssetType.PLAZO_FIJO).currency("ARS")
+                .principal(new BigDecimal("1000000.0000"))
+                .purchaseDate(LocalDate.of(2026, 1, 1))
+                .tna(new BigDecimal("36.5000"))
+                .includeInCashflow(true)
+                .createdAt(OffsetDateTime.now()).updatedAt(OffsetDateTime.now())
+                .build();
+        InvestmentCollectRequest req = new InvestmentCollectRequest(
+                LocalDate.of(2026, 4, 11), new BigDecimal("-1.00"));
 
         given(investmentRepository.findByIdAndUser_Id(assetId, userId)).willReturn(Optional.of(asset));
 
-        InvestmentCollectResponse result = investmentService.collectInvestment(assetId, user);
+        assertThatThrownBy(() -> investmentService.collectInvestment(assetId, req, user))
+                .isInstanceOf(VectisException.class)
+                .satisfies(ex -> assertThat(((VectisException) ex).getStatus())
+                        .isEqualTo(HttpStatus.UNPROCESSABLE_ENTITY));
 
+        assertThat(asset.getStatus()).isEqualTo(InvestmentAssetStatus.ACTIVA);
         verify(transactionRepository, never()).save(any());
-        assertThat(result.transactionCreated()).isFalse();
+        verify(investmentRepository, never()).save(any());
     }
 
     @Test
-    @DisplayName("collectInvestment se permite aunque haya historial en un mes cerrado, y no lo revierte")
-    void collectInvestment_succeedsWithClosedMonthHistory_leavesHistoricalTxUntouched() {
+    @DisplayName("collectInvestment sobre un activo ya COBRADA lanza 409")
+    void collectInvestment_alreadyCollected_throws409() {
         UUID assetId = UUID.randomUUID();
         InvestmentAsset asset = buildAsset(assetId, account);
+        asset.setStatus(InvestmentAssetStatus.COBRADA);
+        InvestmentCollectRequest req = new InvestmentCollectRequest(LocalDate.of(2026, 3, 1), null);
 
         given(investmentRepository.findByIdAndUser_Id(assetId, userId)).willReturn(Optional.of(asset));
 
-        InvestmentCollectResponse result = investmentService.collectInvestment(assetId, user);
+        assertThatThrownBy(() -> investmentService.collectInvestment(assetId, req, user))
+                .isInstanceOf(VectisException.class)
+                .satisfies(ex -> assertThat(((VectisException) ex).getStatus()).isEqualTo(HttpStatus.CONFLICT));
 
-        // collectInvestment nunca gatea por mes cerrado ni consulta el historial vinculado.
-        verify(monthPeriodService, never()).isOpen(any(), anyInt(), anyInt());
-        verify(transactionRepository, never()).findAllByInvestmentAsset_IdAndDeletedAtIsNull(any());
-        assertThat(result).isNotNull();
-        verify(investmentRepository).delete(asset);
+        verify(investmentRepository, never()).save(any());
+        verify(transactionRepository, never()).save(any());
     }
 
     @Test
-    @DisplayName("collectInvestment acredita el valor de mercado (tenencia x última valuación), no el principal (costo de adquisición), para LETRA")
-    void collectInvestment_creditsMarketValue_notPrincipal_forLetra() {
+    @DisplayName("collectInvestment FCI con override de rendimiento usa el valor dado, no el precálculo")
+    void collectInvestment_fci_overrideRendimiento_usesGivenValue() {
         UUID assetId = UUID.randomUUID();
-        // buildAsset da un LETRA con principal=$1.000.000 (costo de adquisición) y sin movimientos/valuaciones.
-        InvestmentAsset asset = buildAsset(assetId, account);
+        InvestmentAsset asset = buildFciAsset(assetId, new BigDecimal("1030000.0000"));
+        asset.setAccount(account);
+        asset.setIncludeInCashflow(true);
 
-        // 1.000.000 nominales suscriptos a la par (VN=1) -> costo de adquisición = principal.
+        InvestmentMovement suscripcion = InvestmentMovement.builder()
+                .id(UUID.randomUUID())
+                .investmentAsset(asset)
+                .movementDate(LocalDate.of(2026, 1, 1))
+                .type(InvestmentMovementType.SUSCRIPCION)
+                .amount(new BigDecimal("1000000.00"))
+                .build();
+        InvestmentMovement revaluo = InvestmentMovement.builder()
+                .id(UUID.randomUUID())
+                .investmentAsset(asset)
+                .movementDate(LocalDate.of(2026, 2, 1))
+                .type(InvestmentMovementType.REVALUO)
+                .amount(new BigDecimal("30000.00"))
+                .build();
+        asset.getMovements().add(suscripcion);
+        asset.getMovements().add(revaluo);
+
+        LocalDate collectDate = LocalDate.of(2026, 2, 1); // = fecha del último movimiento -> sin interés adicional
+        InvestmentCollectRequest req = new InvestmentCollectRequest(collectDate, new BigDecimal("99999.99"));
+
+        given(investmentRepository.findByIdAndUser_Id(assetId, userId)).willReturn(Optional.of(asset));
+        given(investmentRepository.save(asset)).willReturn(asset);
+
+        InvestmentCollectResponse result = investmentService.collectInvestment(assetId, req, user);
+
+        assertThat(result.capital()).isEqualByComparingTo("1000000.0000");
+        assertThat(result.rendimiento()).isEqualByComparingTo("99999.99");
+        assertThat(result.amount()).isEqualByComparingTo("1099999.99");
+    }
+
+    @Test
+    @DisplayName("collectInvestment familia cuotapartes (LETRA): capital=principal, rendimiento=valorAsOf-capital, ignora override del request")
+    void collectInvestment_cuotaparteFamily_ignoresOverride() {
+        UUID assetId = UUID.randomUUID();
+        InvestmentAsset asset = buildAsset(assetId, account); // LETRA, principal=1.000.000
+
         InvestmentMovement suscripcion = InvestmentMovement.builder()
                 .id(UUID.randomUUID())
                 .investmentAsset(asset)
@@ -1959,7 +2047,6 @@ class InvestmentServiceTest {
                 .build();
         asset.getMovements().add(suscripcion);
 
-        // Última valuación de mercado: subió a 1.15 por nominal -> valor de mercado = 1.150.000, no 1.000.000.
         InvestmentValuation valuation = InvestmentValuation.builder()
                 .id(UUID.randomUUID())
                 .investmentAsset(asset)
@@ -1969,73 +2056,296 @@ class InvestmentServiceTest {
                 .build();
         asset.getValuations().add(valuation);
 
+        LocalDate collectDate = LocalDate.of(2026, 6, 15);
+        // El override debe ignorarse por completo para la familia cuotapartes.
+        InvestmentCollectRequest req = new InvestmentCollectRequest(collectDate, new BigDecimal("12345.67"));
+
         given(investmentRepository.findByIdAndUser_Id(assetId, userId)).willReturn(Optional.of(asset));
+        given(investmentRepository.save(asset)).willReturn(asset);
 
-        InvestmentCollectResponse result = investmentService.collectInvestment(assetId, user);
+        InvestmentCollectResponse result = investmentService.collectInvestment(assetId, req, user);
 
-        ArgumentCaptor<Transaction> txCaptor = ArgumentCaptor.forClass(Transaction.class);
-        verify(transactionRepository).save(txCaptor.capture());
-        Transaction tx = txCaptor.getValue();
-
-        // Guardarraíl de la regresión: si collectInvestment volviera a usar asset.getPrincipal() directo,
-        // este assert fallaría (principal = 1.000.000.0000, no 1.150.000.0000).
-        assertThat(tx.getAmount()).isEqualByComparingTo("1150000.0000");
+        // Valor de mercado a la fecha = tenencia(1.000.000) x último precio <= fecha (1.15) = 1.150.000.
+        assertThat(result.capital()).isEqualByComparingTo("1000000.0000");
+        assertThat(result.rendimiento()).isEqualByComparingTo("150000.0000");
         assertThat(result.amount()).isEqualByComparingTo("1150000.0000");
-
-        verify(investmentRepository).delete(asset);
     }
 
-    @Test
-    @DisplayName("collectInvestment de una LETRA sin valuación de mercado usa la tenencia a VN=1 (cero cupón), no el principal")
-    void collectInvestment_letraWithoutValuation_usesHeldUnitsAtParValue() {
+    @ParameterizedTest
+    @EnumSource(value = InvestmentAssetType.class,
+            names = {"FCI_CUOTAPARTES", "LETRA", "BONO", "ON"})
+    @DisplayName("collectInvestment familia cuotapartes con pérdida de mercado: postea EXPENSE por la pérdida, no INCOME, sin transacción fantasma")
+    void collectInvestment_cuotaparteFamily_marketLoss_postsExpenseNotIncome(InvestmentAssetType type) {
         UUID assetId = UUID.randomUUID();
-        InvestmentAsset asset = buildAsset(assetId, account); // principal=$1.000.000, LETRA
+        InvestmentAsset asset = InvestmentAsset.builder()
+                .id(assetId).user(user).account(account)
+                .name("Activo con pérdida")
+                .type(type).currency("ARS")
+                .principal(new BigDecimal("1000000.0000"))
+                .purchaseDate(LocalDate.of(2026, 1, 15))
+                .maturityDate(LocalDate.of(2026, 8, 31))
+                .tna(BigDecimal.ZERO)
+                .includeInCashflow(true)
+                .createdAt(OffsetDateTime.now()).updatedAt(OffsetDateTime.now())
+                .build();
 
-        // Suscripción parcial: sólo 900.000 nominales por 900.000 (a la par), sin ninguna valuación cargada.
         InvestmentMovement suscripcion = InvestmentMovement.builder()
                 .id(UUID.randomUUID())
                 .investmentAsset(asset)
                 .movementDate(LocalDate.of(2026, 1, 15))
                 .type(InvestmentMovementType.SUSCRIPCION)
-                .amount(new BigDecimal("900000.00"))
-                .units(new BigDecimal("900000.000000"))
+                .amount(new BigDecimal("1000000.00"))
+                .units(new BigDecimal("1000000.000000"))
                 .build();
         asset.getMovements().add(suscripcion);
 
-        given(investmentRepository.findByIdAndUser_Id(assetId, userId)).willReturn(Optional.of(asset));
-
-        InvestmentCollectResponse result = investmentService.collectInvestment(assetId, user);
-
-        ArgumentCaptor<Transaction> txCaptor = ArgumentCaptor.forClass(Transaction.class);
-        verify(transactionRepository).save(txCaptor.capture());
-        Transaction tx = txCaptor.getValue();
-
-        // VN=1 por nominal (cero cupón): valor = tenencia (900.000), no el principal seteado en el fixture (1.000.000).
-        assertThat(tx.getAmount()).isEqualByComparingTo("900000.0000");
-        assertThat(result.amount()).isEqualByComparingTo("900000.0000");
-    }
-
-    @Test
-    @DisplayName("collectInvestment de un FCI (Cuenta Remunerada) sigue acreditando el principal (ya capitaliza los REVALUO)")
-    void collectInvestment_fci_stillCreditsPrincipal() {
-        UUID assetId = UUID.randomUUID();
-        InvestmentAsset asset = buildFciAsset(assetId, new BigDecimal("1234567.8900"));
-        asset.setAccount(account);
-        asset.setIncludeInCashflow(true);
-
-        // Una valuación no debería influir en el resultado para FCI (no es familia cuotapartes).
+        // Precio de mercado a la fecha de cobro por debajo del costo de adquisición (1.00): pérdida real.
         InvestmentValuation valuation = InvestmentValuation.builder()
                 .id(UUID.randomUUID())
                 .investmentAsset(asset)
                 .valuationDate(LocalDate.of(2026, 6, 1))
-                .pricePerUnit(new BigDecimal("999.0000"))
+                .pricePerUnit(new BigDecimal("0.8500"))
+                .source("PPI")
                 .build();
         asset.getValuations().add(valuation);
 
+        LocalDate collectDate = LocalDate.of(2026, 6, 15);
+        InvestmentCollectRequest req = new InvestmentCollectRequest(collectDate, null);
+
+        given(investmentRepository.findByIdAndUser_Id(assetId, userId)).willReturn(Optional.of(asset));
+        given(investmentRepository.save(asset)).willReturn(asset);
+
+        InvestmentCollectResponse result = investmentService.collectInvestment(assetId, req, user);
+
+        // Valor de mercado = 1.000.000 unidades x 0.85 = 850.000 -> rendimiento = 850.000 - 1.000.000 = -150.000
+        assertThat(result.capital()).isEqualByComparingTo("1000000.0000");
+        assertThat(result.rendimiento()).isEqualByComparingTo("-150000.0000");
+        assertThat(result.amount()).isEqualByComparingTo("850000.0000");
+        assertThat(result.transactionCreated()).isTrue();
+
+        ArgumentCaptor<Transaction> txCaptor = ArgumentCaptor.forClass(Transaction.class);
+        verify(transactionRepository, times(2)).save(txCaptor.capture());
+        List<Transaction> txs = txCaptor.getAllValues();
+        assertThat(txs).hasSize(2);
+
+        assertThat(txs).anySatisfy(tx -> {
+            assertThat(tx.getInvestmentSourceType()).isEqualTo("COLLECTION_CAPITAL");
+            assertThat(tx.getType()).isEqualTo(TransactionType.INCOME);
+            assertThat(tx.getAmount()).isEqualByComparingTo("1000000.0000");
+        });
+        assertThat(txs).anySatisfy(tx -> {
+            assertThat(tx.getInvestmentSourceType()).isEqualTo("COLLECTION_YIELD");
+            assertThat(tx.getType()).isEqualTo(TransactionType.EXPENSE);
+            assertThat(tx.getAmount()).isEqualByComparingTo("150000.0000");
+        });
+        // No debe haber ninguna transacción adicional/fantasma más allá de capital + pérdida.
+        assertThat(txs).noneMatch(tx -> tx.getAmount().signum() < 0);
+    }
+
+    // ─── previewCollect ───────────────────────────────────────────────────────
+
+    @Test
+    @DisplayName("previewCollect PLAZO_FIJO/FCI marca editableRendimiento=true")
+    void previewCollect_plazoFijo_editableRendimientoTrue() {
+        UUID assetId = UUID.randomUUID();
+        InvestmentAsset asset = InvestmentAsset.builder()
+                .id(assetId).user(user)
+                .name("Plazo Fijo Test")
+                .type(InvestmentAssetType.PLAZO_FIJO).currency("ARS")
+                .principal(new BigDecimal("1000000.0000"))
+                .purchaseDate(LocalDate.of(2026, 1, 1))
+                .tna(new BigDecimal("36.5000"))
+                .createdAt(OffsetDateTime.now()).updatedAt(OffsetDateTime.now())
+                .build();
+
         given(investmentRepository.findByIdAndUser_Id(assetId, userId)).willReturn(Optional.of(asset));
 
-        InvestmentCollectResponse result = investmentService.collectInvestment(assetId, user);
+        InvestmentCollectPreviewResponse preview =
+                investmentService.previewCollect(assetId, LocalDate.of(2026, 4, 11), user);
 
-        assertThat(result.amount()).isEqualByComparingTo("1234567.8900");
+        assertThat(preview.editableRendimiento()).isTrue();
+        assertThat(preview.capital()).isEqualByComparingTo("1000000.0000");
+        assertThat(preview.rendimiento()).isEqualByComparingTo("100000.0000");
+        assertThat(preview.total()).isEqualByComparingTo("1100000.0000");
+        assertThat(preview.currency()).isEqualTo("ARS");
+    }
+
+    @Test
+    @DisplayName("previewCollect familia cuotapartes marca editableRendimiento=false")
+    void previewCollect_cuotaparteFamily_editableRendimientoFalse() {
+        UUID assetId = UUID.randomUUID();
+        InvestmentAsset asset = buildAsset(assetId, null); // LETRA
+
+        given(investmentRepository.findByIdAndUser_Id(assetId, userId)).willReturn(Optional.of(asset));
+
+        InvestmentCollectPreviewResponse preview =
+                investmentService.previewCollect(assetId, LocalDate.of(2026, 6, 1), user);
+
+        assertThat(preview.editableRendimiento()).isFalse();
+    }
+
+    @Test
+    @DisplayName("previewCollect sobre activo no encontrado lanza InvestmentNotFoundException")
+    void previewCollect_notFound_throws404() {
+        UUID assetId = UUID.randomUUID();
+        given(investmentRepository.findByIdAndUser_Id(assetId, userId)).willReturn(Optional.empty());
+
+        assertThatThrownBy(() -> investmentService.previewCollect(assetId, LocalDate.of(2026, 6, 1), user))
+                .isInstanceOf(InvestmentNotFoundException.class);
+    }
+
+    @Test
+    @DisplayName("previewCollect sobre activo ya COBRADA lanza 409")
+    void previewCollect_alreadyCollected_throws409() {
+        UUID assetId = UUID.randomUUID();
+        InvestmentAsset asset = buildAsset(assetId, null);
+        asset.setStatus(InvestmentAssetStatus.COBRADA);
+
+        given(investmentRepository.findByIdAndUser_Id(assetId, userId)).willReturn(Optional.of(asset));
+
+        assertThatThrownBy(() -> investmentService.previewCollect(assetId, LocalDate.of(2026, 6, 1), user))
+                .isInstanceOf(VectisException.class)
+                .satisfies(ex -> assertThat(((VectisException) ex).getStatus()).isEqualTo(HttpStatus.CONFLICT));
+    }
+
+    // ─── Guardas: mutaciones bloqueadas sobre activo ya COBRADA ──────────────
+
+    @Test
+    @DisplayName("updateInvestment sobre activo COBRADA lanza 409")
+    void updateInvestment_collected_throws409() {
+        UUID assetId = UUID.randomUUID();
+        InvestmentAsset asset = buildAsset(assetId, null);
+        asset.setStatus(InvestmentAssetStatus.COBRADA);
+
+        given(investmentRepository.findByIdAndUser_Id(assetId, userId)).willReturn(Optional.of(asset));
+
+        assertThatThrownBy(() -> investmentService.updateInvestment(assetId, buildRequest(null), user))
+                .isInstanceOf(VectisException.class)
+                .satisfies(ex -> assertThat(((VectisException) ex).getStatus()).isEqualTo(HttpStatus.CONFLICT));
+
+        verify(investmentRepository, never()).save(any());
+    }
+
+    @Test
+    @DisplayName("addMovement sobre activo COBRADA lanza 409")
+    void addMovement_collected_throws409() {
+        UUID assetId = UUID.randomUUID();
+        InvestmentAsset asset = buildFciAsset(assetId, BigDecimal.ZERO);
+        asset.setStatus(InvestmentAssetStatus.COBRADA);
+        InvestmentMovementRequest req = new InvestmentMovementRequest(
+                LocalDate.of(2026, 1, 1), InvestmentMovementType.SUSCRIPCION, new BigDecimal("500000.00"), null, null);
+
+        given(investmentRepository.findWithMovementsByIdAndUser_Id(assetId, userId)).willReturn(Optional.of(asset));
+
+        assertThatThrownBy(() -> investmentService.addMovement(assetId, req, user))
+                .isInstanceOf(VectisException.class)
+                .satisfies(ex -> assertThat(((VectisException) ex).getStatus()).isEqualTo(HttpStatus.CONFLICT));
+
+        verify(investmentRepository, never()).save(any());
+    }
+
+    @Test
+    @DisplayName("updateMovement sobre activo COBRADA lanza 409")
+    void updateMovement_collected_throws409() {
+        UUID assetId = UUID.randomUUID();
+        UUID movId   = UUID.randomUUID();
+        InvestmentAsset asset = buildFciAsset(assetId, new BigDecimal("1000000.00"));
+        asset.setStatus(InvestmentAssetStatus.COBRADA);
+        InvestmentMovementUpdateRequest req = new InvestmentMovementUpdateRequest(null, new BigDecimal("100.00"));
+
+        given(investmentRepository.findWithMovementsByIdAndUser_Id(assetId, userId)).willReturn(Optional.of(asset));
+
+        assertThatThrownBy(() -> investmentService.updateMovement(assetId, movId, req, user))
+                .isInstanceOf(VectisException.class)
+                .satisfies(ex -> assertThat(((VectisException) ex).getStatus()).isEqualTo(HttpStatus.CONFLICT));
+
+        verify(investmentRepository, never()).save(any());
+    }
+
+    @Test
+    @DisplayName("deleteMovement sobre activo COBRADA lanza 409")
+    void deleteMovement_collected_throws409() {
+        UUID assetId = UUID.randomUUID();
+        UUID movId   = UUID.randomUUID();
+        InvestmentAsset asset = buildFciAsset(assetId, new BigDecimal("500000.00"));
+        asset.setStatus(InvestmentAssetStatus.COBRADA);
+
+        given(investmentRepository.findWithMovementsByIdAndUser_Id(assetId, userId)).willReturn(Optional.of(asset));
+
+        assertThatThrownBy(() -> investmentService.deleteMovement(assetId, movId, user))
+                .isInstanceOf(VectisException.class)
+                .satisfies(ex -> assertThat(((VectisException) ex).getStatus()).isEqualTo(HttpStatus.CONFLICT));
+
+        verify(investmentRepository, never()).save(any());
+    }
+
+    @Test
+    @DisplayName("addValuation sobre activo COBRADA lanza 409")
+    void addValuation_collected_throws409() {
+        UUID assetId = UUID.randomUUID();
+        InvestmentAsset asset = buildFciCuotapartesAsset(assetId, BigDecimal.ZERO);
+        asset.setStatus(InvestmentAssetStatus.COBRADA);
+        InvestmentValuationRequest req = new InvestmentValuationRequest(
+                LocalDate.of(2026, 6, 1), new BigDecimal("1500.00"));
+
+        given(investmentRepository.findWithValuationsByIdAndUser_Id(assetId, userId)).willReturn(Optional.of(asset));
+
+        assertThatThrownBy(() -> investmentService.addValuation(assetId, req, user))
+                .isInstanceOf(VectisException.class)
+                .satisfies(ex -> assertThat(((VectisException) ex).getStatus()).isEqualTo(HttpStatus.CONFLICT));
+
+        verify(investmentRepository, never()).save(any());
+    }
+
+    @Test
+    @DisplayName("updateValuation sobre activo COBRADA lanza 409")
+    void updateValuation_collected_throws409() {
+        UUID assetId = UUID.randomUUID();
+        UUID valId   = UUID.randomUUID();
+        InvestmentAsset asset = buildFciCuotapartesAsset(assetId, BigDecimal.ZERO);
+        asset.setStatus(InvestmentAssetStatus.COBRADA);
+        InvestmentValuationRequest req = new InvestmentValuationRequest(
+                LocalDate.of(2026, 6, 1), new BigDecimal("1500.00"));
+
+        given(investmentRepository.findWithValuationsByIdAndUser_Id(assetId, userId)).willReturn(Optional.of(asset));
+
+        assertThatThrownBy(() -> investmentService.updateValuation(assetId, valId, req, user))
+                .isInstanceOf(VectisException.class)
+                .satisfies(ex -> assertThat(((VectisException) ex).getStatus()).isEqualTo(HttpStatus.CONFLICT));
+
+        verify(investmentRepository, never()).save(any());
+    }
+
+    @Test
+    @DisplayName("deleteValuation sobre activo COBRADA lanza 409")
+    void deleteValuation_collected_throws409() {
+        UUID assetId = UUID.randomUUID();
+        UUID valId   = UUID.randomUUID();
+        InvestmentAsset asset = buildFciCuotapartesAsset(assetId, BigDecimal.ZERO);
+        asset.setStatus(InvestmentAssetStatus.COBRADA);
+
+        given(investmentRepository.findWithValuationsByIdAndUser_Id(assetId, userId)).willReturn(Optional.of(asset));
+
+        assertThatThrownBy(() -> investmentService.deleteValuation(assetId, valId, user))
+                .isInstanceOf(VectisException.class)
+                .satisfies(ex -> assertThat(((VectisException) ex).getStatus()).isEqualTo(HttpStatus.CONFLICT));
+
+        verify(investmentRepository, never()).save(any());
+    }
+
+    @Test
+    @DisplayName("deleteInvestment sobre activo COBRADA sigue funcionando (única acción habilitada además de cobrar)")
+    void deleteInvestment_collected_stillWorks() {
+        UUID assetId = UUID.randomUUID();
+        InvestmentAsset asset = buildAsset(assetId, null);
+        asset.setStatus(InvestmentAssetStatus.COBRADA);
+
+        given(investmentRepository.findByIdAndUser_Id(assetId, userId)).willReturn(Optional.of(asset));
+        given(transactionRepository.findAllByInvestmentAsset_IdAndDeletedAtIsNull(assetId))
+                .willReturn(List.of());
+
+        investmentService.deleteInvestment(assetId, user);
+
+        verify(investmentRepository).delete(asset);
     }
 }

@@ -9,7 +9,9 @@ export interface AccountResponse {
   ccy:                AccountCcy;
   balance:            number;
   computedBalance:    number | null;
+  /** Derivado: true si hay un activo FCI (Cuenta Remunerada) vinculado a esta cuenta. No editable. */
   remunerada:         boolean;
+  /** TNA del activo FCI vinculado más reciente (null si no hay ninguno). No editable. */
   tna:                number | null;
   includeInCashflow?: boolean;
   createdAt:          string;
@@ -31,7 +33,5 @@ export interface AccountRequest {
   detail:            string | null;
   ccy:               AccountCcy;
   balance:           number;
-  remunerada:        boolean;
-  tna:               number | null;
   includeInCashflow?: boolean;
 }

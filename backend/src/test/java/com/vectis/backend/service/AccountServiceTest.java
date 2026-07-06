@@ -1,6 +1,8 @@
 package com.vectis.backend.service;
 
 import com.vectis.backend.domain.entity.Account;
+import com.vectis.backend.domain.entity.InvestmentAsset;
+import com.vectis.backend.domain.entity.InvestmentAssetType;
 import com.vectis.backend.domain.entity.User;
 import com.vectis.backend.dto.AccountBalanceResponse;
 import com.vectis.backend.dto.AccountRequest;
@@ -9,6 +11,7 @@ import com.vectis.backend.exception.AccountNotFoundException;
 import com.vectis.backend.exception.VectisException;
 import com.vectis.backend.mapper.AccountMapper;
 import com.vectis.backend.repository.AccountRepository;
+import com.vectis.backend.repository.InvestmentRepository;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
@@ -48,6 +51,9 @@ class AccountServiceTest {
     @Mock
     private BalanceService balanceService;
 
+    @Mock
+    private InvestmentRepository investmentRepository;
+
     private User user;
     private User otherUser;
     private UUID userId;
@@ -79,10 +85,11 @@ class AccountServiceTest {
     @DisplayName("getAccounts devuelve solo las cuentas del usuario con computedBalance")
     void getAccounts_returnsOnlyUserAccountsWithComputedBalance() {
         Account account = buildAccount(user);
-        AccountResponse baseResponse = buildResponse(account, null);
+        AccountResponse baseResponse = buildResponse(account, null, null);
 
         given(accountRepository.findAllByUser_IdOrderByCreatedAtAsc(userId)).willReturn(List.of(account));
-        given(accountMapper.toResponse(account)).willReturn(baseResponse);
+        given(investmentRepository.findFciLinksByUser(userId)).willReturn(List.of());
+        given(accountMapper.toResponse(account, null)).willReturn(baseResponse);
         given(balanceService.currentBalance(account, userId)).willReturn(new BigDecimal("163500.0000"));
 
         List<AccountResponse> result = accountService.getAccounts(userId);
@@ -91,6 +98,54 @@ class AccountServiceTest {
         assertThat(result.get(0).computedBalance()).isEqualByComparingTo("163500.0000");
         verify(accountRepository).findAllByUser_IdOrderByCreatedAtAsc(userId);
         verify(balanceService).currentBalance(account, userId);
+    }
+
+    @Test
+    @DisplayName("getAccounts marca remunerada=true y usa la TNA cuando hay un FCI vinculado")
+    void getAccounts_withLinkedFci_derivesRemuneradaAndTna() {
+        Account account = buildAccount(user);
+        BigDecimal linkedTna = new BigDecimal("81.0000");
+        AccountResponse baseResponse = buildResponse(account, null, linkedTna);
+
+        given(accountRepository.findAllByUser_IdOrderByCreatedAtAsc(userId)).willReturn(List.of(account));
+        given(investmentRepository.findFciLinksByUser(userId))
+                .willReturn(List.of(fciLink(account.getId(), linkedTna, OffsetDateTime.now())));
+        given(accountMapper.toResponse(account, linkedTna)).willReturn(baseResponse);
+        given(balanceService.currentBalance(account, userId)).willReturn(new BigDecimal("150000.0000"));
+
+        List<AccountResponse> result = accountService.getAccounts(userId);
+
+        assertThat(result.get(0).remunerada()).isTrue();
+        assertThat(result.get(0).tna()).isEqualByComparingTo(linkedTna);
+    }
+
+    @Test
+    @DisplayName("getAccounts usa la TNA del FCI más reciente cuando hay varios vinculados a la misma cuenta")
+    void getAccounts_withMultipleLinkedFci_usesMostRecent() {
+        Account account = buildAccount(user);
+        BigDecimal olderTna = new BigDecimal("50.0000");
+        BigDecimal newerTna = new BigDecimal("81.0000");
+        AccountResponse baseResponse = buildResponse(account, null, newerTna);
+
+        given(accountRepository.findAllByUser_IdOrderByCreatedAtAsc(userId)).willReturn(List.of(account));
+        given(investmentRepository.findFciLinksByUser(userId)).willReturn(List.of(
+                fciLink(account.getId(), olderTna, OffsetDateTime.now().minusDays(10)),
+                fciLink(account.getId(), newerTna, OffsetDateTime.now())
+        ));
+        given(accountMapper.toResponse(account, newerTna)).willReturn(baseResponse);
+        given(balanceService.currentBalance(account, userId)).willReturn(new BigDecimal("150000.0000"));
+
+        List<AccountResponse> result = accountService.getAccounts(userId);
+
+        assertThat(result.get(0).tna()).isEqualByComparingTo(newerTna);
+    }
+
+    private InvestmentRepository.FciAccountLinkView fciLink(UUID accountId, BigDecimal tna, OffsetDateTime createdAt) {
+        return new InvestmentRepository.FciAccountLinkView() {
+            @Override public UUID getAccountId() { return accountId; }
+            @Override public BigDecimal getTna() { return tna; }
+            @Override public OffsetDateTime getCreatedAt() { return createdAt; }
+        };
     }
 
     // ─── getBalance ───────────────────────────────────────────────────────────
@@ -139,12 +194,14 @@ class AccountServiceTest {
     @Test
     @DisplayName("createAccount persiste con el usuario autenticado y retorna computedBalance")
     void createAccount_persistsWithAuthenticatedUser() {
-        AccountRequest request = buildRequest(false, null);
+        AccountRequest request = buildRequest();
         Account saved = buildAccount(user);
-        AccountResponse baseResponse = buildResponse(saved, null);
+        AccountResponse baseResponse = buildResponse(saved, null, null);
 
         given(accountRepository.save(any(Account.class))).willReturn(saved);
-        given(accountMapper.toResponse(saved)).willReturn(baseResponse);
+        given(investmentRepository.findTopByAccount_IdAndTypeOrderByCreatedAtDesc(saved.getId(), InvestmentAssetType.FCI))
+                .willReturn(Optional.empty());
+        given(accountMapper.toResponse(saved, null)).willReturn(baseResponse);
         given(balanceService.currentBalance(saved, userId)).willReturn(new BigDecimal("150000.0000"));
 
         AccountResponse result = accountService.createAccount(request, user);
@@ -155,36 +212,22 @@ class AccountServiceTest {
     }
 
     @Test
-    @DisplayName("createAccount no remunerada acepta TNA nula")
-    void createAccount_nonRemunerada_tnaNullAllowed() {
-        AccountRequest request = buildRequest(false, null);
+    @DisplayName("createAccount de una cuenta recién creada nunca tiene FCI vinculado")
+    void createAccount_freshAccount_hasNoDerivedTna() {
+        AccountRequest request = buildRequest();
         Account saved = buildAccount(user);
-        AccountResponse baseResponse = buildResponse(saved, null);
+        AccountResponse baseResponse = buildResponse(saved, null, null);
 
         given(accountRepository.save(any(Account.class))).willReturn(saved);
-        given(accountMapper.toResponse(saved)).willReturn(baseResponse);
+        given(investmentRepository.findTopByAccount_IdAndTypeOrderByCreatedAtDesc(saved.getId(), InvestmentAssetType.FCI))
+                .willReturn(Optional.empty());
+        given(accountMapper.toResponse(saved, null)).willReturn(baseResponse);
         given(balanceService.currentBalance(eq(saved), eq(userId))).willReturn(new BigDecimal("150000.0000"));
 
         AccountResponse result = accountService.createAccount(request, user);
 
-        assertThat(result).isNotNull();
-    }
-
-    @Test
-    @DisplayName("createAccount remunerada persiste la TNA")
-    void createAccount_remunerada_persistsTna() {
-        AccountRequest request = buildRequest(true, new BigDecimal("81.0000"));
-        Account saved = buildAccount(user);
-        AccountResponse baseResponse = buildResponse(saved, null);
-
-        given(accountRepository.save(any(Account.class))).willReturn(saved);
-        given(accountMapper.toResponse(saved)).willReturn(baseResponse);
-        given(balanceService.currentBalance(eq(saved), eq(userId))).willReturn(new BigDecimal("150000.0000"));
-
-        AccountResponse result = accountService.createAccount(request, user);
-
-        assertThat(result).isNotNull();
-        verify(accountRepository).save(any(Account.class));
+        assertThat(result.remunerada()).isFalse();
+        assertThat(result.tna()).isNull();
     }
 
     // ─── updateAccount ────────────────────────────────────────────────────────
@@ -195,7 +238,7 @@ class AccountServiceTest {
         UUID id = UUID.randomUUID();
         given(accountRepository.findById(id)).willReturn(Optional.empty());
 
-        assertThatThrownBy(() -> accountService.updateAccount(id, buildRequest(false, null), user))
+        assertThatThrownBy(() -> accountService.updateAccount(id, buildRequest(), user))
                 .isInstanceOf(AccountNotFoundException.class);
     }
 
@@ -206,7 +249,7 @@ class AccountServiceTest {
         Account otherAccount = buildAccount(otherUser);
         given(accountRepository.findById(id)).willReturn(Optional.of(otherAccount));
 
-        assertThatThrownBy(() -> accountService.updateAccount(id, buildRequest(false, null), user))
+        assertThatThrownBy(() -> accountService.updateAccount(id, buildRequest(), user))
                 .isInstanceOf(VectisException.class)
                 .satisfies(ex -> assertThat(((VectisException) ex).getStatus()).isEqualTo(HttpStatus.FORBIDDEN));
     }
@@ -218,12 +261,14 @@ class AccountServiceTest {
         Account account = buildAccount(user);
         AccountRequest request = new AccountRequest(
                 "Cuenta Actualizada", "Banco", "Caja Ahorro $", "USD",
-                new BigDecimal("200000.0000"), true, new BigDecimal("95.0000"), true);
-        AccountResponse baseResponse = buildResponse(account, null);
+                new BigDecimal("200000.0000"), true);
+        AccountResponse baseResponse = buildResponse(account, null, null);
 
         given(accountRepository.findById(id)).willReturn(Optional.of(account));
         given(accountRepository.save(account)).willReturn(account);
-        given(accountMapper.toResponse(account)).willReturn(baseResponse);
+        given(investmentRepository.findTopByAccount_IdAndTypeOrderByCreatedAtDesc(account.getId(), InvestmentAssetType.FCI))
+                .willReturn(Optional.empty());
+        given(accountMapper.toResponse(account, null)).willReturn(baseResponse);
         given(balanceService.currentBalance(account, userId)).willReturn(new BigDecimal("200000.0000"));
 
         AccountResponse result = accountService.updateAccount(id, request, user);
@@ -231,6 +276,29 @@ class AccountServiceTest {
         assertThat(result).isNotNull();
         assertThat(result.computedBalance()).isEqualByComparingTo("200000.0000");
         verify(accountRepository).save(account);
+    }
+
+    @Test
+    @DisplayName("updateAccount refleja la TNA del FCI ya vinculado a la cuenta")
+    void updateAccount_withLinkedFci_derivesTna() {
+        UUID id = UUID.randomUUID();
+        Account account = buildAccount(user);
+        BigDecimal linkedTna = new BigDecimal("81.0000");
+        AccountRequest request = buildRequest();
+        AccountResponse baseResponse = buildResponse(account, null, linkedTna);
+        InvestmentAsset linkedFci = InvestmentAsset.builder().tna(linkedTna).build();
+
+        given(accountRepository.findById(id)).willReturn(Optional.of(account));
+        given(accountRepository.save(account)).willReturn(account);
+        given(investmentRepository.findTopByAccount_IdAndTypeOrderByCreatedAtDesc(account.getId(), InvestmentAssetType.FCI))
+                .willReturn(Optional.of(linkedFci));
+        given(accountMapper.toResponse(account, linkedTna)).willReturn(baseResponse);
+        given(balanceService.currentBalance(account, userId)).willReturn(new BigDecimal("150000.0000"));
+
+        AccountResponse result = accountService.updateAccount(id, request, user);
+
+        assertThat(result.remunerada()).isTrue();
+        assertThat(result.tna()).isEqualByComparingTo(linkedTna);
     }
 
     // ─── deleteAccount ────────────────────────────────────────────────────────
@@ -276,18 +344,20 @@ class AccountServiceTest {
     void createAccount_includeInCashflowFalse_persistsFlag() {
         AccountRequest request = new AccountRequest(
                 "Cuenta Test", "Banco", "Caja de Ahorro $", "ARS",
-                new BigDecimal("150000.0000"), false, null, false);
+                new BigDecimal("150000.0000"), false);
 
         Account saved = Account.builder()
                 .id(UUID.randomUUID()).user(user).name("Cuenta Test").kind("Banco")
                 .detail("Caja de Ahorro $").ccy("ARS").balance(new BigDecimal("150000.0000"))
-                .remunerada(false).tna(null).includeInCashflow(false)
+                .includeInCashflow(false)
                 .createdAt(OffsetDateTime.now()).updatedAt(OffsetDateTime.now())
                 .build();
-        AccountResponse baseResponse = buildResponse(saved, null);
+        AccountResponse baseResponse = buildResponse(saved, null, null);
 
         given(accountRepository.save(any(Account.class))).willReturn(saved);
-        given(accountMapper.toResponse(saved)).willReturn(baseResponse);
+        given(investmentRepository.findTopByAccount_IdAndTypeOrderByCreatedAtDesc(saved.getId(), InvestmentAssetType.FCI))
+                .willReturn(Optional.empty());
+        given(accountMapper.toResponse(saved, null)).willReturn(baseResponse);
         given(balanceService.currentBalance(saved, userId)).willReturn(new BigDecimal("150000.0000"));
 
         AccountResponse result = accountService.createAccount(request, user);
@@ -303,19 +373,21 @@ class AccountServiceTest {
         Account account = buildAccount(user);
         AccountRequest request = new AccountRequest(
                 "Cuenta Test", "Banco", "Caja de Ahorro $", "ARS",
-                new BigDecimal("150000.0000"), false, null, false);
+                new BigDecimal("150000.0000"), false);
 
         Account updatedAccount = Account.builder()
                 .id(id).user(user).name("Cuenta Test").kind("Banco")
                 .detail("Caja de Ahorro $").ccy("ARS").balance(new BigDecimal("150000.0000"))
-                .remunerada(false).tna(null).includeInCashflow(false)
+                .includeInCashflow(false)
                 .createdAt(OffsetDateTime.now()).updatedAt(OffsetDateTime.now())
                 .build();
-        AccountResponse baseResponse = buildResponse(updatedAccount, null);
+        AccountResponse baseResponse = buildResponse(updatedAccount, null, null);
 
         given(accountRepository.findById(id)).willReturn(Optional.of(account));
         given(accountRepository.save(account)).willReturn(updatedAccount);
-        given(accountMapper.toResponse(updatedAccount)).willReturn(baseResponse);
+        given(investmentRepository.findTopByAccount_IdAndTypeOrderByCreatedAtDesc(updatedAccount.getId(), InvestmentAssetType.FCI))
+                .willReturn(Optional.empty());
+        given(accountMapper.toResponse(updatedAccount, null)).willReturn(baseResponse);
         given(balanceService.currentBalance(updatedAccount, userId)).willReturn(new BigDecimal("150000.0000"));
 
         AccountResponse result = accountService.updateAccount(id, request, user);
@@ -335,25 +407,23 @@ class AccountServiceTest {
                 .detail("Caja de Ahorro $")
                 .ccy("ARS")
                 .balance(new BigDecimal("150000.0000"))
-                .remunerada(false)
-                .tna(null)
                 .includeInCashflow(true)
                 .createdAt(OffsetDateTime.now())
                 .updatedAt(OffsetDateTime.now())
                 .build();
     }
 
-    private AccountRequest buildRequest(boolean remunerada, BigDecimal tna) {
+    private AccountRequest buildRequest() {
         return new AccountRequest(
                 "Cuenta Test", "Banco", "Caja de Ahorro $", "ARS",
-                new BigDecimal("150000.0000"), remunerada, tna, true);
+                new BigDecimal("150000.0000"), true);
     }
 
-    private AccountResponse buildResponse(Account a, BigDecimal computedBalance) {
+    private AccountResponse buildResponse(Account a, BigDecimal computedBalance, BigDecimal derivedTna) {
         return new AccountResponse(
                 a.getId(), a.getName(), a.getKind(), a.getDetail(), a.getCcy(),
                 a.getBalance(), computedBalance,
-                a.isRemunerada(), a.getTna(), a.isIncludeInCashflow(),
+                derivedTna != null, derivedTna, a.isIncludeInCashflow(),
                 a.getCreatedAt(), a.getUpdatedAt());
     }
 }

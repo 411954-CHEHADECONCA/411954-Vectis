@@ -32,10 +32,10 @@ public record AccountResponse(
     @Schema(description = "Saldo calculado: saldo inicial + suma neta de movimientos hasta hoy", example = "163500.0000")
     BigDecimal computedBalance,
 
-    @Schema(description = "Indica si la cuenta genera intereses", example = "true")
+    @Schema(description = "Derivado: true si existe un activo FCI (Cuenta Remunerada) vinculado a esta cuenta", example = "true")
     boolean remunerada,
 
-    @Schema(description = "TNA estimada (null si no es remunerada)", example = "81.0000")
+    @Schema(description = "TNA del activo FCI vinculado más reciente (null si no hay ninguno)", example = "81.0000")
     BigDecimal tna,
 
     @Schema(description = "Si la cuenta se incluye en el cálculo de cashflow mensual", example = "true")

@@ -1,4 +1,4 @@
-import { TestBed, ComponentFixture } from '@angular/core/testing';
+import { TestBed, ComponentFixture, fakeAsync, tick } from '@angular/core/testing';
 import { ReactiveFormsModule } from '@angular/forms';
 import { NO_ERRORS_SCHEMA } from '@angular/core';
 import { provideHttpClient } from '@angular/common/http';
@@ -61,6 +61,12 @@ const MOCK_RATE: ExchangeRateResponse = {
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
 
+/** Replica `todayIso()` (protegido en el componente) para asserts en fechas por defecto. */
+function isoToday(): string {
+  const d = new Date();
+  return [d.getFullYear(), String(d.getMonth() + 1).padStart(2, '0'), String(d.getDate()).padStart(2, '0')].join('-');
+}
+
 const MOCK_FCI_FUNDS: FciFundOption[] = [
   { fondo: 'FCI Galileo Growth',  categoria: 'mercadoDinero', vcp: 1523.456, fecha: '2026-06-24' },
   { fondo: 'FCI Compass Growth',  categoria: 'rentaFija',     vcp: 2100.12,  fecha: '2026-06-24' },
@@ -74,6 +80,7 @@ const MOCK_INSTRUMENTS: InstrumentOption[] = [
 function buildSpies() {
   const investSpy = jasmine.createSpyObj<InvestmentService>('InvestmentService', [
     'getInvestments', 'createInvestment', 'updateInvestment', 'deleteInvestment', 'collectInvestment',
+    'previewCollect',
     'addMovement', 'updateMovement', 'deleteMovement', 'addValuation', 'updateValuation', 'deleteValuation',
     'getFciFunds', 'getInstruments', 'getFciVcp', 'getInstrumentPrice',
   ]);
@@ -83,6 +90,10 @@ function buildSpies() {
   investSpy.deleteInvestment.and.returnValue(of(undefined));
   investSpy.collectInvestment.and.returnValue(of({
     investmentId: MOCK_ASSETS[0].id, amount: 500000, currency: 'ARS', transactionCreated: true,
+    capital: 500000, rendimiento: 0, collectDate: '2026-06-24', status: 'COBRADA',
+  }));
+  investSpy.previewCollect.and.returnValue(of({
+    capital: 500000, rendimiento: 0, total: 500000, currency: 'ARS', editableRendimiento: false,
   }));
   investSpy.addMovement.and.returnValue(of({ ...MOCK_ASSETS[0] }));
   investSpy.updateMovement.and.returnValue(of({ ...MOCK_ASSETS[0] }));
@@ -816,12 +827,48 @@ describe('InversionesComponent', () => {
   // ── 7b. Cobrar ───────────────────────────────────────────────────────────
 
   describe('Cobrar', () => {
-    it('openCollect abre el modal "collect" con el activo seleccionado', () => {
+    it('openCollect abre el modal "collect" con el activo seleccionado y dispara el preview con la fecha de hoy', () => {
       const asset = MOCK_ASSETS[1]; // LETRA — accountId null
       component.openCollect(asset);
       expect(component.modal()?.kind).toBe('collect');
       expect(component.modal()?.asset?.id).toBe(asset.id);
+      expect(investSpy.previewCollect).toHaveBeenCalledWith(asset.id, isoToday());
+      expect(component.collectForm.controls.collectDate.value).toBe(isoToday());
     });
+
+    it('openCollect no hace nada si el activo ya está COBRADA', () => {
+      const asset = { ...MOCK_ASSETS[0], status: 'COBRADA' as const };
+      component.openCollect(asset);
+      expect(component.modal()).toBeNull();
+      expect(investSpy.previewCollect).not.toHaveBeenCalled();
+    });
+
+    it('el preview precarga capital/rendimiento y el rendimiento editable en el form', () => {
+      const asset = MOCK_ASSETS[0]; // FCI — editableRendimiento
+      investSpy.previewCollect.and.returnValue(of({
+        capital: 600000, rendimiento: 12345, total: 612345, currency: 'ARS', editableRendimiento: true,
+      }));
+      component.openCollect(asset);
+      expect(component.collectPreview()?.capital).toBe(600000);
+      expect(component.collectPreview()?.editableRendimiento).toBeTrue();
+      expect(component.collectForm.controls.rendimiento.value).toBe(12345);
+      expect(component.collectTotalPreview()).toBe(612345);
+    });
+
+    it('cambiar la fecha de cobro (con debounce) vuelve a llamar previewCollect', fakeAsync(() => {
+      const asset = MOCK_ASSETS[0];
+      component.openCollect(asset);
+      investSpy.previewCollect.calls.reset();
+      investSpy.previewCollect.and.returnValue(of({
+        capital: 610000, rendimiento: 5000, total: 615000, currency: 'ARS', editableRendimiento: true,
+      }));
+
+      component.collectForm.controls.collectDate.setValue('2026-06-20');
+      tick(300);
+
+      expect(investSpy.previewCollect).toHaveBeenCalledWith(asset.id, '2026-06-20');
+      expect(component.collectPreview()?.capital).toBe(610000);
+    }));
 
     it('collectWillCreateMovement es false cuando el activo no tiene cuenta vinculada', () => {
       const asset = { ...MOCK_ASSETS[1], accountId: null };
@@ -839,19 +886,44 @@ describe('InversionesComponent', () => {
       expect(component.collectWillCreateMovement(asset)).toBeFalse();
     });
 
-    it('confirmCollect llama a collectInvestment, quita el activo de la lista y cierra el modal', () => {
+    it('confirmCollect llama a collectInvestment con { collectDate, rendimiento } y actualiza el asset in-place (no lo quita de la lista)', () => {
       const asset = MOCK_ASSETS[0];
+      investSpy.previewCollect.and.returnValue(of({
+        capital: 600000, rendimiento: 12345, total: 612345, currency: 'ARS', editableRendimiento: true,
+      }));
       investSpy.collectInvestment.and.returnValue(of({
-        investmentId: asset.id, amount: 500000, currency: 'ARS', transactionCreated: false,
+        investmentId: asset.id, amount: 612345, currency: 'ARS', transactionCreated: false,
+        capital: 600000, rendimiento: 12345, collectDate: '2026-06-24', status: 'COBRADA',
       }));
       component.openCollect(asset);
       component.confirmCollect();
-      expect(investSpy.collectInvestment).toHaveBeenCalledWith(asset.id);
-      expect(component.assets().find(a => a.id === asset.id)).toBeUndefined();
+
+      expect(investSpy.collectInvestment).toHaveBeenCalledWith(asset.id, {
+        collectDate: isoToday(), rendimiento: 12345,
+      });
+      const updated = component.assets().find(a => a.id === asset.id);
+      expect(updated).toBeDefined();
+      expect(updated?.status).toBe('COBRADA');
+      expect(updated?.collectDate).toBe('2026-06-24');
       expect(component.modal()).toBeNull();
     });
 
-    it('confirmCollect surfacea err.error.message en formError cuando falla', () => {
+    it('confirmCollect no manda rendimiento cuando no es editable (familia cuotapartes)', () => {
+      const asset = MOCK_ASSETS[1]; // LETRA
+      investSpy.previewCollect.and.returnValue(of({
+        capital: 850000, rendimiento: 30000, total: 880000, currency: 'ARS', editableRendimiento: false,
+      }));
+      investSpy.collectInvestment.and.returnValue(of({
+        investmentId: asset.id, amount: 880000, currency: 'ARS', transactionCreated: false,
+        capital: 850000, rendimiento: 30000, collectDate: '2026-06-24', status: 'COBRADA',
+      }));
+      component.openCollect(asset);
+      component.confirmCollect();
+
+      expect(investSpy.collectInvestment).toHaveBeenCalledWith(asset.id, { collectDate: isoToday() });
+    });
+
+    it('confirmCollect surfacea err.error.message en formError cuando falla y no modifica el asset', () => {
       const asset = MOCK_ASSETS[0];
       investSpy.collectInvestment.and.returnValue(
         throwError(() => ({ error: { message: 'No se pudo cobrar: mes cerrado' } })),
@@ -859,7 +931,41 @@ describe('InversionesComponent', () => {
       component.openCollect(asset);
       component.confirmCollect();
       expect(component.formError()).toBe('No se pudo cobrar: mes cerrado');
-      expect(component.assets().find(a => a.id === asset.id)).toBeDefined();
+      expect(component.assets().find(a => a.id === asset.id)?.status).not.toBe('COBRADA');
+    });
+  });
+
+  // ── 7c. Estado COBRADA: acciones deshabilitadas y exclusión de totales ──────
+
+  describe('Activo COBRADA', () => {
+    it('isActivo devuelve false y excluye el activo de capitalARS/capitalUSD', () => {
+      const cobrada: InvestmentResponse = { ...MOCK_ASSETS[1], status: 'COBRADA', collectDate: '2026-06-20' };
+      component.assets.set([cobrada]);
+      expect(component.isActivo(cobrada)).toBeFalse();
+      expect(component.capitalARS()).toBe(0);
+    });
+
+    it('openEdit/openAddMovementModal/openAddValuationModal no hacen nada sobre un activo COBRADA', () => {
+      const cobrada: InvestmentResponse = { ...MOCK_ASSETS[0], status: 'COBRADA', collectDate: '2026-06-20' };
+      component.openEdit(cobrada);
+      expect(component.modal()).toBeNull();
+      component.openAddMovementModal(cobrada);
+      expect(component.subModal()).toBeNull();
+      component.openAddValuationModal(cobrada);
+      expect(component.subModal()).toBeNull();
+    });
+
+    it('muestra el badge "Cobrada" y deshabilita editar/movimiento/cobrar en la fila, dejando eliminar habilitado', () => {
+      const cobrada: InvestmentResponse = { ...MOCK_ASSETS[0], status: 'COBRADA', collectDate: '2026-06-20' };
+      component.assets.set([cobrada]);
+      fixture.detectChanges();
+
+      const row = fixture.nativeElement.querySelector('.asset-row');
+      expect(row.querySelector('.badge-cobrada')?.textContent?.trim()).toBe('Cobrada');
+      expect(row.querySelector('.icon-btn--add')?.disabled).toBeTrue();
+      expect(row.querySelector('.icon-btn:not(.icon-btn--danger):not(.icon-btn--add):not(.icon-btn--accent)')?.disabled).toBeTrue();
+      expect(row.querySelector('.icon-btn--accent')?.disabled).toBeTrue();
+      expect(row.querySelector('.icon-btn--danger')?.disabled).toBeFalsy();
     });
   });
 

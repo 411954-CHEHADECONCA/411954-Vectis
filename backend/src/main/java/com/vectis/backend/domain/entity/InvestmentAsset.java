@@ -67,6 +67,17 @@ public class InvestmentAsset {
     @Column(name = "include_in_cashflow", nullable = false)
     private boolean includeInCashflow = true;
 
+    @Enumerated(EnumType.STRING)
+    @Column(nullable = false, length = 20)
+    @Builder.Default
+    private InvestmentAssetStatus status = InvestmentAssetStatus.ACTIVA;
+
+    @Column(name = "collected_at")
+    private OffsetDateTime collectedAt;
+
+    @Column(name = "collect_date")
+    private LocalDate collectDate;
+
     @Builder.Default
     @OneToMany(mappedBy = "investmentAsset", cascade = CascadeType.ALL,
                fetch = FetchType.LAZY, orphanRemoval = true)

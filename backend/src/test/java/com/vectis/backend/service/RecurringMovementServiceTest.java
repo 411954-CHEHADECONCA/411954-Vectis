@@ -121,7 +121,7 @@ class RecurringMovementServiceTest {
 
         Account otherAccount = Account.builder()
                 .id(accountId).user(otherUser).name("Otra cuenta").kind("Banco")
-                .ccy("ARS").balance(BigDecimal.ZERO).remunerada(false)
+                .ccy("ARS").balance(BigDecimal.ZERO)
                 .createdAt(OffsetDateTime.now()).updatedAt(OffsetDateTime.now())
                 .build();
 

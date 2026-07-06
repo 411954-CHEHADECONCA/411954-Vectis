@@ -68,5 +68,11 @@ public record InvestmentResponse(
     List<InvestmentValuationResponse> valuations,
 
     @Schema(description = "Indica si esta inversión participa del flujo de caja", example = "true")
-    boolean includeInCashflow
+    boolean includeInCashflow,
+
+    @Schema(description = "Estado del activo: ACTIVA o COBRADA (liquidada)", example = "ACTIVA")
+    String status,
+
+    @Schema(description = "Fecha de cobro (null si el activo sigue ACTIVA)", example = "2026-07-05")
+    LocalDate collectDate
 ) {}

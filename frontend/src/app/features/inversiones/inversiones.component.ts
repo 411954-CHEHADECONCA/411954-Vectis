@@ -18,7 +18,7 @@ import {
 import { HttpErrorResponse } from '@angular/common/http';
 import { DecimalPipe } from '@angular/common';
 import { toSignal, takeUntilDestroyed } from '@angular/core/rxjs-interop';
-import { catchError, distinctUntilChanged, forkJoin, map, merge, Observable, of, switchMap } from 'rxjs';
+import { catchError, debounceTime, distinctUntilChanged, forkJoin, map, merge, Observable, of, switchMap } from 'rxjs';
 import {
   LucideTrendingUp,
   LucideTrendingDown,
@@ -42,6 +42,7 @@ import { CurrencyService }   from '../../core/services/currency.service';
 import {
   FciFundOption,
   InstrumentOption,
+  InvestmentCollectPreviewResponse,
   InvestmentCollectResponse,
   InvestmentResponse,
   InvestmentRequest,
@@ -434,6 +435,38 @@ export class InversionesComponent implements OnInit {
     intereses: new FormControl<number | null>(null, [Validators.required, Validators.min(0)]),
   });
 
+  // ── Cobro de inversión: fecha + split capital/rendimiento ──────────────────
+  readonly collectForm = new FormGroup({
+    collectDate: new FormControl('', { nonNullable: true, validators: [Validators.required] }),
+    rendimiento: new FormControl<number | null>(null, [Validators.min(0)]),
+  });
+
+  collectPreview        = signal<InvestmentCollectPreviewResponse | null>(null);
+  collectPreviewLoading = signal(false);
+
+  private readonly _collectFormValue = toSignal(this.collectForm.valueChanges, {
+    initialValue: this.collectForm.getRawValue(),
+  });
+
+  /** Primer día del mes calendario actual — aproximación cliente de "mes abierto" (el backend valida real). */
+  readonly collectMinDate = computed(() => {
+    const t = this.todayMidnight();
+    return this.isoOf(new Date(t.getFullYear(), t.getMonth(), 1));
+  });
+
+  readonly collectMaxDate = computed(() => this.todayIso());
+
+  /** Total en vivo = capital (solo lectura) + rendimiento (editable o precargado). */
+  readonly collectTotalPreview = computed(() => {
+    this._collectFormValue();
+    const preview = this.collectPreview();
+    if (!preview) return 0;
+    const rendimiento = preview.editableRendimiento
+      ? (this.collectForm.controls.rendimiento.value ?? 0)
+      : preview.rendimiento;
+    return preview.capital + rendimiento;
+  });
+
   // ── Letra / Bono / ON Form ────────────────────────────────────────────────
   readonly letraForm = new FormGroup({
     name:         new FormControl('', { nonNullable: true, validators: [Validators.required, Validators.maxLength(255)] }),
@@ -528,6 +561,17 @@ export class InversionesComponent implements OnInit {
     ).pipe(
       takeUntilDestroyed(this.destroyRef),
     ).subscribe(() => this._prefillRevaluoInterest());
+
+    // Modal de cobro: al cambiar la fecha (con debounce), refrescar el preview capital/rendimiento.
+    this.collectForm.controls.collectDate.valueChanges.pipe(
+      debounceTime(300),
+      distinctUntilChanged(),
+      takeUntilDestroyed(this.destroyRef),
+    ).subscribe(date => {
+      const m = this.modal();
+      if (m?.kind !== 'collect' || !m.id || !date) return;
+      this._fetchCollectPreview(m.id, date);
+    });
   }
 
   loadAssets(): void {
@@ -654,8 +698,13 @@ export class InversionesComponent implements OnInit {
     return Date.now() >= new Date(asset.maturityDate).getTime();
   }
 
-  /** Un activo "activo" no venció y todavía tiene saldo/valor de mercado remanente (sigue generando ganancia). */
+  /**
+   * Un activo "activo" no venció, no fue cobrado (liquidado) y todavía tiene saldo/valor de
+   * mercado remanente (sigue generando ganancia). Los activos `status === 'COBRADA'` se excluyen
+   * de acá para que las tarjetas de totales/ganancia del panel no los sigan contando.
+   */
   isActivo(asset: InvestmentResponse): boolean {
+    if (asset.status === 'COBRADA') return false;
     if (this.isExpired(asset)) return false;
     if (asset.type === 'PLAZO_FIJO') return true;
     return this.saldoBase(asset) > 0.01;
@@ -1085,6 +1134,7 @@ export class InversionesComponent implements OnInit {
   }
 
   openEdit(asset: InvestmentResponse): void {
+    if (asset.status === 'COBRADA') return;
     this.editingAssetType.set(asset.type);
     this.formError.set(null);
     this.movFormError.set(null);
@@ -1161,13 +1211,26 @@ export class InversionesComponent implements OnInit {
   }
 
   openCollect(asset: InvestmentResponse): void {
+    if (asset.status === 'COBRADA') return;
     this.formError.set(null);
+    this.collectPreview.set(null);
+    const today = this.todayIso();
+    this.collectForm.reset({ collectDate: today, rendimiento: null }, { emitEvent: false });
     this.modal.set({ kind: 'collect', id: asset.id, label: asset.name, asset });
+    this._fetchCollectPreview(asset.id, today);
   }
 
-  /** Monto que se acreditaría al cobrar: el mismo valor mostrado en la tabla para el activo. */
-  collectAmountPreview(asset: InvestmentResponse): number {
-    return this.saldoBase(asset);
+  /** Pide el desglose capital/rendimiento a la fecha elegida y precarga el rendimiento editable. */
+  private _fetchCollectPreview(id: string, date: string): void {
+    this.collectPreviewLoading.set(true);
+    this.investmentService.previewCollect(id, date)
+      .pipe(catchError(() => of(null)), takeUntilDestroyed(this.destroyRef))
+      .subscribe(preview => {
+        this.collectPreviewLoading.set(false);
+        if (!preview) return;
+        this.collectPreview.set(preview);
+        this.collectForm.controls.rendimiento.setValue(preview.rendimiento, { emitEvent: false });
+      });
   }
 
   /** true si cobrar generará un movimiento de cuenta (hay cuenta vinculada e incluida en cashflow). */
@@ -1186,10 +1249,12 @@ export class InversionesComponent implements OnInit {
     this.formError.set(null);
     this.movFormError.set(null);
     this.editingValuationId.set(null);
+    this.collectPreview.set(null);
   }
 
   // ── subModal actions ──────────────────────────────────────────────────────
   openAddMovementModal(asset: InvestmentResponse): void {
+    if (asset.status === 'COBRADA') return;
     this.priceForMovement.set(null);
     this.priceSource.set(null);
     this.addMovementForm.reset({ movementDate: this.todayIso(), type: 'SUSCRIPCION', amount: null, units: null, pricePerUnit: null });
@@ -1272,6 +1337,7 @@ export class InversionesComponent implements OnInit {
   }
 
   openAddValuationModal(asset: InvestmentResponse): void {
+    if (asset.status === 'COBRADA') return;
     this.addValuationForm.reset({ valuationDate: this.todayIso(), pricePerUnit: null });
     this.movFormError.set(null);
     this.priceForMovement.set(null);
@@ -1394,7 +1460,7 @@ export class InversionesComponent implements OnInit {
 
   // ── Cuenta Remunerada: editar interés de un tramo (Feature 2) ──────────────
   openEditTramoModal(asset: InvestmentResponse, tramo: FCITramo): void {
-    if (!tramo.mov) return;
+    if (!tramo.mov || asset.status === 'COBRADA') return;
     this.movFormError.set(null);
     this.editTramoForm.reset({ intereses: Math.round(tramo.intereses * 100) / 100 });
     // Si el tramo lo cierra un REVALUO, su interés vive en el `amount` de ese revalúo (capitaliza).
@@ -2106,34 +2172,44 @@ export class InversionesComponent implements OnInit {
     const m = this.modal();
     if (!m?.id || this.submitting()) return;
     this.submitting.set(true);
-    this.investmentService.deleteInvestment(m.id).subscribe({
-      next: () => {
-        this.assets.update(list => list.filter(a => a.id !== m.id));
-        this.submitting.set(false);
-        this.closeModal();
-      },
-      error: (err: HttpErrorResponse) => {
-        this.submitting.set(false);
-        this.formError.set(err.error?.message ?? 'No se pudo eliminar el activo');
-      },
-    });
+    this.investmentService.deleteInvestment(m.id)
+      .pipe(takeUntilDestroyed(this.destroyRef))
+      .subscribe({
+        next: () => {
+          this.assets.update(list => list.filter(a => a.id !== m.id));
+          this.submitting.set(false);
+          this.closeModal();
+        },
+        error: (err: HttpErrorResponse) => {
+          this.submitting.set(false);
+          this.formError.set(err.error?.message ?? 'No se pudo eliminar el activo');
+        },
+      });
   }
 
   confirmCollect(): void {
     const m = this.modal();
-    if (!m?.id || this.submitting()) return;
+    if (!m?.id || this.submitting() || this.collectForm.invalid) return;
     this.submitting.set(true);
-    this.investmentService.collectInvestment(m.id).subscribe({
-      next: (_res: InvestmentCollectResponse) => {
-        this.assets.update(list => list.filter(a => a.id !== m.id));
-        this.submitting.set(false);
-        this.closeModal();
-      },
-      error: (err: HttpErrorResponse) => {
-        this.submitting.set(false);
-        this.formError.set(err.error?.message ?? 'No se pudo cobrar el activo');
-      },
-    });
+    const { collectDate, rendimiento } = this.collectForm.getRawValue();
+    const editableRendimiento = this.collectPreview()?.editableRendimiento ?? false;
+    this.investmentService.collectInvestment(m.id, {
+      collectDate,
+      ...(editableRendimiento && rendimiento != null ? { rendimiento } : {}),
+    }).pipe(takeUntilDestroyed(this.destroyRef))
+      .subscribe({
+        next: (res: InvestmentCollectResponse) => {
+          this.assets.update(list => list.map(a =>
+            a.id === m.id ? { ...a, status: 'COBRADA', collectDate: res.collectDate } : a,
+          ));
+          this.submitting.set(false);
+          this.closeModal();
+        },
+        error: (err: HttpErrorResponse) => {
+          this.submitting.set(false);
+          this.formError.set(err.error?.message ?? 'No se pudo cobrar el activo');
+        },
+      });
   }
 
   // ── Private helpers ───────────────────────────────────────────────────────

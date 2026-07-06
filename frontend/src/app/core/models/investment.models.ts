@@ -2,6 +2,9 @@ export type InvestmentAssetType = 'FCI' | 'FCI_CUOTAPARTES' | 'PLAZO_FIJO' | 'LE
 
 export type InvestmentMovementType = 'SUSCRIPCION' | 'RESCATE' | 'REVALUO';
 
+/** Estado del activo: 'COBRADA' una vez liquidado (ver feature de cobro con fecha/split). */
+export type InvestmentAssetStatus = 'ACTIVA' | 'COBRADA';
+
 export interface InvestmentMovement {
   id:               string;
   movementDate:     string;   // yyyy-MM-dd
@@ -58,6 +61,10 @@ export interface InvestmentResponse {
   updatedAt:    string;
   movements:    InvestmentMovement[];
   valuations:   InvestmentValuation[];
+  // Opcionales: el backend siempre los envía; se marcan opcionales acá para no romper
+  // fixtures/tests existentes que construyen InvestmentResponse sin ellos. Ausente = 'ACTIVA'.
+  status?:      InvestmentAssetStatus;
+  collectDate?: string | null;   // yyyy-MM-dd; fecha de cobro elegida por el usuario (null si ACTIVA)
 }
 
 export interface InvestmentRequest {
@@ -79,6 +86,26 @@ export interface InvestmentCollectResponse {
   amount:            number;
   currency:          'ARS' | 'USD';
   transactionCreated: boolean;
+  capital:            number;
+  rendimiento:        number;
+  collectDate:        string;   // yyyy-MM-dd
+  status:             string;   // 'COBRADA'
+}
+
+/** Desglose capital/rendimiento a una fecha de cobro dada — GET .../collect-preview?date=... */
+export interface InvestmentCollectPreviewResponse {
+  capital:            number;
+  rendimiento:        number;
+  total:              number;
+  currency:           'ARS' | 'USD';
+  // true solo para PLAZO_FIJO/FCI: el usuario puede sobrescribir el rendimiento precalculado.
+  editableRendimiento: boolean;
+}
+
+/** Body del POST de cobro. `rendimiento` sólo se manda cuando `editableRendimiento` es true. */
+export interface InvestmentCollectRequest {
+  collectDate:  string;   // yyyy-MM-dd
+  rendimiento?: number;
 }
 
 export const ASSET_TYPE_LABELS: Record<InvestmentAssetType, string> = {

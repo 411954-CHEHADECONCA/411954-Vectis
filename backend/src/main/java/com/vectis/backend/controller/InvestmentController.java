@@ -5,6 +5,8 @@ import com.vectis.backend.domain.entity.User;
 import com.vectis.backend.dto.FciFundDto;
 import com.vectis.backend.dto.InstrumentDto;
 import com.vectis.backend.dto.InstrumentPriceResponse;
+import com.vectis.backend.dto.InvestmentCollectPreviewResponse;
+import com.vectis.backend.dto.InvestmentCollectRequest;
 import com.vectis.backend.dto.InvestmentCollectResponse;
 import com.vectis.backend.dto.MarketApiStatusDto;
 import com.vectis.backend.dto.InvestmentMovementRequest;
@@ -132,27 +134,60 @@ public class InvestmentController {
         investmentService.deleteInvestment(id, user);
     }
 
+    @GetMapping("/{id}/collect-preview")
+    @Operation(summary = "Precalcular el cobro (liquidación) de un activo de inversión a una fecha dada",
+               description = "Devuelve el desglose capital/rendimiento/total que resultaría de cobrar el activo "
+                       + "en la fecha indicada, sin efectos: no persiste nada ni genera transacciones. Usado para "
+                       + "mostrar el precálculo antes de confirmar el cobro.")
+    @ApiResponses({
+        @ApiResponse(responseCode = "200", description = "Precálculo del cobro",
+            content = @Content(schema = @Schema(implementation = InvestmentCollectPreviewResponse.class))),
+        @ApiResponse(responseCode = "401", description = "Token JWT ausente o inválido",
+            content = @Content(schema = @Schema(implementation = ErrorResponse.class))),
+        @ApiResponse(responseCode = "404", description = "Activo no encontrado",
+            content = @Content(schema = @Schema(implementation = ErrorResponse.class))),
+        @ApiResponse(responseCode = "409", description = "La inversión ya fue cobrada",
+            content = @Content(schema = @Schema(implementation = ErrorResponse.class))),
+        @ApiResponse(responseCode = "500", description = "Error interno del servidor",
+            content = @Content(schema = @Schema(implementation = ErrorResponse.class)))
+    })
+    public InvestmentCollectPreviewResponse previewCollect(
+            @PathVariable UUID id,
+            @RequestParam @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) LocalDate date,
+            @AuthenticationPrincipal User user) {
+        return investmentService.previewCollect(id, date, user);
+    }
+
     @PostMapping("/{id}/collect")
     @Operation(summary = "Cobrar (liquidar) un activo de inversión",
-               description = "Acredita el capital actualizado como ingreso en la cuenta vinculada (fecha de hoy) "
-                       + "y elimina la inversión. A diferencia de eliminar, siempre está permitido —incluso con "
-                       + "historial en meses cerrados— y no revierte transacciones históricas, que quedan intactas.")
+               description = "Acredita capital y rendimiento como dos ingresos separados en la cuenta vinculada, "
+                       + "con la fecha de cobro elegida por el usuario, y marca la inversión como COBRADA (sigue "
+                       + "visible, con todas sus mutaciones bloqueadas salvo eliminar). Requiere que la fecha "
+                       + "elegida caiga en un mes de cashflow abierto.")
     @ApiResponses({
-        @ApiResponse(responseCode = "200", description = "Inversión cobrada y eliminada",
+        @ApiResponse(responseCode = "200", description = "Inversión cobrada",
             content = @Content(schema = @Schema(implementation = InvestmentCollectResponse.class))),
+        @ApiResponse(responseCode = "400", description = "Datos de entrada inválidos (falta la fecha de cobro)",
+            content = @Content(schema = @Schema(implementation = ErrorResponse.class))),
         @ApiResponse(responseCode = "401", description = "Token JWT ausente o inválido",
             content = @Content(schema = @Schema(implementation = ErrorResponse.class))),
         @ApiResponse(responseCode = "403", description = "No se puede cobrar un activo de otro usuario",
             content = @Content(schema = @Schema(implementation = ErrorResponse.class))),
         @ApiResponse(responseCode = "404", description = "Activo no encontrado",
             content = @Content(schema = @Schema(implementation = ErrorResponse.class))),
+        @ApiResponse(responseCode = "409", description = "La inversión ya fue cobrada, o el mes de la fecha "
+                + "elegida ya está cerrado",
+            content = @Content(schema = @Schema(implementation = ErrorResponse.class))),
+        @ApiResponse(responseCode = "422", description = "El rendimiento editado es negativo",
+            content = @Content(schema = @Schema(implementation = ErrorResponse.class))),
         @ApiResponse(responseCode = "500", description = "Error interno del servidor",
             content = @Content(schema = @Schema(implementation = ErrorResponse.class)))
     })
     public InvestmentCollectResponse collectInvestment(
             @PathVariable UUID id,
+            @Valid @RequestBody InvestmentCollectRequest request,
             @AuthenticationPrincipal User user) {
-        return investmentService.collectInvestment(id, user);
+        return investmentService.collectInvestment(id, request, user);
     }
 
     // ── Movements (FCI) ──────────────────────────────────────────────────────

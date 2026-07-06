@@ -42,6 +42,8 @@ public class InvestmentMapper {
                 .movements(movements)
                 .valuations(valuations)
                 .includeInCashflow(asset.isIncludeInCashflow())
+                .status(asset.getStatus().name())
+                .collectDate(asset.getCollectDate())
                 .build();
     }
 

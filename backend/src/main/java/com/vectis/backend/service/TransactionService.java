@@ -54,6 +54,7 @@ public class TransactionService {
     private final InstallmentCalculator installmentCalculator;
     private final MonthPeriodService monthPeriodService;
     private final MacroDataService macroDataService;
+    private final BalanceService balanceService;
 
     @Transactional(readOnly = true)
     public PageResponse<MovementResponse> search(UUID userId, LocalDate from, LocalDate to,

@@ -4,6 +4,8 @@ import { InvestmentService } from './investment.service';
 import {
   FciFundOption,
   InstrumentOption,
+  InvestmentCollectPreviewResponse,
+  InvestmentCollectRequest,
   InvestmentCollectResponse,
   InvestmentMovementRequest,
   InvestmentRequest,
@@ -111,21 +113,64 @@ describe('InvestmentService', () => {
     req.flush(null);
   });
 
-  it('collectInvestment() hace POST a /api/investments/{id}/collect', () => {
+  it('collectInvestment() hace POST a /api/investments/{id}/collect con el body { collectDate, rendimiento }', () => {
     const id = 'inv-1';
+    const body: InvestmentCollectRequest = { collectDate: '2026-06-20', rendimiento: 45000 };
     const mockResponse: InvestmentCollectResponse = {
-      investmentId: id, amount: 1200000, currency: 'ARS', transactionCreated: true,
+      investmentId: id, amount: 1245000, currency: 'ARS', transactionCreated: true,
+      capital: 1200000, rendimiento: 45000, collectDate: '2026-06-20', status: 'COBRADA',
     };
 
-    service.collectInvestment(id).subscribe(res => {
+    service.collectInvestment(id, body).subscribe(res => {
       expect(res.investmentId).toBe(id);
-      expect(res.amount).toBe(1200000);
+      expect(res.amount).toBe(1245000);
+      expect(res.capital).toBe(1200000);
+      expect(res.rendimiento).toBe(45000);
+      expect(res.collectDate).toBe('2026-06-20');
+      expect(res.status).toBe('COBRADA');
       expect(res.transactionCreated).toBeTrue();
     });
 
     const req = httpMock.expectOne(r => r.url === `${baseUrl}/${id}/collect` && r.method === 'POST');
-    expect(req.request.body).toEqual({});
+    expect(req.request.body).toEqual(body);
     req.flush(mockResponse);
+  });
+
+  it('collectInvestment() manda el body sin rendimiento cuando no es editable', () => {
+    const id = 'inv-1';
+    const body: InvestmentCollectRequest = { collectDate: '2026-06-20' };
+
+    service.collectInvestment(id, body).subscribe();
+
+    const req = httpMock.expectOne(r => r.url === `${baseUrl}/${id}/collect` && r.method === 'POST');
+    expect(req.request.body).toEqual({ collectDate: '2026-06-20' });
+    req.flush({
+      investmentId: id, amount: 850000, currency: 'ARS', transactionCreated: true,
+      capital: 850000, rendimiento: 0, collectDate: '2026-06-20', status: 'COBRADA',
+    });
+  });
+
+  // ── previewCollect ───────────────────────────────────────────────────────────
+
+  it('previewCollect() hace GET a /api/investments/{id}/collect-preview con el query param date correcto', () => {
+    const id = 'inv-1';
+    const mockPreview: InvestmentCollectPreviewResponse = {
+      capital: 1200000, rendimiento: 45000, total: 1245000, currency: 'ARS', editableRendimiento: true,
+    };
+
+    service.previewCollect(id, '2026-06-20').subscribe(res => {
+      expect(res.capital).toBe(1200000);
+      expect(res.rendimiento).toBe(45000);
+      expect(res.total).toBe(1245000);
+      expect(res.editableRendimiento).toBeTrue();
+    });
+
+    const req = httpMock.expectOne(r =>
+      r.url === `${baseUrl}/${id}/collect-preview` &&
+      r.method === 'GET' &&
+      r.params.get('date') === '2026-06-20',
+    );
+    req.flush(mockPreview);
   });
 
   it('addMovement() hace POST a /api/investments/{id}/movements con el body correcto', () => {

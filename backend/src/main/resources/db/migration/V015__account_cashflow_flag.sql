@@ -1,0 +1,2 @@
+ALTER TABLE accounts
+    ADD COLUMN include_in_cashflow BOOLEAN NOT NULL DEFAULT TRUE;

@@ -6,6 +6,8 @@ import com.vectis.backend.config.SecurityConfig;
 import com.vectis.backend.domain.entity.InvestmentMovementType;
 import com.vectis.backend.domain.entity.User;
 import com.vectis.backend.domain.entity.InvestmentAssetType;
+import com.vectis.backend.dto.InvestmentCollectPreviewResponse;
+import com.vectis.backend.dto.InvestmentCollectRequest;
 import com.vectis.backend.dto.InvestmentCollectResponse;
 import com.vectis.backend.dto.InvestmentMovementRequest;
 import com.vectis.backend.dto.InvestmentMovementUpdateRequest;
@@ -288,44 +290,145 @@ class InvestmentControllerTest {
                 .andExpect(status().isConflict());
     }
 
+    // ─── GET /api/investments/{id}/collect-preview ────────────────────────────
+
+    @Test
+    @DisplayName("GET /{id}/collect-preview sin token retorna 401")
+    void previewCollect_withoutToken_returns401() throws Exception {
+        UUID id = UUID.randomUUID();
+
+        mockMvc.perform(get("/api/investments/" + id + "/collect-preview")
+                        .param("date", "2026-07-05"))
+                .andExpect(status().isUnauthorized());
+    }
+
+    @Test
+    @DisplayName("GET /{id}/collect-preview con token retorna 200 y el desglose")
+    void previewCollect_validRequest_returns200() throws Exception {
+        UUID id = UUID.randomUUID();
+        InvestmentCollectPreviewResponse response = new InvestmentCollectPreviewResponse(
+                new BigDecimal("1000000.0000"), new BigDecimal("100000.0000"),
+                new BigDecimal("1100000.0000"), "ARS", true);
+
+        given(investmentService.previewCollect(eq(id), eq(LocalDate.of(2026, 7, 5)), any(User.class)))
+                .willReturn(response);
+
+        mockMvc.perform(get("/api/investments/" + id + "/collect-preview")
+                        .param("date", "2026-07-05")
+                        .header(HttpHeaders.AUTHORIZATION, AUTH_HEADER))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.capital").value(1000000.0000))
+                .andExpect(jsonPath("$.rendimiento").value(100000.0000))
+                .andExpect(jsonPath("$.total").value(1100000.0000))
+                .andExpect(jsonPath("$.editableRendimiento").value(true));
+    }
+
+    @Test
+    @DisplayName("GET /{id}/collect-preview cuando el activo no existe retorna 404")
+    void previewCollect_assetNotFound_returns404() throws Exception {
+        UUID id = UUID.randomUUID();
+        given(investmentService.previewCollect(eq(id), any(LocalDate.class), any(User.class)))
+                .willThrow(new InvestmentNotFoundException(id));
+
+        mockMvc.perform(get("/api/investments/" + id + "/collect-preview")
+                        .param("date", "2026-07-05")
+                        .header(HttpHeaders.AUTHORIZATION, AUTH_HEADER))
+                .andExpect(status().isNotFound());
+    }
+
     // ─── POST /api/investments/{id}/collect ───────────────────────────────────
 
     @Test
     @DisplayName("POST /{id}/collect sin token retorna 401")
     void collectInvestment_withoutToken_returns401() throws Exception {
         UUID id = UUID.randomUUID();
+        InvestmentCollectRequest req = new InvestmentCollectRequest(LocalDate.of(2026, 7, 5), null);
 
-        mockMvc.perform(post("/api/investments/" + id + "/collect"))
+        mockMvc.perform(post("/api/investments/" + id + "/collect")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(objectMapper.writeValueAsString(req)))
                 .andExpect(status().isUnauthorized());
     }
 
     @Test
-    @DisplayName("POST /{id}/collect con token retorna 200 y el resultado del cobro")
+    @DisplayName("POST /{id}/collect con body válido retorna 200 y el resultado del cobro")
     void collectInvestment_validRequest_returns200() throws Exception {
         UUID id = UUID.randomUUID();
+        InvestmentCollectRequest req = new InvestmentCollectRequest(LocalDate.of(2026, 7, 5), null);
         InvestmentCollectResponse response = new InvestmentCollectResponse(
-                id, new BigDecimal("1000000.0000"), "ARS", true);
+                id, new BigDecimal("1100000.0000"), "ARS", true,
+                new BigDecimal("1000000.0000"), new BigDecimal("100000.0000"),
+                LocalDate.of(2026, 7, 5), "COBRADA");
 
-        given(investmentService.collectInvestment(eq(id), any(User.class))).willReturn(response);
+        given(investmentService.collectInvestment(eq(id), any(InvestmentCollectRequest.class), any(User.class)))
+                .willReturn(response);
 
         mockMvc.perform(post("/api/investments/" + id + "/collect")
-                        .header(HttpHeaders.AUTHORIZATION, AUTH_HEADER))
+                        .header(HttpHeaders.AUTHORIZATION, AUTH_HEADER)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(objectMapper.writeValueAsString(req)))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.investmentId").value(id.toString()))
                 .andExpect(jsonPath("$.currency").value("ARS"))
-                .andExpect(jsonPath("$.transactionCreated").value(true));
+                .andExpect(jsonPath("$.transactionCreated").value(true))
+                .andExpect(jsonPath("$.status").value("COBRADA"));
+    }
+
+    @Test
+    @DisplayName("POST /{id}/collect sin collectDate en el body retorna 400")
+    void collectInvestment_missingCollectDate_returns400() throws Exception {
+        UUID id = UUID.randomUUID();
+
+        mockMvc.perform(post("/api/investments/" + id + "/collect")
+                        .header(HttpHeaders.AUTHORIZATION, AUTH_HEADER)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{}"))
+                .andExpect(status().isBadRequest());
     }
 
     @Test
     @DisplayName("POST /{id}/collect cuando el activo no existe retorna 404")
     void collectInvestment_assetNotFound_returns404() throws Exception {
         UUID id = UUID.randomUUID();
-        given(investmentService.collectInvestment(eq(id), any(User.class)))
+        InvestmentCollectRequest req = new InvestmentCollectRequest(LocalDate.of(2026, 7, 5), null);
+        given(investmentService.collectInvestment(eq(id), any(InvestmentCollectRequest.class), any(User.class)))
                 .willThrow(new InvestmentNotFoundException(id));
 
         mockMvc.perform(post("/api/investments/" + id + "/collect")
-                        .header(HttpHeaders.AUTHORIZATION, AUTH_HEADER))
+                        .header(HttpHeaders.AUTHORIZATION, AUTH_HEADER)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(objectMapper.writeValueAsString(req)))
                 .andExpect(status().isNotFound());
+    }
+
+    @Test
+    @DisplayName("POST /{id}/collect cuando el mes elegido está cerrado o el activo ya fue cobrado retorna 409")
+    void collectInvestment_conflict_returns409() throws Exception {
+        UUID id = UUID.randomUUID();
+        InvestmentCollectRequest req = new InvestmentCollectRequest(LocalDate.of(2026, 2, 1), null);
+        given(investmentService.collectInvestment(eq(id), any(InvestmentCollectRequest.class), any(User.class)))
+                .willThrow(new VectisException("No se puede cobrar: el mes elegido ya está cerrado", HttpStatus.CONFLICT));
+
+        mockMvc.perform(post("/api/investments/" + id + "/collect")
+                        .header(HttpHeaders.AUTHORIZATION, AUTH_HEADER)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(objectMapper.writeValueAsString(req)))
+                .andExpect(status().isConflict());
+    }
+
+    @Test
+    @DisplayName("POST /{id}/collect con rendimiento override negativo retorna 422")
+    void collectInvestment_negativeOverride_returns422() throws Exception {
+        UUID id = UUID.randomUUID();
+        InvestmentCollectRequest req = new InvestmentCollectRequest(LocalDate.of(2026, 7, 5), new BigDecimal("-1.00"));
+        given(investmentService.collectInvestment(eq(id), any(InvestmentCollectRequest.class), any(User.class)))
+                .willThrow(new VectisException("El rendimiento no puede ser negativo", HttpStatus.UNPROCESSABLE_ENTITY));
+
+        mockMvc.perform(post("/api/investments/" + id + "/collect")
+                        .header(HttpHeaders.AUTHORIZATION, AUTH_HEADER)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(objectMapper.writeValueAsString(req)))
+                .andExpect(status().isUnprocessableEntity());
     }
 
     // ─── POST /api/investments/{id}/movements ─────────────────────────────────

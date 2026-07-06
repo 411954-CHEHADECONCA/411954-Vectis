@@ -1,0 +1,2 @@
+ALTER TABLE investment_valuations
+  ADD COLUMN source VARCHAR(30) NOT NULL DEFAULT 'MANUAL';

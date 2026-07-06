@@ -239,8 +239,6 @@ export class ConfiguracionComponent implements OnInit {
     detail:            new FormControl('',    { nonNullable: true }),
     ccy:               new FormControl<AccountCcy>('ARS', { nonNullable: true }),
     balance:           new FormControl(0,     { nonNullable: true }),
-    remunerada:        new FormControl(false, { nonNullable: true }),
-    tna:               new FormControl<number | null>(null),
     includeInCashflow: new FormControl(true,  { nonNullable: true }),
   });
 
@@ -370,7 +368,7 @@ export class ConfiguracionComponent implements OnInit {
 
   // ── Account CRUD ──────────────────────────────────────────────────────────
   openCreateAccount(): void {
-    this.accountForm.reset({ name: '', kind: 'Banco', detail: '', ccy: 'ARS', balance: 0, remunerada: false, tna: null, includeInCashflow: true });
+    this.accountForm.reset({ name: '', kind: 'Banco', detail: '', ccy: 'ARS', balance: 0, includeInCashflow: true });
     this.formError.set(null);
     this.modal.set({ kind: 'account', mode: 'create' });
   }
@@ -378,7 +376,7 @@ export class ConfiguracionComponent implements OnInit {
   openEditAccount(a: AccountResponse): void {
     this.accountForm.setValue({
       name: a.name, kind: a.kind, detail: a.detail ?? '',
-      ccy: a.ccy, balance: a.balance, remunerada: a.remunerada, tna: a.tna,
+      ccy: a.ccy, balance: a.balance,
       includeInCashflow: a.includeInCashflow ?? true,
     });
     this.formError.set(null);

@@ -518,10 +518,16 @@
     color var(--dur-fast) var(--ease-standard),
     border-color var(--dur-fast) var(--ease-standard);
 
-  &:hover {
+  &:hover:not(:disabled) {
     background: var(--color-surface-container-high);
     color: var(--color-on-surface);
     border-color: var(--color-outline-variant);
+  }
+
+  &:disabled {
+    opacity: 0.4;
+    cursor: not-allowed;
+    pointer-events: none;
   }
 }
 
@@ -903,6 +909,19 @@
   color: var(--color-outline);
   white-space: nowrap;
   letter-spacing: 0.03em;
+}
+
+// ── Cobrada badge (Badge tone "positive": primary text + primary 14% bg) ──────
+
+.badge-cobrada {
+  font-size: var(--text-caption);
+  font-weight: var(--weight-semibold);
+  padding: 3px 8px;
+  border-radius: var(--radius-sm);
+  background: color-mix(in srgb, var(--color-primary) 14%, transparent);
+  color: var(--color-primary);
+  white-space: nowrap;
+  letter-spacing: 0.02em;
 }
 
 // ── Type selector grid ────────────────────────────────────────────────────────

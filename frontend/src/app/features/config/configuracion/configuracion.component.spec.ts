@@ -176,7 +176,7 @@ describe('ConfiguracionComponent', () => {
     component.openCreateAccount();
     component.accountForm.setValue({
       name: 'Brubank', kind: 'Banco', detail: '****1234',
-      ccy: 'USD', balance: 5000, remunerada: false, tna: null,
+      ccy: 'USD', balance: 5000,
       includeInCashflow: true,
     });
     component.submitAccount();

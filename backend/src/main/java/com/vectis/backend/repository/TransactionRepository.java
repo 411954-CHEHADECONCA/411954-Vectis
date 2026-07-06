@@ -76,15 +76,17 @@ public interface TransactionRepository extends JpaRepository<Transaction, UUID> 
     Optional<Transaction> findByInvestmentMovement_IdAndDeletedAtIsNull(UUID investmentMovementId);
 
     /**
-     * Transacciones de inversión (suscripción/rescate) del período, con su activo ya cargado
+     * Transacciones de inversión (suscripción/rescate/cobro) del período, con su activo ya cargado
      * (evita N+1 al agrupar por activo en {@link com.vectis.backend.service.CashflowService}).
+     * Incluye COLLECTION_CAPITAL/COLLECTION_YIELD para que el cobro de una inversión impacte el
+     * cashflow del mes en que se cobró (ver {@link com.vectis.backend.service.InvestmentService#collectInvestment}).
      */
     @EntityGraph(attributePaths = {"investmentAsset"})
     @Query("""
         SELECT t FROM Transaction t
         WHERE t.user.id = :userId AND t.deletedAt IS NULL
           AND t.investmentAsset IS NOT NULL
-          AND t.investmentSourceType IN ('SUSCRIPCION', 'RESCATE')
+          AND t.investmentSourceType IN ('SUSCRIPCION', 'RESCATE', 'COLLECTION_CAPITAL', 'COLLECTION_YIELD')
           AND t.transactionDate BETWEEN :from AND :to
         ORDER BY t.investmentAsset.id
         """)
