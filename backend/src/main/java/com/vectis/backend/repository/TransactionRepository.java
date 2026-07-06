@@ -80,13 +80,22 @@ public interface TransactionRepository extends JpaRepository<Transaction, UUID> 
      * (evita N+1 al agrupar por activo en {@link com.vectis.backend.service.CashflowService}).
      * Incluye COLLECTION_CAPITAL/COLLECTION_YIELD para que el cobro de una inversión impacte el
      * cashflow del mes en que se cobró (ver {@link com.vectis.backend.service.InvestmentService#collectInvestment}).
+     *
+     * <p>Un activo borrado deja {@code investmentAsset = NULL} vía {@code ON DELETE SET NULL}, pero
+     * {@code investmentSourceType} sobrevive intacto. Estas huérfanas se incluyen acá <b>solo si nunca
+     * tuvieron categoría asignada</b> ({@code category IS NULL}) — si el usuario ya le puso una
+     * categoría manualmente (p. ej. transacciones viejas de antes de vincular inversión↔cuenta), esa
+     * transacción ya la recupera {@link #groupByCategory} por su categoría, y contarla acá también la
+     * duplicaría en el cashflow. Sin este resguardo, una huérfana categorizada aparecería dos veces:
+     * una vez en "Otros ingresos/egresos" y otra en "Cobro de inversión (…)" o "Destinado a
+     * inversiones" (ver {@link com.vectis.backend.service.CashflowService#buildInvestmentSection}).
      */
     @EntityGraph(attributePaths = {"investmentAsset"})
     @Query("""
         SELECT t FROM Transaction t
         WHERE t.user.id = :userId AND t.deletedAt IS NULL
-          AND t.investmentAsset IS NOT NULL
           AND t.investmentSourceType IN ('SUSCRIPCION', 'RESCATE', 'COLLECTION_CAPITAL', 'COLLECTION_YIELD')
+          AND (t.investmentAsset IS NOT NULL OR t.category IS NULL)
           AND t.transactionDate BETWEEN :from AND :to
         ORDER BY t.investmentAsset.id
         """)

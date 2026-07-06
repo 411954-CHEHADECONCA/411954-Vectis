@@ -466,6 +466,7 @@ public class CashflowService {
     private CashflowInvestmentSection buildInvestmentSection(List<Transaction> investmentTxs, BigDecimal preBalance) {
         Map<UUID, InvestmentAsset> assetsById = new LinkedHashMap<>();
         Map<UUID, BigDecimal> totalByAssetId = new LinkedHashMap<>();
+        BigDecimal orphanedTotal = BigDecimal.ZERO;
         for (Transaction tx : investmentTxs) {
             // Sólo SUSCRIPCION suma acá (bruto invertido). RESCATE, COLLECTION_CAPITAL y
             // COLLECTION_YIELD se ignoran: ya se contabilizan como ingreso/egreso en buildFlowSection,
@@ -474,12 +475,18 @@ public class CashflowService {
                 continue;
             }
             InvestmentAsset asset = tx.getInvestmentAsset();
+            if (asset == null) {
+                // Activo borrado (investmentAsset nuleado por ON DELETE SET NULL): se agrupa aparte
+                // en vez de perderse, ver buildInvestmentSection javadoc.
+                orphanedTotal = orphanedTotal.add(tx.getAmount(), MC);
+                continue;
+            }
             UUID assetId = asset.getId();
             assetsById.putIfAbsent(assetId, asset);
             totalByAssetId.merge(assetId, tx.getAmount(), (a, b) -> a.add(b, MC));
         }
 
-        List<CashflowInvestmentRow> instruments = totalByAssetId.entrySet().stream()
+        List<CashflowInvestmentRow> instruments = new ArrayList<>(totalByAssetId.entrySet().stream()
                 .map(entry -> {
                     InvestmentAsset asset = assetsById.get(entry.getKey());
                     BigDecimal amount = entry.getValue().setScale(4, RM);
@@ -488,7 +495,12 @@ public class CashflowService {
                             : null;
                     return new CashflowInvestmentRow(asset.getName(), INVESTMENT_ICON, INVESTMENT_COLOR, amount, teaPct);
                 })
-                .toList();
+                .toList());
+
+        if (orphanedTotal.signum() != 0) {
+            instruments.add(new CashflowInvestmentRow("Otras inversiones (activo eliminado)",
+                    INVESTMENT_ICON, INVESTMENT_COLOR, orphanedTotal.setScale(4, RM), null));
+        }
 
         BigDecimal total = instruments.stream()
                 .map(CashflowInvestmentRow::amount)

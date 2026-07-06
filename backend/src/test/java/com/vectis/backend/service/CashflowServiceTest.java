@@ -718,6 +718,80 @@ class CashflowServiceTest {
     }
 
     @Test
+    @DisplayName("investments: una SUSCRIPCION con activo borrado (investmentAsset=null) no explota y se agrupa como 'Otras inversiones (activo eliminado)'")
+    void investments_orphanedSuscripcionAppearsAsSyntheticRow() {
+        LocalDate today    = LocalDate.now();
+        int year  = today.getYear();
+        int month = today.getMonthValue();
+        LocalDate firstDay = today.withDayOfMonth(1);
+        LocalDate lastDay  = firstDay.withDayOfMonth(firstDay.lengthOfMonth());
+
+        given(monthPeriodService.getStatus(eq(user), eq(year), eq(month), any(LocalDate.class))).willReturn("curso");
+        given(monthPeriodRepository.findByUser_IdAndYearAndMonth(userId, year, month)).willReturn(Optional.empty());
+        given(accountRepository.findAllByUser_IdAndIncludeInCashflowTrue(userId)).willReturn(Collections.emptyList());
+        given(transactionRepository.netMovementsForAccounts(eq(userId), anyList(), any(LocalDate.class)))
+                .willReturn(Collections.emptyList());
+        given(transactionRepository.groupByCategory(eq(userId), any(TransactionType.class), any(LocalDate.class), any(LocalDate.class)))
+                .willReturn(Collections.emptyList());
+        given(categoryBudgetRepository.findLatestPerCategoryOnOrBefore(userId, firstDay)).willReturn(Collections.emptyList());
+
+        Transaction orphanedSuscripcion = Transaction.builder()
+                .investmentAsset(null).investmentSourceType("SUSCRIPCION")
+                .amount(new BigDecimal("1000000.0000")).build();
+
+        given(transactionRepository.findInvestmentTransactionsForCashflow(userId, firstDay, lastDay))
+                .willReturn(List.of(orphanedSuscripcion));
+
+        CashflowResponse result = cashflowService.getCashflow(user, year, month);
+
+        assertThat(result.getInvestments().instruments()).hasSize(1);
+        assertThat(result.getInvestments().instruments().get(0).name()).isEqualTo("Otras inversiones (activo eliminado)");
+        assertThat(result.getInvestments().instruments().get(0).amount()).isEqualByComparingTo("1000000.0000");
+        assertThat(result.getInvestments().instruments().get(0).teaPct()).isNull();
+        assertThat(result.getInvestments().total()).isEqualByComparingTo("1000000.0000");
+    }
+
+    @Test
+    @DisplayName("investments: mezcla de activo vivo + huérfano suma ambos al total sin perder ninguno")
+    void investments_liveAndOrphanedSuscripcionesBothCountTowardTotal() {
+        LocalDate today    = LocalDate.now();
+        int year  = today.getYear();
+        int month = today.getMonthValue();
+        LocalDate firstDay = today.withDayOfMonth(1);
+        LocalDate lastDay  = firstDay.withDayOfMonth(firstDay.lengthOfMonth());
+
+        given(monthPeriodService.getStatus(eq(user), eq(year), eq(month), any(LocalDate.class))).willReturn("curso");
+        given(monthPeriodRepository.findByUser_IdAndYearAndMonth(userId, year, month)).willReturn(Optional.empty());
+        given(accountRepository.findAllByUser_IdAndIncludeInCashflowTrue(userId)).willReturn(Collections.emptyList());
+        given(transactionRepository.netMovementsForAccounts(eq(userId), anyList(), any(LocalDate.class)))
+                .willReturn(Collections.emptyList());
+        given(transactionRepository.groupByCategory(eq(userId), any(TransactionType.class), any(LocalDate.class), any(LocalDate.class)))
+                .willReturn(Collections.emptyList());
+        given(categoryBudgetRepository.findLatestPerCategoryOnOrBefore(userId, firstDay)).willReturn(Collections.emptyList());
+
+        InvestmentAsset asset = InvestmentAsset.builder()
+                .id(UUID.randomUUID()).name("LECAP S31G5")
+                .type(InvestmentAssetType.LETRA).currency("ARS")
+                .principal(new BigDecimal("500000.0000"))
+                .tna(BigDecimal.ZERO)
+                .build();
+        Transaction liveSuscripcion = Transaction.builder()
+                .investmentAsset(asset).investmentSourceType("SUSCRIPCION")
+                .amount(new BigDecimal("500000.0000")).build();
+        Transaction orphanedSuscripcion = Transaction.builder()
+                .investmentAsset(null).investmentSourceType("SUSCRIPCION")
+                .amount(new BigDecimal("1000000.0000")).build();
+
+        given(transactionRepository.findInvestmentTransactionsForCashflow(userId, firstDay, lastDay))
+                .willReturn(List.of(liveSuscripcion, orphanedSuscripcion));
+
+        CashflowResponse result = cashflowService.getCashflow(user, year, month);
+
+        assertThat(result.getInvestments().instruments()).hasSize(2);
+        assertThat(result.getInvestments().total()).isEqualByComparingTo("1500000.0000");
+    }
+
+    @Test
     @DisplayName("investments: suma sólo SUSCRIPCION (bruto); el RESCATE del mismo activo no se netea acá")
     void investments_onlySumsSuscripcionGross() {
         LocalDate today    = LocalDate.now();
