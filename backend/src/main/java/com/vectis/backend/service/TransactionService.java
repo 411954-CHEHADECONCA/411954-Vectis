@@ -38,6 +38,7 @@ import java.time.format.TextStyle;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Locale;
+import java.util.Objects;
 import java.util.UUID;
 
 @Slf4j
@@ -118,11 +119,17 @@ public class TransactionService {
                     .get(0).dueDate()
                 : request.transactionDate();
 
+        TransactionType type = TransactionType.valueOf(request.type());
+        if (account != null && type == TransactionType.EXPENSE) {
+            BigDecimal projected = balanceService.currentBalance(account, user.getId()).subtract(request.amount());
+            assertSufficientFunds(account, projected);
+        }
+
         BigDecimal rateAtTime = captureCurrentRate();
 
         Transaction tx = Transaction.builder()
                 .user(user)
-                .type(TransactionType.valueOf(request.type()))
+                .type(type)
                 .description(request.description())
                 .amount(request.amount())
                 .ccy(request.ccy())
@@ -195,11 +202,27 @@ public class TransactionService {
 
         validateSinglePaymentMethod(request.accountId(), request.cardId());
 
+        UUID oldAccountId = tx.getAccount() != null ? tx.getAccount().getId() : null;
+        TransactionType oldType = tx.getType();
+        BigDecimal oldAmount = tx.getAmount();
+
         Category category = resolveCategory(request.categoryId(), user);
         Account account   = resolveAccount(request.accountId(), user);
         CreditCard card   = resolveCard(request.cardId(), user);
 
-        tx.setType(TransactionType.valueOf(request.type()));
+        TransactionType newType = TransactionType.valueOf(request.type());
+        if (account != null && newType == TransactionType.EXPENSE) {
+            BigDecimal balance = balanceService.currentBalance(account, user.getId());
+            boolean sameAccount = Objects.equals(oldAccountId, account.getId());
+            if (sameAccount && oldType == TransactionType.EXPENSE) {
+                balance = balance.add(oldAmount);
+            } else if (sameAccount && oldType == TransactionType.INCOME) {
+                balance = balance.subtract(oldAmount);
+            }
+            assertSufficientFunds(account, balance.subtract(request.amount()));
+        }
+
+        tx.setType(newType);
         tx.setDescription(request.description());
         tx.setAmount(request.amount());
         tx.setCcy(request.ccy());
@@ -278,6 +301,14 @@ public class TransactionService {
     private void validateSinglePaymentMethod(UUID accountId, UUID cardId) {
         if (accountId != null && cardId != null) {
             throw new VectisException("No podés asociar cuenta y tarjeta al mismo tiempo", HttpStatus.BAD_REQUEST);
+        }
+    }
+
+    private void assertSufficientFunds(Account account, BigDecimal projectedBalance) {
+        if (account != null && projectedBalance.signum() < 0) {
+            throw new VectisException(
+                    "Fondos insuficientes en la cuenta \"" + account.getName() + "\" para este movimiento",
+                    HttpStatus.UNPROCESSABLE_ENTITY);
         }
     }
 

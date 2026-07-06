@@ -59,6 +59,7 @@ public class InvestmentService {
     private final PpiValuationSyncService        ppiValuationSyncService;
     private final TransactionRepository          transactionRepository;
     private final MonthPeriodService             monthPeriodService;
+    private final BalanceService                 balanceService;
 
     public List<InvestmentResponse> getInvestments(UUID userId) {
         return investmentRepository.findAllByUser_IdOrderByCreatedAtAsc(userId)
@@ -102,6 +103,11 @@ public class InvestmentService {
                 .externalId(request.externalId())
                 .includeInCashflow(includeInCashflow)
                 .build();
+
+        if (generatesTransaction) {
+            BigDecimal projected = balanceService.currentBalance(account, user.getId()).subtract(request.principal());
+            assertSufficientFunds(account, projected);
+        }
 
         InvestmentAsset saved = investmentRepository.save(asset);
 
@@ -206,9 +212,22 @@ public class InvestmentService {
                     HttpStatus.CONFLICT);
         }
 
+        Account oldAccount = tx.getAccount();
+        BigDecimal oldAmount = tx.getAmount();
+        BigDecimal newAmount = asset.getPrincipal();
+
+        if (newAccount != null) {
+            BigDecimal balance = balanceService.currentBalance(newAccount, user.getId());
+            boolean sameAccount = oldAccount != null && oldAccount.getId().equals(newAccount.getId());
+            if (sameAccount) {
+                balance = balance.add(oldAmount);
+            }
+            assertSufficientFunds(newAccount, balance.subtract(newAmount));
+        }
+
         tx.setAccount(newAccount);
         tx.setCcy(asset.getCurrency());
-        tx.setAmount(asset.getPrincipal());
+        tx.setAmount(newAmount);
         transactionRepository.save(tx);
     }
 
@@ -439,9 +458,14 @@ public class InvestmentService {
         }
 
         if (isTransactable && asset.getAccount() != null && asset.isIncludeInCashflow()) {
+            boolean isSuscripcion = request.type() == InvestmentMovementType.SUSCRIPCION;
+            if (isSuscripcion) {
+                BigDecimal projected = balanceService.currentBalance(asset.getAccount(), user.getId())
+                        .subtract(request.amount());
+                assertSufficientFunds(asset.getAccount(), projected);
+            }
             // saveAndFlush para asegurar el id del movimiento antes de vincular la transacción.
             InvestmentMovement savedMovement = movementRepository.saveAndFlush(movement);
-            boolean isSuscripcion = request.type() == InvestmentMovementType.SUSCRIPCION;
             Transaction tx = Transaction.builder()
                     .user(user)
                     .type(isSuscripcion ? TransactionType.EXPENSE : TransactionType.INCOME)
@@ -686,6 +710,14 @@ public class InvestmentService {
             throw new VectisException(
                     "Ya existe una valuación registrada para la fecha " + date,
                     HttpStatus.CONFLICT);
+        }
+    }
+
+    private void assertSufficientFunds(Account account, BigDecimal projectedBalance) {
+        if (account != null && projectedBalance.signum() < 0) {
+            throw new VectisException(
+                    "Fondos insuficientes en la cuenta \"" + account.getName() + "\" para este movimiento",
+                    HttpStatus.UNPROCESSABLE_ENTITY);
         }
     }
 

@@ -71,6 +71,7 @@ class InvestmentServiceTest {
     @Mock private PpiValuationSyncService        ppiValuationSyncService;
     @Mock private TransactionRepository          transactionRepository;
     @Mock private MonthPeriodService             monthPeriodService;
+    @Mock private BalanceService                 balanceService;
 
     private User    user;
     private UUID    userId;
@@ -103,6 +104,9 @@ class InvestmentServiceTest {
 
         // Default: mes abierto salvo que un test lo sobreescriba explícitamente para probar el bloqueo.
         lenient().when(monthPeriodService.isOpen(any(), anyInt(), anyInt())).thenReturn(true);
+        // Default: saldo amplio salvo que un test lo sobreescriba para probar el bloqueo por fondos insuficientes.
+        lenient().when(balanceService.currentBalance(any(), any()))
+                .thenReturn(new BigDecimal("999999999.0000"));
     }
 
     // ─── getInvestments ───────────────────────────────────────────────────────
@@ -245,6 +249,49 @@ class InvestmentServiceTest {
                         .isEqualTo(HttpStatus.FORBIDDEN));
 
         verify(investmentRepository, never()).save(any());
+    }
+
+    @Test
+    @DisplayName("createInvestment con fondos insuficientes en la cuenta lanza VectisException 422 y no persiste nada")
+    void createInvestment_insufficientFunds_throws422() {
+        InvestmentRequest req = buildRequest(accountId);
+
+        given(accountRepository.findByIdAndUser_Id(accountId, userId)).willReturn(Optional.of(account));
+        given(balanceService.currentBalance(account, userId)).willReturn(new BigDecimal("500000.0000"));
+
+        assertThatThrownBy(() -> investmentService.createInvestment(req, user))
+                .isInstanceOf(VectisException.class)
+                .satisfies(ex -> assertThat(((VectisException) ex).getStatus())
+                        .isEqualTo(HttpStatus.UNPROCESSABLE_ENTITY));
+
+        verify(investmentRepository, never()).save(any());
+        verify(transactionRepository, never()).save(any());
+    }
+
+    @Test
+    @DisplayName("createInvestment con includeInCashflow=false permite fondos insuficientes (no genera Transaction)")
+    void createInvestment_notIncludedInCashflow_ignoresInsufficientFunds() {
+        InvestmentRequest req = new InvestmentRequest(
+                "LECAP S31G5", InvestmentAssetType.LETRA, "ARS",
+                new BigDecimal("1000000.00"),
+                LocalDate.of(2026, 1, 15),
+                LocalDate.of(2026, 8, 31),
+                new BigDecimal("65.00"),
+                accountId,
+                false,
+                null,
+                false);
+        InvestmentAsset saved = buildAsset(UUID.randomUUID(), account);
+        InvestmentResponse resp = buildResponse(saved.getId(), accountId, "Cuenta Galicia");
+
+        given(accountRepository.findByIdAndUser_Id(accountId, userId)).willReturn(Optional.of(account));
+        given(investmentRepository.save(any(InvestmentAsset.class))).willReturn(saved);
+        given(investmentMapper.toResponse(saved)).willReturn(resp);
+
+        investmentService.createInvestment(req, user);
+
+        verify(investmentRepository).save(any(InvestmentAsset.class));
+        verify(transactionRepository, never()).save(any());
     }
 
     // ─── updateInvestment ─────────────────────────────────────────────────────
@@ -424,6 +471,59 @@ class InvestmentServiceTest {
     }
 
     @Test
+    @DisplayName("updateInvestment que sube el principal por encima del saldo disponible lanza 422 y no persiste nada")
+    void updateInvestment_syncLinkedTransaction_insufficientFunds_throws422() {
+        UUID assetId = UUID.randomUUID();
+        InvestmentAsset asset = InvestmentAsset.builder()
+                .id(assetId).user(user).account(account).name("PF Original")
+                .type(InvestmentAssetType.PLAZO_FIJO).currency("ARS")
+                .principal(new BigDecimal("1000000.0000"))
+                .purchaseDate(LocalDate.of(2026, 1, 1))
+                .tna(new BigDecimal("30.0000"))
+                .createdAt(OffsetDateTime.now()).updatedAt(OffsetDateTime.now())
+                .build();
+
+        Transaction linkedTx = Transaction.builder()
+                .id(UUID.randomUUID())
+                .investmentAsset(asset)
+                .investmentMovement(null)
+                .investmentSourceType("SUSCRIPCION")
+                .account(account)
+                .ccy("ARS")
+                .amount(new BigDecimal("1000000.0000"))
+                .transactionDate(LocalDate.of(2026, 1, 1))
+                .build();
+
+        // Sube el principal de 1.000.000 a 5.000.000 sobre una cuenta con saldo actual de 1.200.000
+        // (ya neto del suscripción vieja, que se "libera" antes de re-chequear).
+        InvestmentRequest req = new InvestmentRequest(
+                "PF Actualizado", InvestmentAssetType.PLAZO_FIJO, "ARS",
+                new BigDecimal("5000000.00"),
+                LocalDate.of(2026, 1, 1),
+                null,
+                new BigDecimal("30.00"),
+                accountId,
+                false,
+                null,
+                null);
+
+        given(investmentRepository.findByIdAndUser_Id(assetId, userId)).willReturn(Optional.of(asset));
+        given(accountRepository.findByIdAndUser_Id(accountId, userId)).willReturn(Optional.of(account));
+        given(transactionRepository.findAllByInvestmentAsset_IdAndDeletedAtIsNull(assetId))
+                .willReturn(List.of(linkedTx));
+        given(balanceService.currentBalance(account, userId)).willReturn(new BigDecimal("1200000.0000"));
+
+        assertThatThrownBy(() -> investmentService.updateInvestment(assetId, req, user))
+                .isInstanceOf(VectisException.class)
+                .satisfies(ex -> assertThat(((VectisException) ex).getStatus())
+                        .isEqualTo(HttpStatus.UNPROCESSABLE_ENTITY));
+
+        assertThat(linkedTx.getAmount()).isEqualByComparingTo("1000000.0000");
+        verify(transactionRepository, never()).save(any());
+        verify(investmentRepository, never()).save(any());
+    }
+
+    @Test
     @DisplayName("updateInvestment con transacción vinculada en mes cerrado lanza 409 y no persiste ningún cambio")
     void updateInvestment_blocksSync_whenLinkedTransactionMonthClosed() {
         UUID assetId = UUID.randomUUID();
@@ -591,6 +691,28 @@ class InvestmentServiceTest {
                         .isEqualTo(HttpStatus.UNPROCESSABLE_ENTITY));
 
         verify(investmentRepository, never()).save(any());
+    }
+
+    @Test
+    @DisplayName("addMovement SUSCRIPCION con fondos insuficientes en la cuenta lanza VectisException 422")
+    void addMovement_suscripcion_insufficientFunds_throws422() {
+        UUID assetId = UUID.randomUUID();
+        InvestmentAsset asset = buildFciAsset(assetId, BigDecimal.ZERO);
+        asset.setAccount(account);
+        InvestmentMovementRequest req = new InvestmentMovementRequest(
+                LocalDate.of(2026, 1, 1), InvestmentMovementType.SUSCRIPCION, new BigDecimal("500000.00"), null, null);
+
+        given(investmentRepository.findWithMovementsByIdAndUser_Id(assetId, userId)).willReturn(Optional.of(asset));
+        given(balanceService.currentBalance(account, userId)).willReturn(new BigDecimal("100000.0000"));
+
+        assertThatThrownBy(() -> investmentService.addMovement(assetId, req, user))
+                .isInstanceOf(VectisException.class)
+                .satisfies(ex -> assertThat(((VectisException) ex).getStatus())
+                        .isEqualTo(HttpStatus.UNPROCESSABLE_ENTITY));
+
+        verify(investmentRepository, never()).save(any());
+        verify(movementRepository, never()).saveAndFlush(any());
+        verify(transactionRepository, never()).save(any());
     }
 
     @Test

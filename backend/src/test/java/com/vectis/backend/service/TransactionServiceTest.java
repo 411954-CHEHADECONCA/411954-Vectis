@@ -1,5 +1,6 @@
 package com.vectis.backend.service;
 
+import com.vectis.backend.domain.entity.Account;
 import com.vectis.backend.domain.entity.CreditCard;
 import com.vectis.backend.domain.entity.Transaction;
 import com.vectis.backend.domain.entity.TransactionType;
@@ -48,6 +49,7 @@ import static org.mockito.ArgumentMatchers.anyList;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.ArgumentMatchers.isNull;
 import static org.mockito.BDDMockito.given;
+import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
 
 @ExtendWith(MockitoExtension.class)
@@ -65,6 +67,7 @@ class TransactionServiceTest {
     @Mock private InstallmentCalculator installmentCalculator;
     @Mock private MonthPeriodService monthPeriodService;
     @Mock private MacroDataService macroDataService;
+    @Mock private BalanceService balanceService;
 
     private User user;
     private User otherUser;
@@ -81,6 +84,8 @@ class TransactionServiceTest {
                 .build();
         // By default, period is open (allow posting) for all create() tests
         given(monthPeriodService.isOpen(any(UUID.class), anyInt(), anyInt())).willReturn(true);
+        // Default: saldo amplio salvo que un test lo sobreescriba para probar el bloqueo por fondos insuficientes.
+        given(balanceService.currentBalance(any(), any())).willReturn(new BigDecimal("999999999.0000"));
     }
 
     // ─── create simple ────────────────────────────────────────────────────────
@@ -260,6 +265,49 @@ class TransactionServiceTest {
         assertThat(captor.getValue().getExchangeRateAtTime()).isNull();
     }
 
+    // ─── create — fondos suficientes ─────────────────────────────────────────────
+
+    @Test
+    @DisplayName("create EXPENSE con cuenta y fondos insuficientes lanza VectisException 422 y no persiste")
+    void create_expenseWithAccount_insufficientFunds_throws422() {
+        UUID accountId = UUID.randomUUID();
+        Account acc = account(accountId, user, new BigDecimal("100000.0000"));
+        MovementRequest req = new MovementRequest(
+                "Alquiler", new BigDecimal("500000"), "ARS", "EXPENSE",
+                null, accountId, null, LocalDate.of(2026, 6, 10), 1);
+
+        given(accountRepository.findById(accountId)).willReturn(Optional.of(acc));
+        given(balanceService.currentBalance(acc, userId)).willReturn(new BigDecimal("100000.0000"));
+
+        assertThatThrownBy(() -> transactionService.create(req, user))
+                .isInstanceOf(VectisException.class)
+                .satisfies(ex -> assertThat(((VectisException) ex).getStatus())
+                        .isEqualTo(HttpStatus.UNPROCESSABLE_ENTITY));
+
+        verify(transactionRepository, never()).save(any());
+    }
+
+    @Test
+    @DisplayName("create EXPENSE con tarjeta (sin cuenta) permite aunque el saldo de otras cuentas sea insuficiente")
+    void create_expenseWithCard_ignoresAccountFunds() {
+        UUID cardId = UUID.randomUUID();
+        CreditCard card = card(cardId, user);
+        MovementRequest req = new MovementRequest(
+                "Compra", new BigDecimal("500000"), "ARS", "EXPENSE",
+                null, null, cardId, LocalDate.of(2026, 4, 7), 1);
+
+        given(creditCardRepository.findById(cardId)).willReturn(Optional.of(card));
+        given(installmentCalculator.split(any(), any(), anyInt(), anyInt(), anyInt()))
+                .willReturn(List.of(new InstallmentCalculator.Installment(
+                        1, LocalDate.of(2026, 6, 15), new BigDecimal("500000"))));
+        given(transactionRepository.save(any(Transaction.class))).willAnswer(inv -> inv.getArgument(0));
+        given(transactionMapper.toResponse(any(Transaction.class))).willReturn(mock());
+
+        transactionService.create(req, user);
+
+        verify(transactionRepository).save(any(Transaction.class));
+    }
+
     // ─── update ─────────────────────────────────────────────────────────────────
 
     @Test
@@ -303,6 +351,34 @@ class TransactionServiceTest {
 
         assertThatThrownBy(() -> transactionService.update(id, req, user))
                 .isInstanceOf(TransactionNotFoundException.class);
+    }
+
+    @Test
+    @DisplayName("update que sube el monto de un EXPENSE por encima del saldo disponible lanza 422")
+    void update_expenseAmountIncrease_insufficientFunds_throws422() {
+        UUID id = UUID.randomUUID();
+        UUID accountId = UUID.randomUUID();
+        Account acc = account(accountId, user, new BigDecimal("100000.0000"));
+
+        Transaction tx = simpleTx(user);
+        tx.setAccount(acc);
+        tx.setAmount(new BigDecimal("50000"));
+        given(transactionRepository.findByIdAndDeletedAtIsNull(id)).willReturn(Optional.of(tx));
+        given(accountRepository.findById(accountId)).willReturn(Optional.of(acc));
+        // Saldo actual ya neto del monto viejo (50.000): 120.000 disponibles antes de liberar el viejo.
+        given(balanceService.currentBalance(acc, userId)).willReturn(new BigDecimal("120000.0000"));
+
+        MovementRequest req = new MovementRequest(
+                "Coto", new BigDecimal("300000"), "ARS", "EXPENSE",
+                null, accountId, null, LocalDate.of(2026, 6, 10), 1);
+
+        assertThatThrownBy(() -> transactionService.update(id, req, user))
+                .isInstanceOf(VectisException.class)
+                .satisfies(ex -> assertThat(((VectisException) ex).getStatus())
+                        .isEqualTo(HttpStatus.UNPROCESSABLE_ENTITY));
+
+        assertThat(tx.getAmount()).isEqualByComparingTo("50000");
+        verify(transactionRepository, never()).save(any());
     }
 
     // ─── delete ─────────────────────────────────────────────────────────────────
@@ -549,6 +625,14 @@ class TransactionServiceTest {
                 .amount(new BigDecimal("1000")).ccy("ARS")
                 .transactionDate(LocalDate.of(2026, 6, 10)).dueDate(LocalDate.of(2026, 6, 10))
                 .installment(false).createdAt(OffsetDateTime.now())
+                .build();
+    }
+
+    private Account account(UUID id, User owner, BigDecimal balance) {
+        return Account.builder()
+                .id(id).user(owner).name("Cuenta Galicia").kind("Banco").ccy("ARS")
+                .balance(balance).includeInCashflow(true)
+                .createdAt(OffsetDateTime.now()).updatedAt(OffsetDateTime.now())
                 .build();
     }
 
