@@ -6,6 +6,7 @@ import com.vectis.backend.domain.entity.InvestmentAssetStatus;
 import com.vectis.backend.domain.entity.InvestmentAssetType;
 import com.vectis.backend.domain.entity.InvestmentMovement;
 import com.vectis.backend.domain.entity.InvestmentMovementType;
+import com.vectis.backend.domain.entity.InvestmentSourceType;
 import com.vectis.backend.domain.entity.Transaction;
 import com.vectis.backend.domain.entity.TransactionType;
 import com.vectis.backend.domain.entity.User;
@@ -414,6 +415,23 @@ class InvestmentServiceTest {
     }
 
     @Test
+    @DisplayName("updateInvestment con accountId de otro usuario lanza FORBIDDEN (activo propio, cuenta ajena)")
+    void updateInvestment_withAccountOfAnotherUser_throwsForbidden() {
+        UUID assetId = UUID.randomUUID();
+        UUID otherAccountId = UUID.randomUUID();
+        InvestmentAsset asset = buildAsset(assetId, null);
+        given(investmentRepository.findByIdAndUser_Id(assetId, userId)).willReturn(Optional.of(asset));
+        given(accountRepository.findByIdAndUser_Id(otherAccountId, userId)).willReturn(Optional.empty());
+
+        assertThatThrownBy(() -> investmentService.updateInvestment(assetId, buildRequest(otherAccountId), user))
+                .isInstanceOf(VectisException.class)
+                .satisfies(ex -> assertThat(((VectisException) ex).getStatus())
+                        .isEqualTo(HttpStatus.FORBIDDEN));
+
+        verify(investmentRepository, never()).save(any());
+    }
+
+    @Test
     @DisplayName("updateInvestment sincroniza la Transaction de suscripción vinculada cuando cuenta/moneda/monto cambian y el mes está abierto")
     void updateInvestment_syncsLinkedSuscripcionTransaction_whenMonthOpen() {
         UUID assetId = UUID.randomUUID();
@@ -437,7 +455,7 @@ class InvestmentServiceTest {
                 .id(UUID.randomUUID())
                 .investmentAsset(asset)
                 .investmentMovement(null)
-                .investmentSourceType("SUSCRIPCION")
+                .investmentSourceType(InvestmentSourceType.SUSCRIPCION)
                 .account(account)
                 .ccy("ARS")
                 .amount(new BigDecimal("1000000.0000"))
@@ -487,7 +505,7 @@ class InvestmentServiceTest {
                 .id(UUID.randomUUID())
                 .investmentAsset(asset)
                 .investmentMovement(null)
-                .investmentSourceType("SUSCRIPCION")
+                .investmentSourceType(InvestmentSourceType.SUSCRIPCION)
                 .account(account)
                 .ccy("ARS")
                 .amount(new BigDecimal("1000000.0000"))
@@ -540,7 +558,7 @@ class InvestmentServiceTest {
                 .id(UUID.randomUUID())
                 .investmentAsset(asset)
                 .investmentMovement(null)
-                .investmentSourceType("SUSCRIPCION")
+                .investmentSourceType(InvestmentSourceType.SUSCRIPCION)
                 .account(account)
                 .ccy("ARS")
                 .amount(new BigDecimal("1000000.0000"))
@@ -1700,7 +1718,7 @@ class InvestmentServiceTest {
         assertThat(tx.getAccount()).isEqualTo(account);
         assertThat(tx.getInvestmentAsset()).isEqualTo(saved);
         assertThat(tx.getInvestmentMovement()).isNull();
-        assertThat(tx.getInvestmentSourceType()).isEqualTo("SUSCRIPCION");
+        assertThat(tx.getInvestmentSourceType()).isEqualTo(InvestmentSourceType.SUSCRIPCION);
     }
 
     @Test
@@ -1808,7 +1826,7 @@ class InvestmentServiceTest {
         assertThat(tx.getType()).isEqualTo(TransactionType.EXPENSE);
         assertThat(tx.getAmount()).isEqualByComparingTo("300000.00");
         assertThat(tx.getInvestmentMovement()).isEqualTo(savedMovement);
-        assertThat(tx.getInvestmentSourceType()).isEqualTo("SUSCRIPCION");
+        assertThat(tx.getInvestmentSourceType()).isEqualTo(InvestmentSourceType.SUSCRIPCION);
     }
 
     @Test
@@ -1839,7 +1857,7 @@ class InvestmentServiceTest {
         verify(transactionRepository).save(txCaptor.capture());
         Transaction tx = txCaptor.getValue();
         assertThat(tx.getType()).isEqualTo(TransactionType.INCOME);
-        assertThat(tx.getInvestmentSourceType()).isEqualTo("RESCATE");
+        assertThat(tx.getInvestmentSourceType()).isEqualTo(InvestmentSourceType.RESCATE);
     }
 
     @Test
@@ -2025,11 +2043,11 @@ class InvestmentServiceTest {
         assertThat(txs).allMatch(tx -> tx.getTransactionDate().equals(collectDate));
         assertThat(txs).allMatch(tx -> tx.getType() == TransactionType.INCOME);
         assertThat(txs).anySatisfy(tx -> {
-            assertThat(tx.getInvestmentSourceType()).isEqualTo("COLLECTION_CAPITAL");
+            assertThat(tx.getInvestmentSourceType()).isEqualTo(InvestmentSourceType.COLLECTION_CAPITAL);
             assertThat(tx.getAmount()).isEqualByComparingTo("1000000.0000");
         });
         assertThat(txs).anySatisfy(tx -> {
-            assertThat(tx.getInvestmentSourceType()).isEqualTo("COLLECTION_YIELD");
+            assertThat(tx.getInvestmentSourceType()).isEqualTo(InvestmentSourceType.COLLECTION_YIELD);
             assertThat(tx.getAmount()).isEqualByComparingTo("100000.0000");
         });
 
@@ -2251,12 +2269,12 @@ class InvestmentServiceTest {
         assertThat(txs).hasSize(2);
 
         assertThat(txs).anySatisfy(tx -> {
-            assertThat(tx.getInvestmentSourceType()).isEqualTo("COLLECTION_CAPITAL");
+            assertThat(tx.getInvestmentSourceType()).isEqualTo(InvestmentSourceType.COLLECTION_CAPITAL);
             assertThat(tx.getType()).isEqualTo(TransactionType.INCOME);
             assertThat(tx.getAmount()).isEqualByComparingTo("1000000.0000");
         });
         assertThat(txs).anySatisfy(tx -> {
-            assertThat(tx.getInvestmentSourceType()).isEqualTo("COLLECTION_YIELD");
+            assertThat(tx.getInvestmentSourceType()).isEqualTo(InvestmentSourceType.COLLECTION_YIELD);
             assertThat(tx.getType()).isEqualTo(TransactionType.EXPENSE);
             assertThat(tx.getAmount()).isEqualByComparingTo("150000.0000");
         });

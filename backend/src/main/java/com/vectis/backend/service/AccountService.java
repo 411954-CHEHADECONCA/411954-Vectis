@@ -1,6 +1,7 @@
 package com.vectis.backend.service;
 
 import com.vectis.backend.domain.entity.Account;
+import com.vectis.backend.domain.entity.InvestmentAssetStatus;
 import com.vectis.backend.domain.entity.InvestmentAssetType;
 import com.vectis.backend.domain.entity.User;
 import com.vectis.backend.dto.AccountBalanceResponse;
@@ -107,7 +108,8 @@ public class AccountService {
     }
 
     private BigDecimal derivedTna(UUID accountId) {
-        return investmentRepository.findTopByAccount_IdAndTypeOrderByCreatedAtDesc(accountId, InvestmentAssetType.FCI)
+        return investmentRepository.findTopByAccount_IdAndTypeAndStatusOrderByCreatedAtDesc(
+                        accountId, InvestmentAssetType.FCI, InvestmentAssetStatus.ACTIVA)
                 .map(com.vectis.backend.domain.entity.InvestmentAsset::getTna)
                 .orElse(null);
     }

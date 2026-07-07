@@ -14,6 +14,6 @@ public record GroupMovementUpdateRequest(
         @Size(max = 200, message = "La descripción no puede superar los 200 caracteres")
         String description,
 
-        @Schema(description = "ID de la categoría asociada, o null para quitar la categoría")
+        @Schema(description = "ID de la categoría asociada, o null para asignar la categoría default (\"Otros egresos\")")
         UUID categoryId
 ) {}

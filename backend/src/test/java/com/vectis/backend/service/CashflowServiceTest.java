@@ -6,6 +6,7 @@ import com.vectis.backend.domain.entity.CategoryBudget;
 import com.vectis.backend.domain.entity.CategoryType;
 import com.vectis.backend.domain.entity.InvestmentAsset;
 import com.vectis.backend.domain.entity.InvestmentAssetType;
+import com.vectis.backend.domain.entity.InvestmentSourceType;
 import com.vectis.backend.domain.entity.MonthPeriod;
 import com.vectis.backend.domain.entity.RecurringMovement;
 import com.vectis.backend.domain.entity.Transaction;
@@ -703,7 +704,7 @@ class CashflowServiceTest {
                 .tna(BigDecimal.ZERO)
                 .build();
         Transaction suscripcion = Transaction.builder()
-                .investmentAsset(asset).investmentSourceType("SUSCRIPCION")
+                .investmentAsset(asset).investmentSourceType(InvestmentSourceType.SUSCRIPCION)
                 .amount(new BigDecimal("500000.0000")).build();
 
         given(transactionRepository.findInvestmentTransactionsForCashflow(userId, firstDay, lastDay))
@@ -736,7 +737,7 @@ class CashflowServiceTest {
         given(categoryBudgetRepository.findLatestPerCategoryOnOrBefore(userId, firstDay)).willReturn(Collections.emptyList());
 
         Transaction orphanedSuscripcion = Transaction.builder()
-                .investmentAsset(null).investmentSourceType("SUSCRIPCION")
+                .investmentAsset(null).investmentSourceType(InvestmentSourceType.SUSCRIPCION)
                 .amount(new BigDecimal("1000000.0000")).build();
 
         given(transactionRepository.findInvestmentTransactionsForCashflow(userId, firstDay, lastDay))
@@ -776,10 +777,10 @@ class CashflowServiceTest {
                 .tna(BigDecimal.ZERO)
                 .build();
         Transaction liveSuscripcion = Transaction.builder()
-                .investmentAsset(asset).investmentSourceType("SUSCRIPCION")
+                .investmentAsset(asset).investmentSourceType(InvestmentSourceType.SUSCRIPCION)
                 .amount(new BigDecimal("500000.0000")).build();
         Transaction orphanedSuscripcion = Transaction.builder()
-                .investmentAsset(null).investmentSourceType("SUSCRIPCION")
+                .investmentAsset(null).investmentSourceType(InvestmentSourceType.SUSCRIPCION)
                 .amount(new BigDecimal("1000000.0000")).build();
 
         given(transactionRepository.findInvestmentTransactionsForCashflow(userId, firstDay, lastDay))
@@ -817,10 +818,10 @@ class CashflowServiceTest {
                 .tna(BigDecimal.ZERO)
                 .build();
         Transaction suscripcion = Transaction.builder()
-                .investmentAsset(asset).investmentSourceType("SUSCRIPCION")
+                .investmentAsset(asset).investmentSourceType(InvestmentSourceType.SUSCRIPCION)
                 .amount(new BigDecimal("500000.0000")).build();
         Transaction rescate = Transaction.builder()
-                .investmentAsset(asset).investmentSourceType("RESCATE")
+                .investmentAsset(asset).investmentSourceType(InvestmentSourceType.RESCATE)
                 .amount(new BigDecimal("100000.0000")).build();
 
         given(transactionRepository.findInvestmentTransactionsForCashflow(userId, firstDay, lastDay))
@@ -859,7 +860,7 @@ class CashflowServiceTest {
                 .tna(BigDecimal.ZERO)
                 .build();
         Transaction rescate = Transaction.builder()
-                .investmentAsset(asset).investmentSourceType("RESCATE").type(TransactionType.INCOME)
+                .investmentAsset(asset).investmentSourceType(InvestmentSourceType.RESCATE).type(TransactionType.INCOME)
                 .amount(new BigDecimal("80000.0000")).build();
 
         given(transactionRepository.findInvestmentTransactionsForCashflow(userId, firstDay, lastDay))
@@ -900,10 +901,10 @@ class CashflowServiceTest {
                 .principal(BigDecimal.ZERO).tna(BigDecimal.ZERO)
                 .build();
         Transaction collectionCapital = Transaction.builder()
-                .investmentAsset(asset).investmentSourceType("COLLECTION_CAPITAL").type(TransactionType.INCOME)
+                .investmentAsset(asset).investmentSourceType(InvestmentSourceType.COLLECTION_CAPITAL).type(TransactionType.INCOME)
                 .amount(new BigDecimal("1000000.0000")).build();
         Transaction collectionYield = Transaction.builder()
-                .investmentAsset(asset).investmentSourceType("COLLECTION_YIELD").type(TransactionType.INCOME)
+                .investmentAsset(asset).investmentSourceType(InvestmentSourceType.COLLECTION_YIELD).type(TransactionType.INCOME)
                 .amount(new BigDecimal("150000.0000")).build();
 
         given(transactionRepository.findInvestmentTransactionsForCashflow(userId, firstDay, lastDay))
@@ -942,15 +943,16 @@ class CashflowServiceTest {
                 .willReturn(Collections.emptyList());
         given(categoryBudgetRepository.findLatestPerCategoryOnOrBefore(userId, firstDay)).willReturn(Collections.emptyList());
 
-        // Un COLLECTION filtrado defensivamente (no debería llegar por la query real, pero se
-        // verifica que buildInvestmentSection lo ignora igual si llegara).
+        // COLLECTION_CAPITAL sí puede llegar por la query real (findInvestmentTransactionsForCashflow
+        // las incluye a propósito, ver su Javadoc) — buildInvestmentSection debe ignorarlas igual,
+        // ya que se contabilizan como ingreso en buildFlowSection, no en la sección "Inversiones".
         InvestmentAsset asset = InvestmentAsset.builder()
                 .id(UUID.randomUUID()).name("Cobro viejo")
                 .type(InvestmentAssetType.LETRA).currency("ARS")
                 .principal(BigDecimal.ZERO).tna(BigDecimal.ZERO)
                 .build();
         Transaction collection = Transaction.builder()
-                .investmentAsset(asset).investmentSourceType("COLLECTION")
+                .investmentAsset(asset).investmentSourceType(InvestmentSourceType.COLLECTION_CAPITAL)
                 .amount(new BigDecimal("999999.0000")).build();
 
         given(transactionRepository.findInvestmentTransactionsForCashflow(userId, firstDay, lastDay))
@@ -1014,7 +1016,7 @@ class CashflowServiceTest {
                 .tna(new BigDecimal("60.0000"))
                 .build();
         Transaction suscripcion = Transaction.builder()
-                .investmentAsset(asset).investmentSourceType("SUSCRIPCION")
+                .investmentAsset(asset).investmentSourceType(InvestmentSourceType.SUSCRIPCION)
                 .amount(new BigDecimal("300000.0000")).build();
 
         given(transactionRepository.findInvestmentTransactionsForCashflow(userId, firstDay, lastDay))

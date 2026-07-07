@@ -6,6 +6,7 @@ import com.vectis.backend.domain.entity.InvestmentAssetStatus;
 import com.vectis.backend.domain.entity.InvestmentAssetType;
 import com.vectis.backend.domain.entity.InvestmentMovement;
 import com.vectis.backend.domain.entity.InvestmentMovementType;
+import com.vectis.backend.domain.entity.InvestmentSourceType;
 import com.vectis.backend.domain.entity.InvestmentValuation;
 import com.vectis.backend.domain.entity.Transaction;
 import com.vectis.backend.domain.entity.TransactionType;
@@ -124,7 +125,7 @@ public class InvestmentService {
                     .installment(false)
                     .investmentAsset(saved)
                     .investmentMovement(null)
-                    .investmentSourceType("SUSCRIPCION")
+                    .investmentSourceType(InvestmentSourceType.SUSCRIPCION)
                     .build();
             transactionRepository.save(tx);
         }
@@ -197,7 +198,7 @@ public class InvestmentService {
                 .findAllByInvestmentAsset_IdAndDeletedAtIsNull(asset.getId())
                 .stream()
                 .filter(tx -> tx.getInvestmentMovement() == null
-                        && "SUSCRIPCION".equals(tx.getInvestmentSourceType()))
+                        && tx.getInvestmentSourceType() == InvestmentSourceType.SUSCRIPCION)
                 .findFirst();
 
         if (linkedTx.isEmpty()) {
@@ -345,7 +346,7 @@ public class InvestmentService {
             if (capital.signum() > 0) {
                 transactionRepository.save(buildCollectTransaction(
                         asset, user, TransactionType.INCOME, capital,
-                        "Cobro inversión (capital): ", collectDate, "COLLECTION_CAPITAL"));
+                        "Cobro inversión (capital): ", collectDate, InvestmentSourceType.COLLECTION_CAPITAL));
             }
             // La familia cuotapartes puede arrojar un rendimiento negativo (pérdida real de mercado:
             // el valor a la fecha de cobro es menor al capital). No se puede postear un monto negativo
@@ -355,11 +356,11 @@ public class InvestmentService {
             if (rendimiento.signum() > 0) {
                 transactionRepository.save(buildCollectTransaction(
                         asset, user, TransactionType.INCOME, rendimiento,
-                        "Cobro inversión (rendimiento): ", collectDate, "COLLECTION_YIELD"));
+                        "Cobro inversión (rendimiento): ", collectDate, InvestmentSourceType.COLLECTION_YIELD));
             } else if (rendimiento.signum() < 0) {
                 transactionRepository.save(buildCollectTransaction(
                         asset, user, TransactionType.EXPENSE, rendimiento.abs(),
-                        "Cobro inversión (pérdida): ", collectDate, "COLLECTION_YIELD"));
+                        "Cobro inversión (pérdida): ", collectDate, InvestmentSourceType.COLLECTION_YIELD));
             }
         }
 
@@ -374,7 +375,7 @@ public class InvestmentService {
 
     private Transaction buildCollectTransaction(InvestmentAsset asset, User user, TransactionType type,
                                                  BigDecimal amount, String descPrefix, LocalDate date,
-                                                 String sourceType) {
+                                                 InvestmentSourceType sourceType) {
         return Transaction.builder()
                 .user(user)
                 .type(type)
@@ -478,7 +479,7 @@ public class InvestmentService {
                     .installment(false)
                     .investmentAsset(asset)
                     .investmentMovement(savedMovement)
-                    .investmentSourceType(request.type().name())
+                    .investmentSourceType(InvestmentSourceType.valueOf(request.type().name()))
                     .build();
             transactionRepository.save(tx);
         }

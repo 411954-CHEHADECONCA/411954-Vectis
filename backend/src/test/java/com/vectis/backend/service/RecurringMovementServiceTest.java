@@ -1,6 +1,8 @@
 package com.vectis.backend.service;
 
 import com.vectis.backend.domain.entity.Account;
+import com.vectis.backend.domain.entity.Category;
+import com.vectis.backend.domain.entity.CategoryType;
 import com.vectis.backend.domain.entity.CreditCard;
 import com.vectis.backend.domain.entity.RecurringMovement;
 import com.vectis.backend.domain.entity.User;
@@ -64,6 +66,14 @@ class RecurringMovementServiceTest {
         otherUser = User.builder()
                 .id(otherId).email("other@vectis.com").fullName("Other User").passwordHash("hash")
                 .build();
+
+        // Default de categoría cuando categoryId viene null en el request (ver resolveCategory).
+        // lenient(): sólo lo usan los tests que llegan a resolveCategory (create/update felices);
+        // el resto (delete, toggle, get, validaciones que fallan antes) no lo necesitan.
+        org.mockito.Mockito.lenient()
+                .when(categoryRepository.findByTypeAndIsUncategorizedDefaultTrue(CategoryType.EXPENSE))
+                .thenReturn(Optional.of(Category.builder().id(UUID.randomUUID()).name("Otros egresos")
+                        .type(CategoryType.EXPENSE).isDefault(true).isUncategorizedDefault(true).build()));
     }
 
     // ─── getRecurringMovements ────────────────────────────────────────────────
@@ -111,6 +121,23 @@ class RecurringMovementServiceTest {
 
         assertThat(result).isNotNull();
         verify(recurringMovementRepository).save(any(RecurringMovement.class));
+    }
+
+    @Test
+    @DisplayName("createRecurringMovement sin categoryId asigna la categoría default \"Otros egresos\"")
+    void create_withoutCategoryId_assignsDefaultCategory() {
+        RecurringMovementRequest request = buildRequest(null, null);
+        RecurringMovement saved = buildMovement(user);
+        RecurringMovementResponse response = buildResponse(saved);
+
+        given(recurringMovementRepository.save(any(RecurringMovement.class))).willReturn(saved);
+        given(recurringMovementMapper.toResponse(saved)).willReturn(response);
+
+        recurringMovementService.createRecurringMovement(request, user);
+
+        org.mockito.ArgumentCaptor<RecurringMovement> captor = org.mockito.ArgumentCaptor.forClass(RecurringMovement.class);
+        verify(recurringMovementRepository).save(captor.capture());
+        assertThat(captor.getValue().getCategory().getName()).isEqualTo("Otros egresos");
     }
 
     @Test

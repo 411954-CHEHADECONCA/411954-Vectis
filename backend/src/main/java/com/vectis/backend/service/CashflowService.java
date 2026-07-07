@@ -4,6 +4,7 @@ import com.vectis.backend.domain.entity.Account;
 import com.vectis.backend.domain.entity.CategoryBudget;
 import com.vectis.backend.domain.entity.CategoryType;
 import com.vectis.backend.domain.entity.InvestmentAsset;
+import com.vectis.backend.domain.entity.InvestmentSourceType;
 import com.vectis.backend.domain.entity.RecurringMovement;
 import com.vectis.backend.domain.entity.Transaction;
 import com.vectis.backend.domain.entity.TransactionType;
@@ -117,10 +118,10 @@ public class CashflowService {
             // `groupByCategory` los deja afuera por el INNER JOIN implícito de `t.category.id`. Se
             // sincronizan acá como filas propias — coherente con que la cuenta ya los registró como
             // Transaction real (INCOME o, en el caso de una pérdida de mercado al cobrar, EXPENSE).
-            BigDecimal totalRescate            = sumInvestmentSourceTypeTotal(investmentTxs, "RESCATE", TransactionType.INCOME);
-            BigDecimal totalCollectionCapital   = sumInvestmentSourceTypeTotal(investmentTxs, "COLLECTION_CAPITAL", TransactionType.INCOME);
-            BigDecimal totalCollectionYieldIn   = sumInvestmentSourceTypeTotal(investmentTxs, "COLLECTION_YIELD", TransactionType.INCOME);
-            BigDecimal totalCollectionYieldOut  = sumInvestmentSourceTypeTotal(investmentTxs, "COLLECTION_YIELD", TransactionType.EXPENSE);
+            BigDecimal totalRescate            = sumInvestmentSourceTypeTotal(investmentTxs, InvestmentSourceType.RESCATE, TransactionType.INCOME);
+            BigDecimal totalCollectionCapital   = sumInvestmentSourceTypeTotal(investmentTxs, InvestmentSourceType.COLLECTION_CAPITAL, TransactionType.INCOME);
+            BigDecimal totalCollectionYieldIn   = sumInvestmentSourceTypeTotal(investmentTxs, InvestmentSourceType.COLLECTION_YIELD, TransactionType.INCOME);
+            BigDecimal totalCollectionYieldOut  = sumInvestmentSourceTypeTotal(investmentTxs, InvestmentSourceType.COLLECTION_YIELD, TransactionType.EXPENSE);
 
             BigDecimal totalInvestmentIncome  = totalRescate.add(totalCollectionCapital, MC).add(totalCollectionYieldIn, MC);
             BigDecimal totalIncome  = sumProjections(incomeRows).add(totalInvestmentIncome, MC);
@@ -300,9 +301,9 @@ public class CashflowService {
      * RESCATE, COLLECTION_CAPITAL, COLLECTION_YIELD). Se distingue por tipo porque COLLECTION_YIELD
      * puede aparecer como INCOME (rendimiento positivo) o EXPENSE (pérdida de mercado al cobrar).
      */
-    private BigDecimal sumInvestmentSourceTypeTotal(List<Transaction> investmentTxs, String sourceType, TransactionType type) {
+    private BigDecimal sumInvestmentSourceTypeTotal(List<Transaction> investmentTxs, InvestmentSourceType sourceType, TransactionType type) {
         return investmentTxs.stream()
-                .filter(tx -> sourceType.equals(tx.getInvestmentSourceType()) && tx.getType() == type)
+                .filter(tx -> tx.getInvestmentSourceType() == sourceType && tx.getType() == type)
                 .map(Transaction::getAmount)
                 .reduce(BigDecimal.ZERO, (a, b) -> a.add(b, MC));
     }
@@ -471,7 +472,7 @@ public class CashflowService {
             // Sólo SUSCRIPCION suma acá (bruto invertido). RESCATE, COLLECTION_CAPITAL y
             // COLLECTION_YIELD se ignoran: ya se contabilizan como ingreso/egreso en buildFlowSection,
             // y REVALUO nunca llega por la query.
-            if (!"SUSCRIPCION".equals(tx.getInvestmentSourceType())) {
+            if (tx.getInvestmentSourceType() != InvestmentSourceType.SUSCRIPCION) {
                 continue;
             }
             InvestmentAsset asset = tx.getInvestmentAsset();

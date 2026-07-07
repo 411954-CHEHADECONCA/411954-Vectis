@@ -1,6 +1,7 @@
 package com.vectis.backend.repository;
 
 import com.vectis.backend.domain.entity.InvestmentAsset;
+import com.vectis.backend.domain.entity.InvestmentAssetStatus;
 import com.vectis.backend.domain.entity.InvestmentAssetType;
 import org.springframework.data.jpa.repository.EntityGraph;
 import org.springframework.data.jpa.repository.JpaRepository;
@@ -37,17 +38,23 @@ public interface InvestmentRepository extends JpaRepository<InvestmentAsset, UUI
     /**
      * Vínculos activos "cuenta remunerada": un FCI vinculado a una cuenta la vuelve remunerada.
      * Batcheado por usuario para evitar N+1 en {@code AccountService#getAccounts}.
+     * Sólo activos ACTIVA: uno ya COBRADA no debe seguir marcando la cuenta como remunerada.
      */
     @Query("""
         SELECT a.account.id AS accountId, a.tna AS tna, a.createdAt AS createdAt
         FROM InvestmentAsset a
         WHERE a.user.id = :userId AND a.type = com.vectis.backend.domain.entity.InvestmentAssetType.FCI
+          AND a.status = com.vectis.backend.domain.entity.InvestmentAssetStatus.ACTIVA
           AND a.account IS NOT NULL
         """)
     List<FciAccountLinkView> findFciLinksByUser(@Param("userId") UUID userId);
 
-    /** Vínculo "cuenta remunerada" para una única cuenta — usado en create/update de cuenta. */
-    Optional<InvestmentAsset> findTopByAccount_IdAndTypeOrderByCreatedAtDesc(UUID accountId, InvestmentAssetType type);
+    /**
+     * Vínculo "cuenta remunerada" para una única cuenta — usado en create/update de cuenta.
+     * Sólo ACTIVA, por la misma razón que {@link #findFciLinksByUser}.
+     */
+    Optional<InvestmentAsset> findTopByAccount_IdAndTypeAndStatusOrderByCreatedAtDesc(
+            UUID accountId, InvestmentAssetType type, InvestmentAssetStatus status);
 
     interface FciAccountLinkView {
         UUID getAccountId();

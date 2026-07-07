@@ -46,20 +46,27 @@ public interface TransactionRepository extends JpaRepository<Transaction, UUID> 
      * (p. ej. editada desde Movimientos): esas ya se contabilizan en la sección de inversiones del
      * cashflow (SUSCRIPCION) o como ingreso sintético "Rescates de inversión" (RESCATE) — sin este
      * filtro, asignarles categoría las duplicaría en ambas secciones.
+     *
+     * <p>{@code category} es un {@code @ManyToOne} opcional (el formulario de Movimientos deja
+     * "Sin categoría" como estado válido): un {@code LEFT JOIN} + {@code COALESCE} agrupa esas
+     * transacciones sin categoría en una fila propia en vez de excluirlas — el {@code INNER JOIN}
+     * implícito que generaba navegar {@code t.category.id} directamente en el SELECT las hacía
+     * desaparecer del desglose (aunque sí sumaban al saldo real de la cuenta).
      */
     @Query("""
-        SELECT t.category.id     AS categoryId,
-               t.category.name   AS categoryName,
-               t.category.icon   AS categoryIcon,
-               t.category.color  AS categoryColor,
-               SUM(t.amount)     AS totalAmount
+        SELECT c.id                                AS categoryId,
+               COALESCE(c.name, 'Sin categoría')    AS categoryName,
+               COALESCE(c.icon, 'circle')           AS categoryIcon,
+               COALESCE(c.color, '#9ed1c5')         AS categoryColor,
+               SUM(t.amount)                        AS totalAmount
         FROM Transaction t
+        LEFT JOIN t.category c
         WHERE t.user.id = :userId AND t.deletedAt IS NULL AND t.type = :type
           AND t.transferGroupId IS NULL
           AND t.investmentAsset IS NULL
           AND ((t.card IS NOT NULL AND t.dueDate         BETWEEN :from AND :to)
             OR (t.card IS NULL    AND t.transactionDate  BETWEEN :from AND :to))
-        GROUP BY t.category.id, t.category.name, t.category.icon, t.category.color
+        GROUP BY c.id, c.name, c.icon, c.color
         ORDER BY SUM(t.amount) DESC
         """)
     List<CategorySummaryProjection> groupByCategory(@Param("userId") UUID userId,
@@ -94,7 +101,11 @@ public interface TransactionRepository extends JpaRepository<Transaction, UUID> 
     @Query("""
         SELECT t FROM Transaction t
         WHERE t.user.id = :userId AND t.deletedAt IS NULL
-          AND t.investmentSourceType IN ('SUSCRIPCION', 'RESCATE', 'COLLECTION_CAPITAL', 'COLLECTION_YIELD')
+          AND t.investmentSourceType IN (
+              com.vectis.backend.domain.entity.InvestmentSourceType.SUSCRIPCION,
+              com.vectis.backend.domain.entity.InvestmentSourceType.RESCATE,
+              com.vectis.backend.domain.entity.InvestmentSourceType.COLLECTION_CAPITAL,
+              com.vectis.backend.domain.entity.InvestmentSourceType.COLLECTION_YIELD)
           AND (t.investmentAsset IS NOT NULL OR t.category IS NULL)
           AND t.transactionDate BETWEEN :from AND :to
         ORDER BY t.investmentAsset.id

@@ -26,9 +26,9 @@ const MOCK_RECURRING: RecurringMovementResponse = {
 };
 
 const MOCK_CATS: CategoryResponse[] = [
-  { id: '1', name: 'Sueldo',       icon: 'briefcase',  color: '#52eacd', type: 'INCOME',  isDefault: true,  estimatedAmount: null    },
-  { id: '2', name: 'Supermercado', icon: 'utensils',   color: '#ffb4ab', type: 'EXPENSE', isDefault: true,  estimatedAmount: null    },
-  { id: '3', name: 'Mi gasto',     icon: 'circle',     color: '#9ed1c5', type: 'EXPENSE', isDefault: false, estimatedAmount: 30000   },
+  { id: '1', name: 'Sueldo',       icon: 'briefcase',  color: '#52eacd', type: 'INCOME',  isDefault: true,  isUncategorizedDefault: false, estimatedAmount: null    },
+  { id: '2', name: 'Supermercado', icon: 'utensils',   color: '#ffb4ab', type: 'EXPENSE', isDefault: true,  isUncategorizedDefault: false, estimatedAmount: null    },
+  { id: '3', name: 'Mi gasto',     icon: 'circle',     color: '#9ed1c5', type: 'EXPENSE', isDefault: false, isUncategorizedDefault: false, estimatedAmount: 30000   },
 ];
 
 const MOCK_ACCOUNT: AccountResponse = {
@@ -268,7 +268,7 @@ describe('ConfiguracionComponent', () => {
   });
 
   it('creates a category via service', () => {
-    const newCat: CategoryResponse = { id: '99', name: 'Nueva', icon: 'circle', color: '#52eacd', type: 'EXPENSE', isDefault: false, estimatedAmount: null };
+    const newCat: CategoryResponse = { id: '99', name: 'Nueva', icon: 'circle', color: '#52eacd', type: 'EXPENSE', isDefault: false, isUncategorizedDefault: false, estimatedAmount: null };
     catServiceSpy.createCategory.and.returnValue(of(newCat));
 
     component.openCreateCategory();

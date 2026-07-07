@@ -2,6 +2,7 @@ package com.vectis.backend.service;
 
 import com.vectis.backend.domain.entity.Account;
 import com.vectis.backend.domain.entity.Category;
+import com.vectis.backend.domain.entity.CategoryType;
 import com.vectis.backend.domain.entity.CreditCard;
 import com.vectis.backend.domain.entity.Transaction;
 import com.vectis.backend.domain.entity.TransactionType;
@@ -93,15 +94,9 @@ public class TransactionService {
     public List<MovementResponse> create(MovementRequest request, User user) {
         validateSinglePaymentMethod(request.accountId(), request.cardId());
 
-        LocalDate refDate = request.transactionDate();
-        if (!monthPeriodService.isOpen(user.getId(), refDate.getYear(), refDate.getMonthValue())) {
-            String monthName = refDate.getMonth().getDisplayName(TextStyle.FULL, Locale.of("es"));
-            throw new VectisException(
-                    "El mes " + monthName + " " + refDate.getYear() + " está cerrado. Reabrilo para registrar movimientos.",
-                    HttpStatus.CONFLICT);
-        }
+        assertMonthOpen(request.transactionDate(), user.getId(), "registrar movimientos");
 
-        Category category = resolveCategory(request.categoryId(), user);
+        Category category = resolveCategory(request.categoryId(), request.type(), user);
         Account account   = resolveAccount(request.accountId(), user);
         CreditCard card   = resolveCard(request.cardId(), user);
 
@@ -202,11 +197,16 @@ public class TransactionService {
 
         validateSinglePaymentMethod(request.accountId(), request.cardId());
 
+        // El registro ya pertenece a un mes cerrado, o se lo quiere mover a uno: ambos casos bloqueados,
+        // igual que create() — un mes cerrado debe quedar inmutable (ver InvestmentService para el mismo criterio).
+        assertMonthOpen(tx.getTransactionDate(), user.getId(), "modificar movimientos");
+        assertMonthOpen(request.transactionDate(), user.getId(), "modificar movimientos");
+
         UUID oldAccountId = tx.getAccount() != null ? tx.getAccount().getId() : null;
         TransactionType oldType = tx.getType();
         BigDecimal oldAmount = tx.getAmount();
 
-        Category category = resolveCategory(request.categoryId(), user);
+        Category category = resolveCategory(request.categoryId(), request.type(), user);
         Account account   = resolveAccount(request.accountId(), user);
         CreditCard card   = resolveCard(request.cardId(), user);
 
@@ -242,7 +242,8 @@ public class TransactionService {
         }
         requireOwnership(group.get(0), user, "modificar");
 
-        Category category = resolveCategory(request.categoryId(), user);
+        // Los planes de cuotas sólo se generan para egresos (ver createInstallmentPlan).
+        Category category = resolveCategory(request.categoryId(), TransactionType.EXPENSE.name(), user);
 
         for (Transaction tx : group) {
             tx.setDescription(request.description() + " — cuota "
@@ -259,6 +260,8 @@ public class TransactionService {
         Transaction tx = transactionRepository.findByIdAndDeletedAtIsNull(id)
                 .orElseThrow(() -> new TransactionNotFoundException(id));
         requireOwnership(tx, user, "eliminar");
+
+        assertMonthOpen(tx.getTransactionDate(), user.getId(), "eliminar movimientos");
 
         OffsetDateTime now = OffsetDateTime.now(ZoneOffset.UTC);
 
@@ -304,6 +307,15 @@ public class TransactionService {
         }
     }
 
+    private void assertMonthOpen(LocalDate date, UUID userId, String action) {
+        if (!monthPeriodService.isOpen(userId, date.getYear(), date.getMonthValue())) {
+            String monthName = date.getMonth().getDisplayName(TextStyle.FULL, Locale.of("es"));
+            throw new VectisException(
+                    "El mes " + monthName + " " + date.getYear() + " está cerrado. Reabrilo para " + action + ".",
+                    HttpStatus.CONFLICT);
+        }
+    }
+
     private void assertSufficientFunds(Account account, BigDecimal projectedBalance) {
         if (account != null && projectedBalance.signum() < 0) {
             throw new VectisException(
@@ -312,8 +324,21 @@ public class TransactionService {
         }
     }
 
-    private Category resolveCategory(UUID categoryId, User user) {
-        if (categoryId == null) return null;
+    /**
+     * Resuelve la categoría de un movimiento. Si no se eligió ninguna, asigna el default de sistema
+     * ("Otros ingresos"/"Otros egresos" según {@code movementType}) en vez de dejar {@code category = null}
+     * — un movimiento sin categoría queda oculto del desglose salvo el caso "Sin categoría" ya soportado
+     * por {@link com.vectis.backend.repository.TransactionRepository#groupByCategory}, pero preferimos no
+     * seguir generando movimientos nuevos así.
+     */
+    private Category resolveCategory(UUID categoryId, String movementType, User user) {
+        if (categoryId == null) {
+            CategoryType type = CategoryType.valueOf(movementType);
+            return categoryRepository.findByTypeAndIsUncategorizedDefaultTrue(type)
+                    .orElseThrow(() -> new VectisException(
+                            "No se encontró la categoría por defecto para " + movementType,
+                            HttpStatus.INTERNAL_SERVER_ERROR));
+        }
         Category cat = categoryRepository.findById(categoryId)
                 .orElseThrow(() -> new VectisException("Categoría no encontrada: " + categoryId, HttpStatus.NOT_FOUND));
         if (cat.getUser() != null && !cat.getUser().getId().equals(user.getId())) {

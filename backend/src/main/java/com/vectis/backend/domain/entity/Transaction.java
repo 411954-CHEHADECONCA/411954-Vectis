@@ -110,9 +110,10 @@ public class Transaction {
     @JoinColumn(name = "investment_movement_id")
     private InvestmentMovement investmentMovement;
 
-    /** Discriminador del origen de inversión: SUSCRIPCION | RESCATE | COLLECTION (null si no aplica). */
+    /** Discriminador del origen de inversión (null si no aplica) — ver {@link InvestmentSourceType}. */
+    @Enumerated(EnumType.STRING)
     @Column(name = "investment_source_type", length = 20)
-    private String investmentSourceType;
+    private InvestmentSourceType investmentSourceType;
 
     @Column(name = "deleted_at")
     private OffsetDateTime deletedAt;

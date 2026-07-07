@@ -14,7 +14,17 @@ spring:
     database-platform: org.hibernate.dialect.H2Dialect
     properties:
       hibernate:
-        globally_quoted_identifiers: true
+        # Pisa explícitamente spring.jpa.properties.hibernate.dialect=PostgreSQLDialect de
+        # application.yml (misma ruta de propiedad) — sin esto, "database-platform" de arriba no
+        # alcanza a sobreescribirlo (Spring solo lo aplica si la propiedad no está ya seteada), y
+        # Hibernate termina generando SQL Postgres-específico (p. ej. "FOR NO KEY UPDATE" en locks
+        # pesimistas) contra el motor H2, que lo rechaza.
+        dialect: org.hibernate.dialect.H2Dialect
+        # NO se activa globally_quoted_identifiers acá: MonthPeriod.year/month ya se citan puntualmente
+        # a nivel de columna (@Column(name = "`year`")) para esquivar los built-ins de H2 (YEAR()/MONTH())
+        # sin forzar el case-folding de identificadores sin comillas en TODO el esquema — eso rompía
+        # queries nativas escritas sin comillas (ver FciVcpSnapshotRepositoryTest, que ya no necesita
+        # su propio contexto aislado gracias a este cambio).
         default_schema: PUBLIC
   flyway:
     enabled: false

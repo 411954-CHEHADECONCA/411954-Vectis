@@ -2,6 +2,7 @@ package com.vectis.backend.service;
 
 import com.vectis.backend.domain.entity.Account;
 import com.vectis.backend.domain.entity.InvestmentAsset;
+import com.vectis.backend.domain.entity.InvestmentAssetStatus;
 import com.vectis.backend.domain.entity.InvestmentAssetType;
 import com.vectis.backend.domain.entity.User;
 import com.vectis.backend.dto.AccountBalanceResponse;
@@ -199,7 +200,7 @@ class AccountServiceTest {
         AccountResponse baseResponse = buildResponse(saved, null, null);
 
         given(accountRepository.save(any(Account.class))).willReturn(saved);
-        given(investmentRepository.findTopByAccount_IdAndTypeOrderByCreatedAtDesc(saved.getId(), InvestmentAssetType.FCI))
+        given(investmentRepository.findTopByAccount_IdAndTypeAndStatusOrderByCreatedAtDesc(saved.getId(), InvestmentAssetType.FCI, InvestmentAssetStatus.ACTIVA))
                 .willReturn(Optional.empty());
         given(accountMapper.toResponse(saved, null)).willReturn(baseResponse);
         given(balanceService.currentBalance(saved, userId)).willReturn(new BigDecimal("150000.0000"));
@@ -219,7 +220,7 @@ class AccountServiceTest {
         AccountResponse baseResponse = buildResponse(saved, null, null);
 
         given(accountRepository.save(any(Account.class))).willReturn(saved);
-        given(investmentRepository.findTopByAccount_IdAndTypeOrderByCreatedAtDesc(saved.getId(), InvestmentAssetType.FCI))
+        given(investmentRepository.findTopByAccount_IdAndTypeAndStatusOrderByCreatedAtDesc(saved.getId(), InvestmentAssetType.FCI, InvestmentAssetStatus.ACTIVA))
                 .willReturn(Optional.empty());
         given(accountMapper.toResponse(saved, null)).willReturn(baseResponse);
         given(balanceService.currentBalance(eq(saved), eq(userId))).willReturn(new BigDecimal("150000.0000"));
@@ -266,7 +267,7 @@ class AccountServiceTest {
 
         given(accountRepository.findById(id)).willReturn(Optional.of(account));
         given(accountRepository.save(account)).willReturn(account);
-        given(investmentRepository.findTopByAccount_IdAndTypeOrderByCreatedAtDesc(account.getId(), InvestmentAssetType.FCI))
+        given(investmentRepository.findTopByAccount_IdAndTypeAndStatusOrderByCreatedAtDesc(account.getId(), InvestmentAssetType.FCI, InvestmentAssetStatus.ACTIVA))
                 .willReturn(Optional.empty());
         given(accountMapper.toResponse(account, null)).willReturn(baseResponse);
         given(balanceService.currentBalance(account, userId)).willReturn(new BigDecimal("200000.0000"));
@@ -290,7 +291,7 @@ class AccountServiceTest {
 
         given(accountRepository.findById(id)).willReturn(Optional.of(account));
         given(accountRepository.save(account)).willReturn(account);
-        given(investmentRepository.findTopByAccount_IdAndTypeOrderByCreatedAtDesc(account.getId(), InvestmentAssetType.FCI))
+        given(investmentRepository.findTopByAccount_IdAndTypeAndStatusOrderByCreatedAtDesc(account.getId(), InvestmentAssetType.FCI, InvestmentAssetStatus.ACTIVA))
                 .willReturn(Optional.of(linkedFci));
         given(accountMapper.toResponse(account, linkedTna)).willReturn(baseResponse);
         given(balanceService.currentBalance(account, userId)).willReturn(new BigDecimal("150000.0000"));
@@ -355,7 +356,7 @@ class AccountServiceTest {
         AccountResponse baseResponse = buildResponse(saved, null, null);
 
         given(accountRepository.save(any(Account.class))).willReturn(saved);
-        given(investmentRepository.findTopByAccount_IdAndTypeOrderByCreatedAtDesc(saved.getId(), InvestmentAssetType.FCI))
+        given(investmentRepository.findTopByAccount_IdAndTypeAndStatusOrderByCreatedAtDesc(saved.getId(), InvestmentAssetType.FCI, InvestmentAssetStatus.ACTIVA))
                 .willReturn(Optional.empty());
         given(accountMapper.toResponse(saved, null)).willReturn(baseResponse);
         given(balanceService.currentBalance(saved, userId)).willReturn(new BigDecimal("150000.0000"));
@@ -385,7 +386,7 @@ class AccountServiceTest {
 
         given(accountRepository.findById(id)).willReturn(Optional.of(account));
         given(accountRepository.save(account)).willReturn(updatedAccount);
-        given(investmentRepository.findTopByAccount_IdAndTypeOrderByCreatedAtDesc(updatedAccount.getId(), InvestmentAssetType.FCI))
+        given(investmentRepository.findTopByAccount_IdAndTypeAndStatusOrderByCreatedAtDesc(updatedAccount.getId(), InvestmentAssetType.FCI, InvestmentAssetStatus.ACTIVA))
                 .willReturn(Optional.empty());
         given(accountMapper.toResponse(updatedAccount, null)).willReturn(baseResponse);
         given(balanceService.currentBalance(updatedAccount, userId)).willReturn(new BigDecimal("150000.0000"));

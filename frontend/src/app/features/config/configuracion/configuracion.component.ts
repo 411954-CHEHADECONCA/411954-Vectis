@@ -306,6 +306,7 @@ export class ConfiguracionComponent implements OnInit {
       color:           (v.color as string)         || '#52eacd',
       type:            (v.type  as CategoryType)   || 'EXPENSE',
       isDefault:       false,
+      isUncategorizedDefault: false,
       estimatedAmount: null,
     };
   });

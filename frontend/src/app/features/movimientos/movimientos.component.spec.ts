@@ -19,8 +19,10 @@ import { CardResponse } from '../../core/models/card.models';
 import { CardFace, CardOverview } from '../../core/models/card-projection.models';
 
 const MOCK_CATS: CategoryResponse[] = [
-  { id: '1', name: 'Sueldo',       icon: 'briefcase', color: '#52eacd', type: 'INCOME',  isDefault: true,  estimatedAmount: null },
-  { id: '2', name: 'Supermercado', icon: 'utensils',  color: '#ffb4ab', type: 'EXPENSE', isDefault: true,  estimatedAmount: null },
+  { id: '1', name: 'Sueldo',        icon: 'briefcase', color: '#52eacd', type: 'INCOME',  isDefault: true,  isUncategorizedDefault: false, estimatedAmount: null },
+  { id: '2', name: 'Supermercado',  icon: 'utensils',  color: '#ffb4ab', type: 'EXPENSE', isDefault: true,  isUncategorizedDefault: false, estimatedAmount: null },
+  { id: '3', name: 'Otros ingresos', icon: 'circle',   color: '#9CA3AF', type: 'INCOME',  isDefault: true,  isUncategorizedDefault: true,  estimatedAmount: null },
+  { id: '4', name: 'Otros egresos',  icon: 'circle',   color: '#9CA3AF', type: 'EXPENSE', isDefault: true,  isUncategorizedDefault: true,  estimatedAmount: null },
 ];
 
 const MOCK_ACCOUNT: AccountResponse = {
@@ -130,6 +132,21 @@ describe('MovimientosComponent', () => {
     expect(args.from.slice(0, 7)).toBe(args.to.slice(0, 7)); // mismo mes
     expect(args.from.endsWith('-01')).toBeTrue();
     expect(component.page()?.content.length).toBe(1);
+  });
+
+  it('openCreate preselects the default "Otros egresos" category (form type defaults to EXPENSE)', () => {
+    component.openCreate();
+    expect(component.movementForm.controls.categoryId.value).toBe('4');
+  });
+
+  it('switching type to INCOME reassigns categoryId to the "Otros ingresos" default when the current category no longer applies', () => {
+    component.openCreate();
+    expect(component.movementForm.controls.categoryId.value).toBe('4'); // Otros egresos
+
+    component.movementForm.controls.type.setValue('INCOME');
+    component.onTypeOrSourceChange();
+
+    expect(component.movementForm.controls.categoryId.value).toBe('3'); // Otros ingresos
   });
 
   it('switching type to INCOME clears a selected card in the form', () => {

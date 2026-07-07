@@ -21,6 +21,7 @@ public class CategoryMapper {
                 .color(category.getColor())
                 .type(category.getType())
                 .isDefault(category.isDefault())
+                .isUncategorizedDefault(category.isUncategorizedDefault())
                 .estimatedAmount(estimatedAmount)
                 .build();
     }
