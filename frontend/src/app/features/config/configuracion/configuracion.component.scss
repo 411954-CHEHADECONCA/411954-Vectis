@@ -1008,6 +1008,27 @@
   flex-shrink: 0;
 }
 
+.api-section-head__actions {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+
+.market-refresh-feedback {
+  font-size: var(--text-caption);
+  color: var(--color-primary);
+
+  &--error { color: var(--color-error); }
+}
+
+.icon-spin { animation: spin 0.9s linear infinite; }
+
+@keyframes spin {
+  from { transform: rotate(0deg); }
+  to   { transform: rotate(360deg); }
+}
+
 .macro-grid {
   display: grid;
   grid-template-columns: repeat(3, 1fr);

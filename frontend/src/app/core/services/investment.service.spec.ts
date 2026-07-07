@@ -378,4 +378,41 @@ describe('InvestmentService', () => {
     );
     req.flush({ message: 'Not found' }, { status: 404, statusText: 'Not Found' });
   });
+
+  // ── refreshMarketData ────────────────────────────────────────────────────────
+
+  it('refreshMarketData(true) hace POST a /market/refresh con force=true', () => {
+    const mockResponse = {
+      sources: [
+        { source: 'mep', status: 'refreshed', lastUpdate: '2026-07-07' },
+        { source: 'oficial', status: 'upToDate', lastUpdate: '2026-07-07' },
+        { source: 'fci', status: 'refreshed', lastUpdate: '2026-07-07' },
+        { source: 'ppi', status: 'notConfigured', lastUpdate: null },
+      ],
+    };
+
+    service.refreshMarketData(true).subscribe(res => {
+      expect(res.sources.length).toBe(4);
+      expect(res.sources[0].source).toBe('mep');
+      expect(res.sources[0].status).toBe('refreshed');
+    });
+
+    const req = httpMock.expectOne(r =>
+      r.url === `${baseUrl}/market/refresh` &&
+      r.method === 'POST' &&
+      r.params.get('force') === 'true',
+    );
+    req.flush(mockResponse);
+  });
+
+  it('refreshMarketData(false) hace POST a /market/refresh con force=false', () => {
+    service.refreshMarketData(false).subscribe();
+
+    const req = httpMock.expectOne(r =>
+      r.url === `${baseUrl}/market/refresh` &&
+      r.method === 'POST' &&
+      r.params.get('force') === 'false',
+    );
+    req.flush({ sources: [] });
+  });
 });

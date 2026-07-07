@@ -14,5 +14,17 @@ public record MarketApiStatusDto(
     LocalDate fciLastSync,
 
     @Schema(description = "Indica si PPI (Portfolio Personal Inversiones) está configurado con credenciales", example = "true")
-    boolean ppiConfigured
+    boolean ppiConfigured,
+
+    @Schema(description = "Fecha de la valuación PPI (LETRA/BONO/ON) más reciente registrada, o null si nunca se sincronizó",
+            example = "2026-07-07", nullable = true)
+    LocalDate ppiLastSync,
+
+    @Schema(description = "Fecha de la cotización MEP más reciente registrada, o null si nunca se sincronizó",
+            example = "2026-07-07", nullable = true)
+    LocalDate mepLastUpdate,
+
+    @Schema(description = "Fecha de la cotización oficial más reciente registrada, o null si nunca se sincronizó",
+            example = "2026-07-07", nullable = true)
+    LocalDate oficialLastUpdate
 ) {}

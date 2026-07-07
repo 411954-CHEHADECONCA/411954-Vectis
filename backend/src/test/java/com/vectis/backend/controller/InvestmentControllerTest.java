@@ -51,6 +51,7 @@ import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.BDDMockito.given;
 import static org.mockito.Mockito.doNothing;
 import static org.mockito.Mockito.doThrow;
+import static org.mockito.Mockito.verify;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.*;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.*;
 
@@ -67,6 +68,8 @@ class InvestmentControllerTest {
     @MockBean private FciValuationSyncService  fciValuationSyncService;
     @MockBean private PpiValuationSyncService  ppiValuationSyncService;
     @MockBean private PpiMarketDataClient      ppiMarketDataClient;
+    @MockBean private com.vectis.backend.service.MacroDataService macroDataService;
+    @MockBean private com.vectis.backend.service.MarketDataRefreshService marketDataRefreshService;
     @MockBean private JwtService                jwtService;
     @MockBean private UserRepository            userRepository;
 
@@ -1027,6 +1030,88 @@ class InvestmentControllerTest {
                         .param("ticker", "AL30")
                         .param("type", "BONO")
                         .param("fecha", "2026-06-25"))
+                .andExpect(status().isUnauthorized());
+    }
+
+    // ─── GET /api/investments/market/status ────────────────────────────────────
+
+    @Test
+    @DisplayName("GET /market/status retorna 200 con los campos extendidos de última sincronización")
+    void getMarketApiStatus_returns200WithExtendedFields() throws Exception {
+        given(fciValuationSyncService.getSnapshotCount()).willReturn(74L);
+        given(fciValuationSyncService.getLastSyncDate()).willReturn(LocalDate.of(2026, 6, 25));
+        given(ppiMarketDataClient.isConfigured()).willReturn(true);
+        given(ppiValuationSyncService.getLastSyncDate()).willReturn(LocalDate.of(2026, 7, 3));
+        given(macroDataService.getLatestMepDate()).willReturn(LocalDate.of(2026, 7, 3));
+        given(macroDataService.getLatestOficialDate()).willReturn(LocalDate.of(2026, 7, 6));
+
+        mockMvc.perform(get("/api/investments/market/status")
+                        .header(HttpHeaders.AUTHORIZATION, AUTH_HEADER))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.fciSnapshotsTotal").value(74))
+                .andExpect(jsonPath("$.fciLastSync").value("2026-06-25"))
+                .andExpect(jsonPath("$.ppiConfigured").value(true))
+                .andExpect(jsonPath("$.ppiLastSync").value("2026-07-03"))
+                .andExpect(jsonPath("$.mepLastUpdate").value("2026-07-03"))
+                .andExpect(jsonPath("$.oficialLastUpdate").value("2026-07-06"));
+    }
+
+    @Test
+    @DisplayName("GET /market/status sin token retorna 401")
+    void getMarketApiStatus_returns401_whenNoToken() throws Exception {
+        mockMvc.perform(get("/api/investments/market/status"))
+                .andExpect(status().isUnauthorized());
+    }
+
+    // ─── POST /api/investments/market/refresh ──────────────────────────────────
+
+    @Test
+    @DisplayName("POST /market/refresh sin param force (default false) retorna 200 con el resumen por fuente")
+    void refreshMarketData_defaultForce_returns200WithSummary() throws Exception {
+        given(marketDataRefreshService.refresh(false)).willReturn(new com.vectis.backend.dto.MarketRefreshResponse(
+                List.of(
+                        new com.vectis.backend.dto.MarketSourceRefreshResult("mep", "refreshed", LocalDate.of(2026, 7, 7)),
+                        new com.vectis.backend.dto.MarketSourceRefreshResult("oficial", "upToDate", LocalDate.of(2026, 7, 7)),
+                        new com.vectis.backend.dto.MarketSourceRefreshResult("fci", "refreshed", LocalDate.of(2026, 7, 7)),
+                        new com.vectis.backend.dto.MarketSourceRefreshResult("ppi", "notConfigured", null)
+                )));
+
+        mockMvc.perform(post("/api/investments/market/refresh")
+                        .header(HttpHeaders.AUTHORIZATION, AUTH_HEADER))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.sources[0].source").value("mep"))
+                .andExpect(jsonPath("$.sources[0].status").value("refreshed"))
+                .andExpect(jsonPath("$.sources[0].lastUpdate").value("2026-07-07"))
+                .andExpect(jsonPath("$.sources[1].source").value("oficial"))
+                .andExpect(jsonPath("$.sources[1].status").value("upToDate"))
+                .andExpect(jsonPath("$.sources[2].source").value("fci"))
+                .andExpect(jsonPath("$.sources[2].status").value("refreshed"))
+                .andExpect(jsonPath("$.sources[3].source").value("ppi"))
+                .andExpect(jsonPath("$.sources[3].status").value("notConfigured"))
+                .andExpect(jsonPath("$.sources[3].lastUpdate").doesNotExist());
+
+        verify(marketDataRefreshService).refresh(false);
+    }
+
+    @Test
+    @DisplayName("POST /market/refresh?force=true propaga force=true al servicio")
+    void refreshMarketData_forceTrue_propagatesToService() throws Exception {
+        given(marketDataRefreshService.refresh(true)).willReturn(
+                new com.vectis.backend.dto.MarketRefreshResponse(List.of()));
+
+        mockMvc.perform(post("/api/investments/market/refresh")
+                        .param("force", "true")
+                        .header(HttpHeaders.AUTHORIZATION, AUTH_HEADER))
+                .andExpect(status().isOk());
+
+        verify(marketDataRefreshService).refresh(true);
+        verify(marketDataRefreshService, org.mockito.Mockito.never()).refresh(false);
+    }
+
+    @Test
+    @DisplayName("POST /market/refresh sin token retorna 401")
+    void refreshMarketData_returns401_whenNoToken() throws Exception {
+        mockMvc.perform(post("/api/investments/market/refresh"))
                 .andExpect(status().isUnauthorized());
     }
 }

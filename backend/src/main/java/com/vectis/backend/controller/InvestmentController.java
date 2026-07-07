@@ -9,6 +9,7 @@ import com.vectis.backend.dto.InvestmentCollectPreviewResponse;
 import com.vectis.backend.dto.InvestmentCollectRequest;
 import com.vectis.backend.dto.InvestmentCollectResponse;
 import com.vectis.backend.dto.MarketApiStatusDto;
+import com.vectis.backend.dto.MarketRefreshResponse;
 import com.vectis.backend.dto.InvestmentMovementRequest;
 import com.vectis.backend.dto.InvestmentMovementUpdateRequest;
 import com.vectis.backend.dto.InvestmentRequest;
@@ -17,6 +18,8 @@ import com.vectis.backend.dto.InvestmentValuationRequest;
 import com.vectis.backend.exception.GlobalExceptionHandler.ErrorResponse;
 import com.vectis.backend.exception.VectisException;
 import com.vectis.backend.service.FciValuationSyncService;
+import com.vectis.backend.service.MacroDataService;
+import com.vectis.backend.service.MarketDataRefreshService;
 import com.vectis.backend.service.PpiValuationSyncService;
 import com.vectis.backend.service.InvestmentService;
 import io.swagger.v3.oas.annotations.Operation;
@@ -51,6 +54,8 @@ public class InvestmentController {
     private final FciValuationSyncService  fciValuationSyncService;
     private final PpiValuationSyncService  ppiValuationSyncService;
     private final PpiMarketDataClient      ppiMarketDataClient;
+    private final MacroDataService         macroDataService;
+    private final MarketDataRefreshService marketDataRefreshService;
 
     @GetMapping
     @Operation(summary = "Listar activos de inversión del usuario autenticado")
@@ -359,8 +364,29 @@ public class InvestmentController {
         return new MarketApiStatusDto(
             fciValuationSyncService.getSnapshotCount(),
             fciValuationSyncService.getLastSyncDate(),
-            ppiMarketDataClient.isConfigured()
+            ppiMarketDataClient.isConfigured(),
+            ppiValuationSyncService.getLastSyncDate(),
+            macroDataService.getLatestMepDate(),
+            macroDataService.getLatestOficialDate()
         );
+    }
+
+    @PostMapping("/market/refresh")
+    @Operation(summary = "Forzar el refresh on-demand de los datos de mercado (MEP, oficial, FCI, PPI)",
+               description = "Por cada fuente, si ya está al día para el último día hábil no vuelve a consultar "
+                       + "la API externa (salvo que force=true). Cada fuente se procesa de forma independiente: "
+                       + "si una falla, las demás igual se intentan actualizar.")
+    @ApiResponses({
+        @ApiResponse(responseCode = "200", description = "Resumen del refresh, un resultado por fuente",
+            content = @Content(schema = @Schema(implementation = MarketRefreshResponse.class))),
+        @ApiResponse(responseCode = "401", description = "Token JWT ausente o inválido",
+            content = @Content(schema = @Schema(implementation = ErrorResponse.class))),
+        @ApiResponse(responseCode = "500", description = "Error interno del servidor",
+            content = @Content(schema = @Schema(implementation = ErrorResponse.class)))
+    })
+    public MarketRefreshResponse refreshMarketData(
+            @RequestParam(defaultValue = "false") boolean force) {
+        return marketDataRefreshService.refresh(force);
     }
 
     @GetMapping("/market/instruments")

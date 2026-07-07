@@ -16,7 +16,7 @@ import { NgTemplateOutlet } from '@angular/common';
 import { HttpErrorResponse } from '@angular/common/http';
 import { toSignal } from '@angular/core/rxjs-interop';
 import { ActivatedRoute } from '@angular/router';
-import { take, catchError, of } from 'rxjs';
+import { take, catchError, finalize, of } from 'rxjs';
 import {
   LucidePlus,
   LucidePencil,
@@ -195,22 +195,21 @@ export class ConfiguracionComponent implements OnInit {
   recurringError      = signal<string | null>(null);
 
   // ── Macro data (API Control tab) ──────────────────────────────────────────
-  readonly oficialRate = toSignal<ExchangeRateResponse | null>(
-    this.macroService.getLatestOficialRate().pipe(catchError(() => of(null))),
-    { initialValue: null },
-  );
-  readonly mepRate = toSignal<ExchangeRateResponse | null>(
-    this.macroService.getLatestMepRate().pipe(catchError(() => of(null))),
-    { initialValue: null },
-  );
+  // oficialRate / mepRate / apiStatus son señales inscribibles (en vez de toSignal
+  // de un solo disparo) porque el refresh on-demand del mercado necesita poder
+  // recargarlas después de POST /investments/market/refresh.
+  oficialRate = signal<ExchangeRateResponse | null>(null);
+  mepRate     = signal<ExchangeRateResponse | null>(null);
+  apiStatus   = signal<MarketApiStatus | null>(null);
+
   readonly inflation = toSignal<InflationResponse | null>(
     this.macroService.getLatestInflation().pipe(catchError(() => of(null))),
     { initialValue: null },
   );
-  readonly apiStatus = toSignal<MarketApiStatus | null>(
-    this.investmentService.getMarketApiStatus().pipe(catchError(() => of(null))),
-    { initialValue: null },
-  );
+
+  // ── Refresh on-demand de mercado (Dólar Oficial, MEP, FCI, PPI) ─────────────
+  marketRefreshing = signal(false);
+  marketRefreshFeedback = signal<{ tone: 'success' | 'error'; text: string } | null>(null);
 
   // ── Tab defs (for template loop) ──────────────────────────────────────────
   tabDefs = computed(() => [
@@ -317,11 +316,58 @@ export class ConfiguracionComponent implements OnInit {
     this.loadCards();
     this.loadCategories();
     this.loadRecurringMovements();
+    this.loadOficialRate();
+    this.loadMepRate();
+    this.loadApiStatus();
     // Navegación desde /tarjetas → "Agregar tarjeta"
     this.route.queryParams.pipe(take(1)).subscribe(params => {
       if (params['tab']) this.setTab(params['tab'] as Tab);
       if (params['modal'] === 'create-card') this.openCreateCard();
     });
+  }
+
+  loadOficialRate(): void {
+    this.macroService.getLatestOficialRate().pipe(catchError(() => of(null)))
+      .subscribe(r => this.oficialRate.set(r));
+  }
+
+  loadMepRate(): void {
+    this.macroService.getLatestMepRate().pipe(catchError(() => of(null)))
+      .subscribe(r => this.mepRate.set(r));
+  }
+
+  loadApiStatus(): void {
+    this.investmentService.getMarketApiStatus().pipe(catchError(() => of(null)))
+      .subscribe(s => this.apiStatus.set(s));
+  }
+
+  /** Refresh on-demand (forzado) disparado desde la sección "Mercado de inversiones". */
+  refreshMarketData(): void {
+    if (this.marketRefreshing()) return;
+    this.marketRefreshing.set(true);
+    this.marketRefreshFeedback.set(null);
+    this.investmentService.refreshMarketData(true)
+      .pipe(
+        catchError((err: HttpErrorResponse) => {
+          this.marketRefreshFeedback.set({
+            tone: 'error',
+            text: err.error?.message ?? 'No se pudo actualizar el mercado',
+          });
+          return of(null);
+        }),
+        finalize(() => this.marketRefreshing.set(false)),
+      )
+      .subscribe(res => {
+        if (!res) return;
+        if (res.sources.every(s => s.status === 'alreadyRunning')) {
+          this.marketRefreshFeedback.set({ tone: 'success', text: 'Ya hay una actualización en curso' });
+          return;
+        }
+        this.marketRefreshFeedback.set({ tone: 'success', text: 'Datos de mercado actualizados' });
+        this.loadApiStatus();
+        this.loadOficialRate();
+        this.loadMepRate();
+      });
   }
 
   loadAccounts(): void {

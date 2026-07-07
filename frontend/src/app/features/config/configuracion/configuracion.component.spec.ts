@@ -55,6 +55,7 @@ const MOCK_IPC: InflationResponse = {
 const MOCK_MARKET_STATUS: MarketApiStatus = {
   fciSnapshotsTotal: 74, fciLastSync: '2026-06-25',
   ppiConfigured: true,
+  ppiLastSync: '2026-06-25', mepLastUpdate: '2026-06-25', oficialLastUpdate: '2026-06-25',
 };
 
 describe('ConfiguracionComponent', () => {
@@ -97,9 +98,17 @@ describe('ConfiguracionComponent', () => {
     macroServiceSpy.getLatestInflation.and.returnValue(of(MOCK_IPC));
 
     investmentServiceSpy = jasmine.createSpyObj<InvestmentService>('InvestmentService', [
-      'getMarketApiStatus',
+      'getMarketApiStatus', 'refreshMarketData',
     ]);
     investmentServiceSpy.getMarketApiStatus.and.returnValue(of(MOCK_MARKET_STATUS));
+    investmentServiceSpy.refreshMarketData.and.returnValue(of({
+      sources: [
+        { source: 'mep', status: 'refreshed', lastUpdate: '2026-06-26' },
+        { source: 'oficial', status: 'upToDate', lastUpdate: '2026-06-26' },
+        { source: 'fci', status: 'refreshed', lastUpdate: '2026-06-26' },
+        { source: 'ppi', status: 'notConfigured', lastUpdate: null },
+      ],
+    }));
 
     await TestBed.configureTestingModule({
       imports: [ConfiguracionComponent, ReactiveFormsModule],
@@ -500,6 +509,69 @@ describe('ConfiguracionComponent', () => {
     it('no muestra ningun badge Sin datos cuando todos los datos estan disponibles', () => {
       const errorBadges = fixture.nativeElement.querySelectorAll('.macro-badge--error');
       expect(errorBadges.length).toBe(0);
+    });
+
+    // ── Timestamps de refresh on-demand ────────────────────────────────────────
+
+    it('apiStatus se carga con el mock, incluyendo los timestamps nuevos', () => {
+      expect(component.apiStatus()).toEqual(MOCK_MARKET_STATUS);
+    });
+
+    it('muestra la última actualización del Dólar Oficial formateada dd/mm/yyyy', () => {
+      const metas = fixture.nativeElement.textContent as string;
+      expect(metas).toContain(`Última actualización: ${component.fmtIsoDate(MOCK_MARKET_STATUS.oficialLastUpdate!)}`);
+    });
+
+    it('muestra la última actualización del Dólar MEP formateada dd/mm/yyyy', () => {
+      const metas = fixture.nativeElement.textContent as string;
+      const expected = `Última actualización: ${component.fmtIsoDate(MOCK_MARKET_STATUS.mepLastUpdate!)}`;
+      expect((metas.match(new RegExp(expected, 'g')) ?? []).length).toBeGreaterThanOrEqual(1);
+    });
+
+    it('muestra la última sincronización de PPI formateada dd/mm/yyyy', () => {
+      const metas = fixture.nativeElement.textContent as string;
+      expect(metas).toContain(`Última actualización: ${component.fmtIsoDate(MOCK_MARKET_STATUS.ppiLastSync!)}`);
+    });
+
+    // ── Botón "Actualizar ahora" ────────────────────────────────────────────────
+
+    it('el botón "Actualizar ahora" está visible en la sección Mercado de inversiones', () => {
+      const btn: HTMLButtonElement = fixture.nativeElement.querySelector('.btn-retry');
+      expect(btn).toBeTruthy();
+      expect(btn.textContent).toContain('Actualizar ahora');
+    });
+
+    it('refreshMarketData() llama al service con force=true y recarga apiStatus + tasas macro', () => {
+      investmentServiceSpy.getMarketApiStatus.calls.reset();
+      macroServiceSpy.getLatestOficialRate.calls.reset();
+      macroServiceSpy.getLatestMepRate.calls.reset();
+
+      component.refreshMarketData();
+
+      expect(investmentServiceSpy.refreshMarketData).toHaveBeenCalledWith(true);
+      expect(investmentServiceSpy.getMarketApiStatus).toHaveBeenCalled();
+      expect(macroServiceSpy.getLatestOficialRate).toHaveBeenCalled();
+      expect(macroServiceSpy.getLatestMepRate).toHaveBeenCalled();
+      expect(component.marketRefreshing()).toBeFalse();
+      expect(component.marketRefreshFeedback()?.tone).toBe('success');
+    });
+
+    it('el botón se deshabilita mientras marketRefreshing() está en true', () => {
+      component.marketRefreshing.set(true);
+      fixture.detectChanges();
+      const btn: HTMLButtonElement = fixture.nativeElement.querySelector('.btn-retry');
+      expect(btn.disabled).toBeTrue();
+    });
+
+    it('refreshMarketData() maneja el error sin dejar marketRefreshing() colgado', () => {
+      investmentServiceSpy.refreshMarketData.and.returnValue(
+        throwError(() => ({ error: { message: 'Error de refresh' } })),
+      );
+
+      component.refreshMarketData();
+
+      expect(component.marketRefreshing()).toBeFalse();
+      expect(component.marketRefreshFeedback()).toEqual({ tone: 'error', text: 'Error de refresh' });
     });
   });
 

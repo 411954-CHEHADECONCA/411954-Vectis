@@ -163,6 +163,22 @@ public class MacroDataService {
                 .orElseThrow(() -> new VectisException("Cotizacion oficial no disponible", HttpStatus.NOT_FOUND));
     }
 
+    /** Fecha de la cotización MEP más reciente registrada, o null si nunca se sincronizó. */
+    @Transactional(readOnly = true)
+    public LocalDate getLatestMepDate() {
+        return exchangeRateRepository.findTopByRateTypeOrderByRateDateDesc(RATE_TYPE_MEP)
+                .map(ExchangeRate::getRateDate)
+                .orElse(null);
+    }
+
+    /** Fecha de la cotización oficial más reciente registrada, o null si nunca se sincronizó. */
+    @Transactional(readOnly = true)
+    public LocalDate getLatestOficialDate() {
+        return exchangeRateRepository.findTopByRateTypeOrderByRateDateDesc(RATE_TYPE_OFICIAL)
+                .map(ExchangeRate::getRateDate)
+                .orElse(null);
+    }
+
     @Transactional(readOnly = true)
     public InflationResponse getLatestInflation() {
         return inflationRecordRepository.findTopByOrderByPeriodDateDesc()

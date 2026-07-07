@@ -28,10 +28,10 @@ import java.util.stream.Collectors;
 @Slf4j
 @Service
 @RequiredArgsConstructor
-@Transactional(readOnly = true)
 public class PpiValuationSyncService {
 
-    private static final List<InvestmentAssetType> PPI_TYPES =
+    /** Tipos de activo cuyos precios se obtienen de PPI. Compartido con MarketDataRefreshService. */
+    public static final List<InvestmentAssetType> PPI_TYPES =
             List.of(InvestmentAssetType.LETRA, InvestmentAssetType.BONO, InvestmentAssetType.ON);
 
     private final PpiMarketDataClient            ppiMarketDataClient;
@@ -43,8 +43,10 @@ public class PpiValuationSyncService {
      * Sincroniza precios de cierre para activos LETRA/BONO/ON con auto-tracking activado.
      * L-V a las 21:00 UTC.
      */
+    // Sin @Transactional: el bucle hace una llamada HTTP a PPI por activo (login + N precios);
+    // una transacción abierta acá retendría la conexión JDBC durante todo el sync. Cada
+    // valuación se persiste en su propia transacción corta (savePpiValuation, REQUIRES_NEW).
     @Scheduled(cron = "0 0 21 * * MON-FRI")
-    @Transactional
     public void syncPpiValuations() {
         if (!ppiMarketDataClient.isConfigured()) {
             log.info("PPI no configurado — se omite syncPpiValuations");
@@ -104,6 +106,12 @@ public class PpiValuationSyncService {
 
     public boolean isConfigured() {
         return ppiMarketDataClient.isConfigured();
+    }
+
+    /** Fecha de la valuación PPI (LETRA/BONO/ON) más reciente registrada, o null si nunca se sincronizó. */
+    @Transactional(readOnly = true)
+    public LocalDate getLastSyncDate() {
+        return valuationRepository.findMaxValuationDateBySource("PPI").orElse(null);
     }
 
     // ─── Backfill histórico de valuaciones ──────────────────────────────────────

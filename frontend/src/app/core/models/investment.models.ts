@@ -121,6 +121,24 @@ export interface MarketApiStatus {
   fciSnapshotsTotal: number;
   fciLastSync:       string | null;   // yyyy-MM-dd
   ppiConfigured:     boolean;
+  ppiLastSync?:      string | null;   // yyyy-MM-dd
+  mepLastUpdate?:    string | null;   // yyyy-MM-dd
+  oficialLastUpdate?: string | null;  // yyyy-MM-dd
+}
+
+/** Fuente sincronizada por el refresh on-demand de datos de mercado. */
+export type MarketRefreshSourceName = 'mep' | 'oficial' | 'fci' | 'ppi';
+
+export type MarketRefreshStatus = 'refreshed' | 'upToDate' | 'failed' | 'notConfigured' | 'alreadyRunning';
+
+export interface MarketRefreshSource {
+  source:     MarketRefreshSourceName;
+  status:     MarketRefreshStatus;
+  lastUpdate: string | null;   // yyyy-MM-dd
+}
+
+export interface MarketRefreshResponse {
+  sources: MarketRefreshSource[];
 }
 
 export interface FciFundOption {

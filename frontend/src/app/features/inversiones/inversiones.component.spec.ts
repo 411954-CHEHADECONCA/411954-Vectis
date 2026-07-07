@@ -82,9 +82,17 @@ function buildSpies() {
     'getInvestments', 'createInvestment', 'updateInvestment', 'deleteInvestment', 'collectInvestment',
     'previewCollect',
     'addMovement', 'updateMovement', 'deleteMovement', 'addValuation', 'updateValuation', 'deleteValuation',
-    'getFciFunds', 'getInstruments', 'getFciVcp', 'getInstrumentPrice',
+    'getFciFunds', 'getInstruments', 'getFciVcp', 'getInstrumentPrice', 'refreshMarketData',
   ]);
   investSpy.getInvestments.and.returnValue(of([...MOCK_ASSETS]));
+  investSpy.refreshMarketData.and.returnValue(of({
+    sources: [
+      { source: 'mep', status: 'refreshed', lastUpdate: '2026-07-07' },
+      { source: 'oficial', status: 'upToDate', lastUpdate: '2026-07-07' },
+      { source: 'fci', status: 'refreshed', lastUpdate: '2026-07-07' },
+      { source: 'ppi', status: 'notConfigured', lastUpdate: null },
+    ],
+  }));
   investSpy.createInvestment.and.returnValue(of({ ...MOCK_ASSETS[0] }));
   investSpy.updateInvestment.and.returnValue(of({ ...MOCK_ASSETS[1], name: 'LECAP Actualizada' }));
   investSpy.deleteInvestment.and.returnValue(of(undefined));
@@ -175,6 +183,71 @@ describe('InversionesComponent', () => {
 
     const rows = fixture.nativeElement.querySelectorAll('.asset-row');
     expect(rows.length).toBe(2);
+  });
+
+  // ── 1a. Refresh on-demand de datos de mercado ───────────────────────────────
+
+  describe('Refresh de datos de mercado', () => {
+    it('el botón "Actualizar valuaciones" está visible en el header', () => {
+      const btn: HTMLButtonElement = fixture.nativeElement.querySelector('.btn-secondary');
+      expect(btn).toBeTruthy();
+      expect(btn.textContent).toContain('Actualizar valuaciones');
+    });
+
+    it('el botón se deshabilita mientras refreshingMarket() está en true', () => {
+      component.refreshingMarket.set(true);
+      fixture.detectChanges();
+      const btn: HTMLButtonElement = fixture.nativeElement.querySelector('.btn-secondary');
+      expect(btn.disabled).toBeTrue();
+    });
+
+    it('refreshMarketData() llama al service con force=true, recarga los activos y muestra feedback de éxito', () => {
+      investSpy.getInvestments.calls.reset();
+
+      component.refreshMarketData();
+
+      expect(investSpy.refreshMarketData).toHaveBeenCalledWith(true);
+      expect(investSpy.getInvestments).toHaveBeenCalled();
+      expect(component.refreshingMarket()).toBeFalse();
+      expect(component.marketRefreshFeedback()?.tone).toBe('success');
+    });
+
+    it('refreshMarketData() maneja el error sin dejar refreshingMarket() colgado', () => {
+      investSpy.refreshMarketData.and.returnValue(
+        throwError(() => ({ error: { message: 'Error de mercado' } })),
+      );
+
+      component.refreshMarketData();
+
+      expect(component.refreshingMarket()).toBeFalse();
+      expect(component.marketRefreshFeedback()).toEqual({ tone: 'error', text: 'Error de mercado' });
+    });
+
+    it('refreshMarketData() con todas las fuentes en alreadyRunning informa que ya hay una actualización en curso y no recarga', () => {
+      investSpy.getInvestments.calls.reset();
+      investSpy.refreshMarketData.and.returnValue(of({
+        sources: [
+          { source: 'mep' as const,     status: 'alreadyRunning' as const, lastUpdate: '2026-07-07' },
+          { source: 'oficial' as const, status: 'alreadyRunning' as const, lastUpdate: '2026-07-07' },
+          { source: 'fci' as const,     status: 'alreadyRunning' as const, lastUpdate: '2026-07-07' },
+          { source: 'ppi' as const,     status: 'alreadyRunning' as const, lastUpdate: null },
+        ],
+      }));
+
+      component.refreshMarketData();
+
+      expect(investSpy.getInvestments).not.toHaveBeenCalled();
+      expect(component.marketRefreshFeedback()).toEqual({ tone: 'success', text: 'Ya hay una actualización en curso' });
+    });
+
+    it('refreshMarketData() no dispara una segunda llamada si ya hay un refresh en curso', () => {
+      component.refreshingMarket.set(true);
+      investSpy.refreshMarketData.calls.reset();
+
+      component.refreshMarketData();
+
+      expect(investSpy.refreshMarketData).not.toHaveBeenCalled();
+    });
   });
 
   // ── 2. KPI computed ────────────────────────────────────────────────────────

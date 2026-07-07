@@ -15,6 +15,7 @@ import {
   InvestmentResponse,
   InvestmentValuationRequest,
   MarketApiStatus,
+  MarketRefreshResponse,
 } from '../models/investment.models';
 
 @Injectable({ providedIn: 'root' })
@@ -85,6 +86,15 @@ export class InvestmentService {
 
   getMarketApiStatus(): Observable<MarketApiStatus> {
     return this.http.get<MarketApiStatus>(`${this.baseUrl}/market/status`);
+  }
+
+  /** Refresh on-demand de datos de mercado (MEP, Oficial, FCI, PPI). `force=true` ignora el cache de "hoy". */
+  refreshMarketData(force: boolean): Observable<MarketRefreshResponse> {
+    return this.http.post<MarketRefreshResponse>(
+      `${this.baseUrl}/market/refresh`,
+      null,
+      { params: { force: String(force) } },
+    );
   }
 
   getFciVcp(fondo: string, fecha: string): Observable<{ fondo: string; vcp: number; fecha: string } | null> {

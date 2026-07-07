@@ -471,6 +471,9 @@
               <div class="macro-card__meta">
                 <span>Compra: $ {{ fmtRate(r.buy) }}</span>
                 <span>{{ fmtIsoDate(r.rateDate) }}</span>
+                @if (apiStatus()?.oficialLastUpdate; as last) {
+                  <span>Última actualización: {{ fmtIsoDate(last) }}</span>
+                }
               </div>
             } @else {
               <p class="macro-card__empty">Sin cotización disponible</p>
@@ -502,6 +505,9 @@
               <div class="macro-card__meta">
                 <span>Compra: $ {{ fmtRate(r.buy) }}</span>
                 <span>{{ fmtIsoDate(r.rateDate) }}</span>
+                @if (apiStatus()?.mepLastUpdate; as last) {
+                  <span>Última actualización: {{ fmtIsoDate(last) }}</span>
+                }
               </div>
             } @else {
               <p class="macro-card__empty">Sin cotización disponible</p>
@@ -550,7 +556,18 @@
           <h3 class="api-section-head__title">Mercado de inversiones</h3>
           <p class="api-section-head__sub">Catálogos de fondos e instrumentos para auto-valuación</p>
         </div>
-        <span class="api-source-chip">argentinadatos.com · PPI</span>
+        <div class="api-section-head__actions">
+          @if (marketRefreshFeedback(); as feedback) {
+            <span class="market-refresh-feedback" [class.market-refresh-feedback--error]="feedback.tone === 'error'">
+              {{ feedback.text }}
+            </span>
+          }
+          <button class="btn-retry" type="button" [disabled]="marketRefreshing()" (click)="refreshMarketData()">
+            <svg lucideRefreshCw [size]="13" [strokeWidth]="2" [class.icon-spin]="marketRefreshing()" />
+            {{ marketRefreshing() ? 'Actualizando…' : 'Actualizar ahora' }}
+          </button>
+          <span class="api-source-chip">argentinadatos.com · PPI</span>
+        </div>
       </div>
 
       <div class="macro-grid macro-grid--two">
@@ -609,6 +626,11 @@
               <p class="macro-card__sell">Precios de cierre</p>
               <div class="macro-card__meta">
                 <span>LETRA · BONO · ON</span>
+                @if (s.ppiLastSync) {
+                  <span>Última actualización: {{ fmtIsoDate(s.ppiLastSync) }}</span>
+                } @else {
+                  <span>Sin sincronizar aún</span>
+                }
               </div>
             } @else {
               <p class="macro-card__empty">Cargando...</p>

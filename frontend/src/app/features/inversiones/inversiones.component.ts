@@ -18,7 +18,7 @@ import {
 import { HttpErrorResponse } from '@angular/common/http';
 import { DecimalPipe } from '@angular/common';
 import { toSignal, takeUntilDestroyed } from '@angular/core/rxjs-interop';
-import { catchError, debounceTime, distinctUntilChanged, forkJoin, map, merge, Observable, of, switchMap } from 'rxjs';
+import { catchError, debounceTime, distinctUntilChanged, finalize, forkJoin, map, merge, Observable, of, switchMap } from 'rxjs';
 import {
   LucideTrendingUp,
   LucideTrendingDown,
@@ -34,6 +34,7 @@ import {
   LucideFileText,
   LucideLink,
   LucidePercent,
+  LucideRefreshCw,
 } from '@lucide/angular';
 import { InvestmentService } from '../../core/services/investment.service';
 import { AccountService }    from '../../core/services/account.service';
@@ -132,6 +133,7 @@ function maturityAfterPurchaseValidator(g: AbstractControl): ValidationErrors | 
     LucideFileText,
     LucideLink,
     LucidePercent,
+    LucideRefreshCw,
   ],
   templateUrl: './inversiones.component.html',
   styleUrl: './inversiones.component.scss',
@@ -170,6 +172,10 @@ export class InversionesComponent implements OnInit {
   accounts         = signal<AccountResponse[]>([]);
   loading          = signal(true);
   error            = signal<string | null>(null);
+
+  // ── Refresh on-demand de datos de mercado ───────────────────────────────────
+  refreshingMarket = signal(false);
+  marketRefreshFeedback = signal<{ tone: 'success' | 'error'; text: string } | null>(null);
   modal            = signal<ModalState | null>(null);
   subModal         = signal<{
     kind:  'add-movement' | 'add-valuation' | 'edit-tramo-interest';
@@ -582,6 +588,34 @@ export class InversionesComponent implements OnInit {
       .subscribe({
         next:  assets => { this.assets.set(assets); this.loading.set(false); },
         error: ()     => { this.error.set('No se pudieron cargar los activos'); this.loading.set(false); },
+      });
+  }
+
+  /** Refresh on-demand (forzado) de datos de mercado disparado por el usuario desde el header. */
+  refreshMarketData(): void {
+    if (this.refreshingMarket()) return;
+    this.refreshingMarket.set(true);
+    this.marketRefreshFeedback.set(null);
+    this.investmentService.refreshMarketData(true)
+      .pipe(
+        catchError((err: HttpErrorResponse) => {
+          this.marketRefreshFeedback.set({
+            tone: 'error',
+            text: err.error?.message ?? 'No se pudieron actualizar las valuaciones',
+          });
+          return of(null);
+        }),
+        finalize(() => this.refreshingMarket.set(false)),
+        takeUntilDestroyed(this.destroyRef),
+      )
+      .subscribe(res => {
+        if (!res) return;
+        if (res.sources.every(s => s.status === 'alreadyRunning')) {
+          this.marketRefreshFeedback.set({ tone: 'success', text: 'Ya hay una actualización en curso' });
+          return;
+        }
+        this.marketRefreshFeedback.set({ tone: 'success', text: 'Valuaciones actualizadas' });
+        this.loadAssets();
       });
   }
 

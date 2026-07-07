@@ -6,10 +6,27 @@
       <h1 class="page-head__title">Inversiones</h1>
       <p class="page-head__lead">Tu cartera, sus tasas nominales y el rendimiento real frente a la inflación.</p>
     </div>
-    <button class="btn-primary" (click)="openCreate()" type="button">
-      <svg lucidePlus [size]="16"></svg>
-      Nueva inversión
-    </button>
+    <div class="page-head__actions">
+      @if (marketRefreshFeedback(); as feedback) {
+        <span class="market-refresh-feedback" [class.market-refresh-feedback--error]="feedback.tone === 'error'">
+          {{ feedback.text }}
+        </span>
+      }
+      <button
+        class="btn-secondary"
+        type="button"
+        [disabled]="refreshingMarket()"
+        (click)="refreshMarketData()"
+        aria-label="Actualizar valuaciones de mercado"
+      >
+        <svg lucideRefreshCw [size]="16" [class.icon-spin]="refreshingMarket()"></svg>
+        {{ refreshingMarket() ? 'Actualizando…' : 'Actualizar valuaciones' }}
+      </button>
+      <button class="btn-primary" (click)="openCreate()" type="button">
+        <svg lucidePlus [size]="16"></svg>
+        Nueva inversión
+      </button>
+    </div>
   </div>
 
   <!-- ── Loading ───────────────────────────────────────────────────────────── -->
