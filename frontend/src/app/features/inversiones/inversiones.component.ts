@@ -196,6 +196,8 @@ export class InversionesComponent implements OnInit {
   submitting       = signal(false);
   formError        = signal<string | null>(null);
   expanded         = signal<Set<string>>(new Set());
+  /** Ids de activos cuyo calendario de pagos (BONO/ON) está desplegado dentro de la fila expandida. */
+  paymentsCalendarOpen = signal<Set<string>>(new Set());
   editingAssetType = signal<InvestmentAssetType>('PLAZO_FIJO');
 
   // ── Auto-tracking state ───────────────────────────────────────────────────
@@ -729,6 +731,35 @@ export class InversionesComponent implements OnInit {
       return n;
     });
     if (!wasExpanded && (asset.type === 'BONO' || asset.type === 'ON')) {
+      // Carga el calendario al expandir para poder mostrar el contador de pendientes en el encabezado
+      // colapsable (la tabla sigue oculta hasta que el usuario abre la sección).
+      this.ensurePaymentsLoaded(asset);
+    }
+    // Al colapsar la fila, el calendario de pagos vuelve a arrancar cerrado la próxima vez.
+    if (wasExpanded) {
+      this.paymentsCalendarOpen.update(s => {
+        if (!s.has(asset.id)) return s;
+        const n = new Set(s);
+        n.delete(asset.id);
+        return n;
+      });
+    }
+  }
+
+  /** ¿Está desplegado el calendario de pagos de este activo dentro de la fila? */
+  isPaymentsCalendarOpen(assetId: string): boolean {
+    return this.paymentsCalendarOpen().has(assetId);
+  }
+
+  /** Alterna el calendario de pagos; en la primera apertura carga los pagos (lazy). */
+  togglePaymentsCalendar(asset: InvestmentResponse): void {
+    const willOpen = !this.paymentsCalendarOpen().has(asset.id);
+    this.paymentsCalendarOpen.update(s => {
+      const n = new Set(s);
+      n.has(asset.id) ? n.delete(asset.id) : n.add(asset.id);
+      return n;
+    });
+    if (willOpen) {
       this.ensurePaymentsLoaded(asset);
     }
   }
@@ -2341,6 +2372,11 @@ export class InversionesComponent implements OnInit {
   /** Cantidad de pagos PENDIENTE del badge global para un asset puntual (fila de la tabla). */
   pendingCountForAsset(assetId: string): number {
     return this.pendingPayments().filter(p => p.assetId === assetId).length;
+  }
+
+  /** Total de cupones PENDIENTE del calendario del activo (contador del encabezado colapsable). */
+  scheduledPendingCount(assetId: string): number {
+    return this.paymentsFor(assetId).filter(p => p.status === 'PENDIENTE').length;
   }
 
   /** Un PENDIENTE cuya fecha de corte ya pasó se resalta como "vencido" (listo para confirmar). */

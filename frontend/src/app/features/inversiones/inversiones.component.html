@@ -725,8 +725,25 @@
                           @if (asset.type === 'BONO' || asset.type === 'ON') {
                             <!-- Calendario de pagos: renta y amortización de cupones -->
                             <div class="tramos-section payments-section">
-                              <div class="tramos-header">
+                              <button
+                                type="button" class="payments-toggle"
+                                (click)="togglePaymentsCalendar(asset)"
+                                [attr.aria-expanded]="isPaymentsCalendarOpen(asset.id)"
+                              >
+                                <svg
+                                  lucideChevronDown [size]="14" class="chevron-icon"
+                                  [class.chevron-icon--open]="isPaymentsCalendarOpen(asset.id)"
+                                ></svg>
                                 <span class="detail-label">Calendario de pagos</span>
+                                @if (scheduledPendingCount(asset.id) > 0) {
+                                  <span class="payments-toggle__count">
+                                    · {{ scheduledPendingCount(asset.id) }}
+                                    pendiente{{ scheduledPendingCount(asset.id) === 1 ? '' : 's' }}
+                                  </span>
+                                }
+                              </button>
+
+                              @if (isPaymentsCalendarOpen(asset.id)) {
                                 <div class="payments-actions">
                                   <button
                                     type="button" class="btn-ghost btn-sm"
@@ -741,7 +758,6 @@
                                     Agregar pago manual
                                   </button>
                                 </div>
-                              </div>
 
                               @if (paymentsLoadingIds().has(asset.id)) {
                                 <p class="movements-empty">Cargando calendario de pagos…</p>
@@ -825,6 +841,7 @@
                                     </tbody>
                                   </table>
                                 </div>
+                              }
                               }
                             </div>
                           }

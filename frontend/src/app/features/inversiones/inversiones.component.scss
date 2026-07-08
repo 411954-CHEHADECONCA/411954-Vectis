@@ -1359,8 +1359,38 @@
 
 .tramos-header {
   display: flex;
-  align-items: center;
+  align-items: baseline;
   gap: 16px;
+
+  // Los hijos traen márgenes verticales pensados para layout apilado; dentro de esta fila flex
+  // desalinean las líneas base. Se neutralizan para que label y cuenta queden a ras.
+  .detail-label,
+  .detail-account { margin: 0; }
+}
+
+.payments-toggle {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+  padding: 2px 0;
+  background: none;
+  border: none;
+  cursor: pointer;
+  text-align: left;
+
+  // Sin el margin-bottom apilado del label, el chevron, el título y el contador quedan centrados a ras.
+  .detail-label {
+    margin: 0;
+    transition: color var(--dur-base) var(--ease-standard);
+  }
+  &:hover .detail-label { color: var(--color-text-base); }
+}
+
+.payments-toggle__count {
+  color: var(--color-text-muted);
+  // Igual tamaño que el título (overline) para que se lean como una sola línea prolija.
+  font-size: var(--text-overline);
 }
 
 .tramos-scroll {

@@ -2712,11 +2712,40 @@ describe('InversionesComponent', () => {
       expect(component.paymentsFor(MOCK_BONO_ASSET.id)).toEqual([MOCK_PAYMENT]);
     });
 
-    it('toggleExpanded() carga el calendario de pagos para BONO/ON al expandir', () => {
+    it('toggleExpanded() carga el calendario para BONO/ON al expandir (para el contador del encabezado)', () => {
       investSpy.getPayments.and.returnValue(of([MOCK_PAYMENT]));
       component.toggleExpanded(MOCK_BONO_ASSET);
       expect(investSpy.getPayments).toHaveBeenCalledWith(MOCK_BONO_ASSET.id);
       expect(component.paymentsFor(MOCK_BONO_ASSET.id)).toEqual([MOCK_PAYMENT]);
+    });
+
+    it('el calendario arranca colapsado y togglePaymentsCalendar() lo alterna', () => {
+      expect(component.isPaymentsCalendarOpen(MOCK_BONO_ASSET.id)).toBeFalse();
+
+      component.togglePaymentsCalendar(MOCK_BONO_ASSET);
+      expect(component.isPaymentsCalendarOpen(MOCK_BONO_ASSET.id)).toBeTrue();
+
+      component.togglePaymentsCalendar(MOCK_BONO_ASSET);
+      expect(component.isPaymentsCalendarOpen(MOCK_BONO_ASSET.id)).toBeFalse();
+    });
+
+    it('scheduledPendingCount() cuenta los cupones PENDIENTE cargados del activo', () => {
+      investSpy.getPayments.and.returnValue(of([
+        { ...MOCK_PAYMENT, id: 'p1', status: 'PENDIENTE' },
+        { ...MOCK_PAYMENT, id: 'p2', status: 'PENDIENTE' },
+        { ...MOCK_PAYMENT, id: 'p3', status: 'COBRADO' },
+      ]));
+      component.toggleExpanded(MOCK_BONO_ASSET);
+      expect(component.scheduledPendingCount(MOCK_BONO_ASSET.id)).toBe(2);
+    });
+
+    it('colapsar la fila resetea el calendario para que reabra cerrado', () => {
+      component.toggleExpanded(MOCK_BONO_ASSET);            // abre la fila
+      component.togglePaymentsCalendar(MOCK_BONO_ASSET);    // abre el calendario
+      expect(component.isPaymentsCalendarOpen(MOCK_BONO_ASSET.id)).toBeTrue();
+
+      component.toggleExpanded(MOCK_BONO_ASSET);            // colapsa la fila
+      expect(component.isPaymentsCalendarOpen(MOCK_BONO_ASSET.id)).toBeFalse();
     });
 
     it('omitPayment() actualiza el pago a OMITIDO y refresca pendientes', () => {
