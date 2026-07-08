@@ -34,6 +34,13 @@
   line-height: var(--leading-relaxed);
 }
 
+.page-head__notice {
+  font-size: var(--text-sm);
+  font-weight: var(--weight-medium);
+  color: var(--color-warning);
+  margin: 8px 0 0;
+}
+
 // ── Buttons ───────────────────────────────────────────────────────────────────
 
 .btn-primary {
@@ -92,6 +99,7 @@
   color: var(--color-primary);
 
   &--error { color: var(--color-error); }
+  &--warning { color: var(--color-warning); }
 }
 
 .icon-spin { animation: spin 0.9s linear infinite; }
@@ -966,6 +974,63 @@
   letter-spacing: 0.02em;
 }
 
+// ── Pagos por cobrar (badge tone "warning") ───────────────────────────────────
+
+.badge-pending-payments {
+  font-size: var(--text-caption);
+  font-weight: var(--weight-semibold);
+  padding: 3px 8px;
+  border-radius: var(--radius-sm);
+  background: color-mix(in srgb, var(--color-warning) 14%, transparent);
+  color: var(--color-warning);
+  white-space: nowrap;
+  letter-spacing: 0.02em;
+}
+
+// ── Calendario de pagos: sección y badges de estado ───────────────────────────
+
+.payments-section {
+  margin-top: 16px;
+}
+
+.payments-actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.payment-badge {
+  display: inline-flex;
+  align-items: center;
+  border-radius: var(--radius-sm);
+  padding: 2px 8px;
+  font-size: var(--text-overline);
+  font-weight: var(--weight-semibold);
+  letter-spacing: var(--tracking-wide);
+  line-height: 1.6;
+  white-space: nowrap;
+}
+
+.payment-badge--pendiente {
+  background: color-mix(in srgb, var(--color-outline) 14%, transparent);
+  color: var(--color-outline);
+}
+
+.payment-badge--vencido {
+  background: color-mix(in srgb, var(--color-warning) 16%, transparent);
+  color: var(--color-warning);
+}
+
+.payment-badge--cobrado {
+  background: color-mix(in srgb, var(--color-primary) 14%, transparent);
+  color: var(--color-primary);
+}
+
+.payment-badge--omitido {
+  background: color-mix(in srgb, var(--color-error) 12%, transparent);
+  color: var(--color-error);
+}
+
 // ── Type selector grid ────────────────────────────────────────────────────────
 
 .type-grid {
@@ -1089,6 +1154,8 @@
   color: var(--color-primary);
   margin-top: 4px;
   display: block;
+
+  &--warning { color: var(--color-warning); }
 }
 
 // ── FCI Modal ─────────────────────────────────────────────────────────────────
@@ -1251,6 +1318,8 @@
   font-size: var(--text-caption);
   line-height: 1.5;
   color: var(--color-on-surface-variant);
+
+  &--warning { color: var(--color-warning); }
 }
 
 // ── FCI balance preview ───────────────────────────────────────────────────────

@@ -20,6 +20,7 @@ import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 
 import java.time.LocalDate;
+import java.time.ZoneOffset;
 import java.util.List;
 import java.util.Optional;
 import java.util.concurrent.atomic.AtomicReference;
@@ -59,6 +60,13 @@ class MarketDataRefreshServiceTest {
         assertThat(friday.getDayOfWeek().getValue()).isEqualTo(5);
     }
 
+    // El servicio calcula la frescura contra lastBusinessDay(LocalDate.now(ZoneOffset.UTC)); los
+    // mocks de "última fecha disponible" deben usar el MISMO reloj UTC, o de noche en Argentina
+    // (UTC-3, cuando la fecha UTC ya avanzó un día) FCI se compararía como desactualizado.
+    private static LocalDate today() {
+        return LocalDate.now(ZoneOffset.UTC);
+    }
+
     // ─── lastBusinessDay ──────────────────────────────────────────────────────
 
     @ParameterizedTest(name = "{0} -> {1}")
@@ -80,14 +88,14 @@ class MarketDataRefreshServiceTest {
     @DisplayName("force=false y todas las fuentes frescas: no invoca ningún sync externo, todas upToDate")
     void refresh_notForced_allFresh_skipsSyncCalls() {
         given(exchangeRateRepository.existsByRateTypeAndRateDate(anyString(), any())).willReturn(true);
-        given(macroDataService.getLatestMepDate()).willReturn(LocalDate.now());
-        given(macroDataService.getLatestOficialDate()).willReturn(LocalDate.now());
-        given(fciVcpSnapshotRepository.findLatestSnapshotDate()).willReturn(Optional.of(LocalDate.now()));
+        given(macroDataService.getLatestMepDate()).willReturn(today());
+        given(macroDataService.getLatestOficialDate()).willReturn(today());
+        given(fciVcpSnapshotRepository.findLatestSnapshotDate()).willReturn(Optional.of(today()));
         given(ppiMarketDataClient.isConfigured()).willReturn(true);
         given(investmentRepository.findAllByTypesAndAutoTrackTrue(anyList()))
                 .willReturn(List.of(new InvestmentAsset()));
         given(investmentValuationRepository.existsBySourceAndValuationDate(anyString(), any())).willReturn(true);
-        given(ppiValuationSyncService.getLastSyncDate()).willReturn(LocalDate.now());
+        given(ppiValuationSyncService.getLastSyncDate()).willReturn(today());
 
         MarketRefreshResponse response = service.refresh(false);
 
@@ -107,14 +115,14 @@ class MarketDataRefreshServiceTest {
     @DisplayName("force=true invoca el sync de las cuatro fuentes aunque estén frescas")
     void refresh_forced_invokesAllSyncsRegardlessOfFreshness() {
         given(exchangeRateRepository.existsByRateTypeAndRateDate(anyString(), any())).willReturn(true);
-        given(macroDataService.getLatestMepDate()).willReturn(LocalDate.now());
-        given(macroDataService.getLatestOficialDate()).willReturn(LocalDate.now());
-        given(fciVcpSnapshotRepository.findLatestSnapshotDate()).willReturn(Optional.of(LocalDate.now()));
+        given(macroDataService.getLatestMepDate()).willReturn(today());
+        given(macroDataService.getLatestOficialDate()).willReturn(today());
+        given(fciVcpSnapshotRepository.findLatestSnapshotDate()).willReturn(Optional.of(today()));
         given(ppiMarketDataClient.isConfigured()).willReturn(true);
         given(investmentRepository.findAllByTypesAndAutoTrackTrue(anyList()))
                 .willReturn(List.of(new InvestmentAsset()));
         given(investmentValuationRepository.existsBySourceAndValuationDate(anyString(), any())).willReturn(true);
-        given(ppiValuationSyncService.getLastSyncDate()).willReturn(LocalDate.now());
+        given(ppiValuationSyncService.getLastSyncDate()).willReturn(today());
 
         MarketRefreshResponse response = service.refresh(true);
 
@@ -136,14 +144,14 @@ class MarketDataRefreshServiceTest {
         // MEP: no fresco antes ni después -> failed
         given(exchangeRateRepository.existsByRateTypeAndRateDate(anyString(), any())).willReturn(false);
         given(macroDataService.getLatestMepDate()).willReturn(null);
-        given(macroDataService.getLatestOficialDate()).willReturn(LocalDate.now());
+        given(macroDataService.getLatestOficialDate()).willReturn(today());
 
         // FCI y PPI: frescos de entrada (no forzado) -> upToDate, no deberían verse afectados por el fallo de MEP
-        given(fciVcpSnapshotRepository.findLatestSnapshotDate()).willReturn(Optional.of(LocalDate.now()));
+        given(fciVcpSnapshotRepository.findLatestSnapshotDate()).willReturn(Optional.of(today()));
         given(ppiMarketDataClient.isConfigured()).willReturn(true);
         given(investmentRepository.findAllByTypesAndAutoTrackTrue(anyList()))
                 .willReturn(List.of(new InvestmentAsset()));
-        given(ppiValuationSyncService.getLastSyncDate()).willReturn(LocalDate.now());
+        given(ppiValuationSyncService.getLastSyncDate()).willReturn(today());
 
         MarketRefreshResponse response = service.refresh(false);
 
@@ -163,9 +171,9 @@ class MarketDataRefreshServiceTest {
     @DisplayName("PPI sin credenciales configuradas: notConfigured, lastUpdate null, no invoca sync ni consulta activos")
     void refresh_ppiNotConfigured_returnsNotConfigured() {
         given(exchangeRateRepository.existsByRateTypeAndRateDate(anyString(), any())).willReturn(true);
-        given(macroDataService.getLatestMepDate()).willReturn(LocalDate.now());
-        given(macroDataService.getLatestOficialDate()).willReturn(LocalDate.now());
-        given(fciVcpSnapshotRepository.findLatestSnapshotDate()).willReturn(Optional.of(LocalDate.now()));
+        given(macroDataService.getLatestMepDate()).willReturn(today());
+        given(macroDataService.getLatestOficialDate()).willReturn(today());
+        given(fciVcpSnapshotRepository.findLatestSnapshotDate()).willReturn(Optional.of(today()));
         given(ppiMarketDataClient.isConfigured()).willReturn(false);
 
         MarketRefreshResponse response = service.refresh(false);
@@ -182,9 +190,9 @@ class MarketDataRefreshServiceTest {
     @DisplayName("PPI configurado pero sin activos auto-track: upToDate sin invocar sync")
     void refresh_ppiConfiguredNoAssets_upToDateWithoutSync() {
         given(exchangeRateRepository.existsByRateTypeAndRateDate(anyString(), any())).willReturn(true);
-        given(macroDataService.getLatestMepDate()).willReturn(LocalDate.now());
-        given(macroDataService.getLatestOficialDate()).willReturn(LocalDate.now());
-        given(fciVcpSnapshotRepository.findLatestSnapshotDate()).willReturn(Optional.of(LocalDate.now()));
+        given(macroDataService.getLatestMepDate()).willReturn(today());
+        given(macroDataService.getLatestOficialDate()).willReturn(today());
+        given(fciVcpSnapshotRepository.findLatestSnapshotDate()).willReturn(Optional.of(today()));
         given(ppiMarketDataClient.isConfigured()).willReturn(true);
         given(investmentRepository.findAllByTypesAndAutoTrackTrue(anyList())).willReturn(List.of());
         given(ppiValuationSyncService.getLastSyncDate()).willReturn(null);
@@ -204,14 +212,14 @@ class MarketDataRefreshServiceTest {
     @DisplayName("Un refresh iniciado mientras otro está en curso devuelve alreadyRunning sin sincronizar; al terminar, el guard se libera")
     void refresh_whileInProgress_returnsAlreadyRunning() {
         given(exchangeRateRepository.existsByRateTypeAndRateDate(anyString(), any())).willReturn(true);
-        given(macroDataService.getLatestMepDate()).willReturn(LocalDate.now());
-        given(macroDataService.getLatestOficialDate()).willReturn(LocalDate.now());
-        given(fciVcpSnapshotRepository.findLatestSnapshotDate()).willReturn(Optional.of(LocalDate.now()));
+        given(macroDataService.getLatestMepDate()).willReturn(today());
+        given(macroDataService.getLatestOficialDate()).willReturn(today());
+        given(fciVcpSnapshotRepository.findLatestSnapshotDate()).willReturn(Optional.of(today()));
         given(ppiMarketDataClient.isConfigured()).willReturn(true);
         given(investmentRepository.findAllByTypesAndAutoTrackTrue(anyList()))
                 .willReturn(List.of(new InvestmentAsset()));
         given(investmentValuationRepository.existsBySourceAndValuationDate(anyString(), any())).willReturn(true);
-        given(ppiValuationSyncService.getLastSyncDate()).willReturn(LocalDate.now());
+        given(ppiValuationSyncService.getLastSyncDate()).willReturn(today());
 
         // Simula un segundo request llegando en pleno refresh: el primer sync invocado
         // dispara un refresh reentrante, que debe rebotar contra el guard.

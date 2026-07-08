@@ -27,14 +27,18 @@ import com.vectis.backend.exception.VectisException;
 import com.vectis.backend.mapper.InvestmentMapper;
 import com.vectis.backend.repository.AccountRepository;
 import com.vectis.backend.repository.InvestmentMovementRepository;
+import com.vectis.backend.repository.InvestmentPaymentRepository;
 import com.vectis.backend.repository.InvestmentRepository;
 import com.vectis.backend.repository.InvestmentValuationRepository;
 import com.vectis.backend.repository.TransactionRepository;
 import com.vectis.backend.util.InvestmentValuationCalculator;
 import lombok.RequiredArgsConstructor;
+import lombok.extern.slf4j.Slf4j;
 import org.springframework.http.HttpStatus;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
+import org.springframework.transaction.support.TransactionSynchronization;
+import org.springframework.transaction.support.TransactionSynchronizationManager;
 
 import java.math.BigDecimal;
 import java.math.RoundingMode;
@@ -46,6 +50,7 @@ import java.util.Objects;
 import java.util.Optional;
 import java.util.UUID;
 
+@Slf4j
 @Service
 @RequiredArgsConstructor
 @Transactional(readOnly = true)
@@ -54,10 +59,12 @@ public class InvestmentService {
     private final InvestmentRepository           investmentRepository;
     private final InvestmentMovementRepository   movementRepository;
     private final InvestmentValuationRepository  valuationRepository;
+    private final InvestmentPaymentRepository    investmentPaymentRepository;
     private final AccountRepository              accountRepository;
     private final InvestmentMapper               investmentMapper;
     private final FciValuationSyncService        fciValuationSyncService;
     private final PpiValuationSyncService        ppiValuationSyncService;
+    private final InvestmentPaymentSyncService   investmentPaymentSyncService;
     private final TransactionRepository          transactionRepository;
     private final MonthPeriodService             monthPeriodService;
     private final BalanceService                 balanceService;
@@ -72,6 +79,9 @@ public class InvestmentService {
     @Transactional
     public InvestmentResponse createInvestment(InvestmentRequest request, User user) {
         Account account = resolveAccount(request.accountId(), user, request.currency());
+        assertPaymentFieldsOnlyForBondOrOn(request);
+        assertPaymentAccountForForeignCurrency(request);
+        Account paymentAccount = resolvePaymentAccount(request.paymentAccountId(), user, request.paymentCurrency());
         boolean includeInCashflow = resolveIncludeInCashflow(request.includeInCashflow());
 
         LocalDate purchaseDate = request.purchaseDate();
@@ -92,6 +102,8 @@ public class InvestmentService {
         InvestmentAsset asset = InvestmentAsset.builder()
                 .user(user)
                 .account(account)
+                .paymentAccount(paymentAccount)
+                .paymentCurrency(request.paymentCurrency())
                 .name(request.name())
                 .type(request.type())
                 .currency(request.currency())
@@ -131,7 +143,45 @@ public class InvestmentService {
         }
 
         saved = backfillValuationsIfApplicable(saved);
+        scheduleSyncPaymentsAfterCommit(saved, user);
         return investmentMapper.toResponse(saved);
+    }
+
+    /**
+     * Dispara {@link InvestmentPaymentSyncService#syncSchedule} para un BONO/ON auto-track recién
+     * creado, DESPUÉS de que la transacción de alta ya comprometió el asset — si la llamada a PPI
+     * falla, el activo ya quedó creado igual. Se registra vía
+     * {@link TransactionSynchronization#afterCommit()} en lugar de invocar el sync inline: la
+     * llamada HTTP a PPI no debe ejecutarse mientras esta transacción retiene la conexión JDBC.
+     *
+     * <p>Fuera de un contexto transaccional activo (p. ej. un test que llama al método directo sin
+     * proxy de Spring), se ejecuta inline como fallback — nunca se pierde el sync.
+     */
+    private void scheduleSyncPaymentsAfterCommit(InvestmentAsset asset, User user) {
+        boolean eligible = asset.isAutoTrack()
+                && (asset.getType() == InvestmentAssetType.BONO || asset.getType() == InvestmentAssetType.ON)
+                && asset.getExternalId() != null && !asset.getExternalId().isBlank();
+        if (!eligible) return;
+
+        UUID assetId = asset.getId();
+        if (TransactionSynchronizationManager.isSynchronizationActive()) {
+            TransactionSynchronizationManager.registerSynchronization(new TransactionSynchronization() {
+                @Override
+                public void afterCommit() {
+                    try {
+                        investmentPaymentSyncService.syncSchedule(assetId, user);
+                    } catch (Exception e) {
+                        log.warn("Sync de calendario de pagos post-alta falló para {}: {}", assetId, e.getMessage());
+                    }
+                }
+            });
+        } else {
+            try {
+                investmentPaymentSyncService.syncSchedule(assetId, user);
+            } catch (Exception e) {
+                log.warn("Sync de calendario de pagos post-alta falló para {}: {}", assetId, e.getMessage());
+            }
+        }
     }
 
     @Transactional
@@ -141,6 +191,9 @@ public class InvestmentService {
         assertNotCollected(asset);
 
         Account account = resolveAccount(request.accountId(), user, request.currency());
+        assertPaymentFieldsOnlyForBondOrOn(request);
+        assertPaymentAccountForForeignCurrency(request);
+        Account paymentAccount = resolvePaymentAccount(request.paymentAccountId(), user, request.paymentCurrency());
 
         UUID       oldAccountId = asset.getAccount() != null ? asset.getAccount().getId() : null;
         String     oldCurrency  = asset.getCurrency();
@@ -154,6 +207,8 @@ public class InvestmentService {
         // FIX 4: guard against null TNA for types that don't require it
         asset.setTna(request.tna() != null ? request.tna() : BigDecimal.ZERO);
         asset.setAccount(account);
+        asset.setPaymentAccount(paymentAccount);
+        asset.setPaymentCurrency(request.paymentCurrency());
         asset.setAutoTrack(request.autoTrack());
         asset.setExternalId(request.externalId());
         asset.setIncludeInCashflow(resolveIncludeInCashflow(request.includeInCashflow()));
@@ -293,8 +348,9 @@ public class InvestmentService {
                 .orElseThrow(() -> new InvestmentNotFoundException(id));
         assertNotAlreadyCollected(asset);
 
+        BigDecimal residualCapitalFraction = residualCapitalFraction(asset.getId());
         InvestmentValuationCalculator.CollectBreakdown breakdown =
-                InvestmentValuationCalculator.calculateCollectBreakdown(asset, date);
+                InvestmentValuationCalculator.calculateCollectBreakdown(asset, date, residualCapitalFraction);
         boolean editableRendimiento = isEditableRendimientoType(asset.getType());
 
         return new InvestmentCollectPreviewResponse(
@@ -324,8 +380,9 @@ public class InvestmentService {
                     "No se puede cobrar: el mes elegido ya está cerrado", HttpStatus.CONFLICT);
         }
 
+        BigDecimal residualCapitalFraction = residualCapitalFraction(asset.getId());
         InvestmentValuationCalculator.CollectBreakdown breakdown =
-                InvestmentValuationCalculator.calculateCollectBreakdown(asset, collectDate);
+                InvestmentValuationCalculator.calculateCollectBreakdown(asset, collectDate, residualCapitalFraction);
         boolean editableRendimiento = isEditableRendimientoType(asset.getType());
 
         BigDecimal rendimiento = breakdown.rendimiento();
@@ -770,6 +827,71 @@ public class InvestmentService {
                     HttpStatus.CONFLICT);
         }
         return account;
+    }
+
+    /**
+     * Resuelve la cuenta de cobro de renta/amortización (calcado de {@link #resolveAccount}): 403 si
+     * la cuenta no pertenece al usuario, 409 si su moneda no coincide con {@code paymentCurrency}.
+     * Devuelve null si no se indicó cuenta de cobro (el activo conserva {@code account} como cuenta
+     * de acreditación en ese caso).
+     */
+    private Account resolvePaymentAccount(UUID paymentAccountId, User user, String paymentCurrency) {
+        if (paymentAccountId == null) {
+            return null;
+        }
+        Account account = accountRepository.findByIdAndUser_Id(paymentAccountId, user.getId())
+                .orElseThrow(() -> new VectisException(
+                        "La cuenta de cobro no pertenece al usuario autenticado", HttpStatus.FORBIDDEN));
+
+        if (paymentCurrency != null && !account.getCcy().equals(paymentCurrency)) {
+            throw new VectisException(
+                    "La moneda de la cuenta de cobro no coincide con la moneda de pago indicada",
+                    HttpStatus.CONFLICT);
+        }
+        return account;
+    }
+
+    /**
+     * {@code paymentAccountId}/{@code paymentCurrency} sólo tienen sentido para BONO/ON (instrumentos
+     * con calendario de renta/amortización) — 422 si vienen seteados para cualquier otro tipo.
+     */
+    private void assertPaymentFieldsOnlyForBondOrOn(InvestmentRequest request) {
+        boolean isBondOrOn = request.type() == InvestmentAssetType.BONO || request.type() == InvestmentAssetType.ON;
+        boolean hasPaymentFields = request.paymentAccountId() != null
+                || (request.paymentCurrency() != null && !request.paymentCurrency().isBlank());
+        if (hasPaymentFields && !isBondOrOn) {
+            throw new VectisException(
+                    "La cuenta/moneda de cobro sólo aplica a activos BONO u ON",
+                    HttpStatus.UNPROCESSABLE_ENTITY);
+        }
+    }
+
+    /**
+     * Si la moneda de cobro difiere de la de compra, la cuenta de cobro es obligatoria: sin ella el
+     * cobro cae a {@code asset.account} (en la moneda de compra) y {@code confirmPayment} rechaza el
+     * pago por mismatch de moneda — dejando el bono permanentemente incobrable. 422 si falta.
+     */
+    private void assertPaymentAccountForForeignCurrency(InvestmentRequest request) {
+        boolean foreignPaymentCurrency = request.paymentCurrency() != null
+                && !request.paymentCurrency().isBlank()
+                && !request.paymentCurrency().equals(request.currency());
+        if (foreignPaymentCurrency && request.paymentAccountId() == null) {
+            throw new VectisException(
+                    "Elegí una cuenta de cobro en " + request.paymentCurrency()
+                            + ": los cupones se pagan en una moneda distinta a la de compra",
+                    HttpStatus.UNPROCESSABLE_ENTITY);
+        }
+    }
+
+    /**
+     * Fracción de capital aún no devuelta vía cupones de amortización ya cobrados (1 = nada
+     * amortizado todavía) — ver {@link InvestmentValuationCalculator#calculateCollectBreakdown}.
+     * Evita devolver dos veces la misma porción de capital al cobrar el activo entero después de
+     * haber cobrado cupones de amortización del calendario de {@link InvestmentPaymentService}.
+     */
+    private BigDecimal residualCapitalFraction(UUID assetId) {
+        BigDecimal amortizedPer100 = investmentPaymentRepository.sumCollectedAmortizationPer100(assetId);
+        return BigDecimal.ONE.subtract(amortizedPer100.divide(BigDecimal.valueOf(100), 10, RoundingMode.HALF_EVEN));
     }
 
     /** {@code includeInCashflow} usa Boolean (no primitivo) para poder distinguir "ausente" de "false"; default true. */

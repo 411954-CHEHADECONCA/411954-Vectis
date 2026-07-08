@@ -926,6 +926,48 @@ class CashflowServiceTest {
     }
 
     @Test
+    @DisplayName("investments: confirmar cupones de renta/amortización agrega dos filas nuevas de ingreso y suma al resultado operativo")
+    void investments_couponRentAndAmortizationAppearAsNewIncomeRows() {
+        LocalDate today    = LocalDate.now();
+        int year  = today.getYear();
+        int month = today.getMonthValue();
+        LocalDate firstDay = today.withDayOfMonth(1);
+        LocalDate lastDay  = firstDay.withDayOfMonth(firstDay.lengthOfMonth());
+
+        given(monthPeriodService.getStatus(eq(user), eq(year), eq(month), any(LocalDate.class))).willReturn("curso");
+        given(monthPeriodRepository.findByUser_IdAndYearAndMonth(userId, year, month)).willReturn(Optional.empty());
+        given(accountRepository.findAllByUser_IdAndIncludeInCashflowTrue(userId)).willReturn(Collections.emptyList());
+        given(transactionRepository.netMovementsForAccounts(eq(userId), anyList(), any(LocalDate.class)))
+                .willReturn(Collections.emptyList());
+        given(transactionRepository.groupByCategory(eq(userId), any(TransactionType.class), any(LocalDate.class), any(LocalDate.class)))
+                .willReturn(Collections.emptyList());
+        given(categoryBudgetRepository.findLatestPerCategoryOnOrBefore(userId, firstDay)).willReturn(Collections.emptyList());
+
+        InvestmentAsset asset = InvestmentAsset.builder()
+                .id(UUID.randomUUID()).name("AL30")
+                .type(InvestmentAssetType.BONO).currency("USD")
+                .principal(BigDecimal.ZERO).tna(BigDecimal.ZERO)
+                .build();
+        Transaction couponRent = Transaction.builder()
+                .investmentAsset(asset).investmentSourceType(InvestmentSourceType.COUPON_RENT).type(TransactionType.INCOME)
+                .amount(new BigDecimal("2700.0000")).build();
+        Transaction amortization = Transaction.builder()
+                .investmentAsset(asset).investmentSourceType(InvestmentSourceType.AMORTIZATION).type(TransactionType.INCOME)
+                .amount(new BigDecimal("80000.0000")).build();
+
+        given(transactionRepository.findInvestmentTransactionsForCashflow(userId, firstDay, lastDay))
+                .willReturn(List.of(couponRent, amortization));
+
+        CashflowResponse result = cashflowService.getCashflow(user, year, month);
+
+        assertThat(result.getIncome().total()).isEqualByComparingTo("82700.0000");
+        assertThat(result.getIncome().byCategory())
+                .extracting("name")
+                .containsExactlyInAnyOrder("Renta de inversión (cupones)", "Amortización de inversión");
+        assertThat(result.getPreInvestmentBalance().operativeResult()).isEqualByComparingTo("82700.0000");
+    }
+
+    @Test
     @DisplayName("investments: ignora transacciones con investmentSourceType distinto de SUSCRIPCION/RESCATE")
     void investments_ignoresNonSuscripcionRescateSourceType() {
         LocalDate today    = LocalDate.now();

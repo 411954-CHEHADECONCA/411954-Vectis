@@ -157,18 +157,21 @@ public class InstrumentCatalogSyncService {
     private boolean upsertLetra(PpiMarketDataClient.PpiInstrument dto) {
         LocalDate maturity = parseMaturity(dto.description());
         String nombre = truncate(dto.description());
+        String currency = normalizeCurrency(dto.currency());
         Optional<DoctaInstrumentCache> existing = instrumentCacheRepository.findByTicker(dto.ticker());
 
         if (existing.isPresent()) {
             DoctaInstrumentCache inst = existing.get();
             boolean changed = !inst.isActive()
                     || !nombre.equals(inst.getNombre())
-                    || (maturity != null && !maturity.equals(inst.getMaturityDate()));
+                    || (maturity != null && !maturity.equals(inst.getMaturityDate()))
+                    || (currency != null && !currency.equals(inst.getCurrency()));
             if (changed) {
                 inst.setActive(true);
                 inst.setNombre(nombre);
                 inst.setTipo(MANAGED_TYPE);
                 if (maturity != null) inst.setMaturityDate(maturity);
+                if (currency != null) inst.setCurrency(currency);
                 instrumentCacheRepository.save(inst);
             }
             return changed;
@@ -179,9 +182,16 @@ public class InstrumentCatalogSyncService {
                 .nombre(nombre)
                 .tipo(MANAGED_TYPE)
                 .maturityDate(maturity)
+                .currency(currency)
                 .active(true)
                 .build());
         return true;
+    }
+
+    /** Normaliza la moneda cruda de PPI SearchInstrument ("Pesos"/"Dólar"/...) a ARS/USD; null si no matchea.
+     * Delega en {@link PpiMarketDataClient#normalizePpiCurrency} — fuente única de normalización de moneda PPI. */
+    private static String normalizeCurrency(String raw) {
+        return PpiMarketDataClient.normalizePpiCurrency(raw).orElse(null);
     }
 
     /** Trunca el nombre al máximo de la columna para no fallar el save ante descripciones largas. */

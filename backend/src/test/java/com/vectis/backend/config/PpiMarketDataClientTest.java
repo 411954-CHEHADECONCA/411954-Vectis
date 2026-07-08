@@ -481,4 +481,201 @@ class PpiMarketDataClientTest {
 
         assertThat(normalized).isEqualByComparingTo("963.2550");
     }
+
+    // ─── getBondEstimate ───────────────────────────────────────────────────────
+
+    private static final com.fasterxml.jackson.databind.ObjectMapper JSON =
+            new com.fasterxml.jackson.databind.ObjectMapper();
+
+    /** Carga y parsea un fixture real de PPI Bonds/Estimate capturado en la Fase 0. */
+    private static PpiMarketDataClient.PpiBondEstimateResponseDto loadFixture(String name) throws Exception {
+        try (var in = PpiMarketDataClientTest.class.getResourceAsStream("/ppi/" + name)) {
+            return JSON.readValue(in, PpiMarketDataClient.PpiBondEstimateResponseDto.class);
+        }
+    }
+
+    @Test
+    @DisplayName("getBondEstimate retorna empty y no llama RestTemplate cuando no está configurado")
+    void getBondEstimate_returnsEmpty_whenNotConfigured() {
+        ReflectionTestUtils.setField(client, "apiKey", "");
+
+        Optional<PpiMarketDataClient.PpiBondEstimate> result =
+                client.getBondEstimate("AL30", LocalDate.of(2026, 7, 7));
+
+        assertThat(result).isEmpty();
+        verifyNoInteractions(restTemplate);
+    }
+
+    @Test
+    @DisplayName("getBondEstimate retorna empty ante excepción del RestTemplate (resiliencia)")
+    void getBondEstimate_returnsEmpty_whenCallFails() {
+        doReturn("pre-seeded-token").when(spyClient).getToken();
+
+        given(restTemplate.exchange(
+                contains("/api/1/MarketData/Bonds/Estimate"),
+                eq(HttpMethod.GET),
+                any(HttpEntity.class),
+                eq(PpiMarketDataClient.PpiBondEstimateResponseDto.class)))
+                .willThrow(new RuntimeException("timeout"));
+
+        Optional<PpiMarketDataClient.PpiBondEstimate> result =
+                spyClient.getBondEstimate("AL30", LocalDate.of(2026, 7, 7));
+
+        assertThat(result).isEmpty();
+    }
+
+    @Test
+    @DisplayName("getBondEstimate retorna empty cuando la respuesta no tiene flows")
+    void getBondEstimate_returnsEmpty_whenResponseHasNoFlows() {
+        doReturn("pre-seeded-token").when(spyClient).getToken();
+
+        PpiMarketDataClient.PpiBondEstimateResponseDto emptyBody =
+                new PpiMarketDataClient.PpiBondEstimateResponseDto(java.util.List.of(), "US$", "Dólar", null);
+        given(restTemplate.exchange(
+                contains("/api/1/MarketData/Bonds/Estimate"),
+                eq(HttpMethod.GET),
+                any(HttpEntity.class),
+                eq(PpiMarketDataClient.PpiBondEstimateResponseDto.class)))
+                .willReturn(ResponseEntity.ok(emptyBody));
+
+        Optional<PpiMarketDataClient.PpiBondEstimate> result =
+                spyClient.getBondEstimate("AL30", LocalDate.of(2026, 7, 7));
+
+        assertThat(result).isEmpty();
+    }
+
+    @Test
+    @DisplayName("getBondEstimate parsea el fixture real de AL30: flows, residualValue y moneda US$ → USD")
+    void getBondEstimate_parsesRealAl30Fixture() throws Exception {
+        doReturn("pre-seeded-token").when(spyClient).getToken();
+
+        PpiMarketDataClient.PpiBondEstimateResponseDto fixture = loadFixture("estimate_al30_100.json");
+        given(restTemplate.exchange(
+                contains("/api/1/MarketData/Bonds/Estimate"),
+                eq(HttpMethod.GET),
+                any(HttpEntity.class),
+                eq(PpiMarketDataClient.PpiBondEstimateResponseDto.class)))
+                .willReturn(ResponseEntity.ok(fixture));
+
+        Optional<PpiMarketDataClient.PpiBondEstimate> result =
+                spyClient.getBondEstimate("AL30", LocalDate.of(2026, 7, 7));
+
+        assertThat(result).isPresent();
+        PpiMarketDataClient.PpiBondEstimate estimate = result.get();
+        assertThat(estimate.flows()).hasSize(9);
+        assertThat(estimate.abbreviationCurrencyPay()).isEqualTo("US$");
+
+        PpiMarketDataClient.PpiBondFlow first = estimate.flows().get(0);
+        assertThat(first.cuttingDate()).isEqualTo(LocalDate.of(2026, 7, 9));
+        assertThat(first.residualValue()).isEqualByComparingTo("0.72");
+        assertThat(first.rent()).isEqualByComparingTo("0.27");
+        assertThat(first.amortization()).isEqualByComparingTo("8");
+
+        assertThat(PpiMarketDataClient.normalizePpiCurrency(estimate.abbreviationCurrencyPay()))
+                .contains("USD");
+    }
+
+    @Test
+    @DisplayName("getBondEstimate parsea el fixture real de TX26 (bono CER): moneda AR$ → ARS")
+    void getBondEstimate_parsesRealTx26Fixture_arsCurrency() throws Exception {
+        doReturn("pre-seeded-token").when(spyClient).getToken();
+
+        PpiMarketDataClient.PpiBondEstimateResponseDto fixture = loadFixture("estimate_tx26_100.json");
+        given(restTemplate.exchange(
+                contains("/api/1/MarketData/Bonds/Estimate"),
+                eq(HttpMethod.GET),
+                any(HttpEntity.class),
+                eq(PpiMarketDataClient.PpiBondEstimateResponseDto.class)))
+                .willReturn(ResponseEntity.ok(fixture));
+
+        Optional<PpiMarketDataClient.PpiBondEstimate> result =
+                spyClient.getBondEstimate("TX26", LocalDate.of(2026, 7, 7));
+
+        assertThat(result).isPresent();
+        assertThat(result.get().abbreviationCurrencyPay()).isEqualTo("AR$");
+        assertThat(PpiMarketDataClient.normalizePpiCurrency(result.get().abbreviationCurrencyPay()))
+                .contains("ARS");
+    }
+
+    @Test
+    @DisplayName("normalizePpiCurrency: literal desconocido/vacío/null devuelve empty (el caller aplica su fallback)")
+    void normalizePpiCurrency_unknownLiteral_returnsEmpty() {
+        assertThat(PpiMarketDataClient.normalizePpiCurrency("Yenes")).isEmpty();
+        assertThat(PpiMarketDataClient.normalizePpiCurrency("XYZ")).isEmpty();
+        assertThat(PpiMarketDataClient.normalizePpiCurrency("")).isEmpty();
+        assertThat(PpiMarketDataClient.normalizePpiCurrency("   ")).isEmpty();
+        assertThat(PpiMarketDataClient.normalizePpiCurrency(null)).isEmpty();
+    }
+
+    @Test
+    @DisplayName("normalizePpiCurrency: reconoce símbolos y palabras (con acentos) para USD y ARS")
+    void normalizePpiCurrency_recognizedLiterals() {
+        // USD: símbolos y palabras (insensible a acentos/mayúsculas)
+        assertThat(PpiMarketDataClient.normalizePpiCurrency("US$")).contains("USD");
+        assertThat(PpiMarketDataClient.normalizePpiCurrency("U$S")).contains("USD");
+        assertThat(PpiMarketDataClient.normalizePpiCurrency("Dólar")).contains("USD");
+        assertThat(PpiMarketDataClient.normalizePpiCurrency("Dólares")).contains("USD");
+        assertThat(PpiMarketDataClient.normalizePpiCurrency("USD")).contains("USD");
+        // ARS: símbolo y palabras
+        assertThat(PpiMarketDataClient.normalizePpiCurrency("AR$")).contains("ARS");
+        assertThat(PpiMarketDataClient.normalizePpiCurrency("Pesos")).contains("ARS");
+        assertThat(PpiMarketDataClient.normalizePpiCurrency("ARS")).contains("ARS");
+        // Peso-first: "dólar linked" que liquida en pesos → ARS
+        assertThat(PpiMarketDataClient.normalizePpiCurrency("Pesos (dólar linked)")).contains("ARS");
+    }
+
+    @Test
+    @DisplayName("getBondEstimate envía los parámetros fijos obligatorios (QuantityType, Quantity, Price, etc.)")
+    void getBondEstimate_sendsFixedRequiredQueryParams() throws Exception {
+        doReturn("pre-seeded-token").when(spyClient).getToken();
+
+        PpiMarketDataClient.PpiBondEstimateResponseDto fixture = loadFixture("estimate_al30_100.json");
+        given(restTemplate.exchange(
+                contains("/api/1/MarketData/Bonds/Estimate"),
+                eq(HttpMethod.GET),
+                any(HttpEntity.class),
+                eq(PpiMarketDataClient.PpiBondEstimateResponseDto.class)))
+                .willReturn(ResponseEntity.ok(fixture));
+
+        spyClient.getBondEstimate("AL30", LocalDate.of(2026, 1, 15));
+
+        ArgumentCaptor<String> urlCaptor = ArgumentCaptor.forClass(String.class);
+        verify(restTemplate).exchange(urlCaptor.capture(), eq(HttpMethod.GET),
+                any(HttpEntity.class), eq(PpiMarketDataClient.PpiBondEstimateResponseDto.class));
+
+        String url = urlCaptor.getValue();
+        assertThat(url)
+                .contains("Ticker=AL30")
+                .contains("Date=2026-01-15")
+                .contains("QuantityType=PAPELES")
+                .contains("Quantity=100")
+                .contains("Price=100")
+                .contains("AmountOfMoney=0")
+                .contains("ExchangeRate=0")
+                .contains("EquityRate=0")
+                .contains("ExchangeRateAmortization=0")
+                .contains("RateAdjustmentAmortization=0");
+    }
+
+    @Test
+    @DisplayName("getBondEstimate: residualAfterPer100 = residualValue×100 − amortization detecta el pago final")
+    void getBondEstimate_lastFlow_residualCalculationMatchesFinalPayment() throws Exception {
+        doReturn("pre-seeded-token").when(spyClient).getToken();
+
+        PpiMarketDataClient.PpiBondEstimateResponseDto fixture = loadFixture("estimate_al30_100.json");
+        given(restTemplate.exchange(
+                contains("/api/1/MarketData/Bonds/Estimate"),
+                eq(HttpMethod.GET),
+                any(HttpEntity.class),
+                eq(PpiMarketDataClient.PpiBondEstimateResponseDto.class)))
+                .willReturn(ResponseEntity.ok(fixture));
+
+        Optional<PpiMarketDataClient.PpiBondEstimate> result =
+                spyClient.getBondEstimate("AL30", LocalDate.of(2026, 1, 15));
+
+        // Último flow real del fixture AL30: residualValue=0.08, amortization=8 → residual final = 0
+        PpiMarketDataClient.PpiBondFlow last = result.get().flows().get(result.get().flows().size() - 1);
+        BigDecimal residualAfter = last.residualValue().multiply(BigDecimal.valueOf(100)).subtract(last.amortization());
+        assertThat(residualAfter).isEqualByComparingTo("0");
+    }
 }

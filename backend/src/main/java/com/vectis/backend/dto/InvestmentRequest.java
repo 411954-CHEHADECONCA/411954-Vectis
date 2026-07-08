@@ -55,8 +55,35 @@ public record InvestmentRequest(
     @Schema(description = "Incluir esta inversión en el flujo de caja (default true si se omite). "
             + "Usar Boolean (no boolean primitivo) para no confundir 'ausente' con 'false' al deserializar.",
             example = "true", defaultValue = "true")
-    Boolean includeInCashflow
+    Boolean includeInCashflow,
+
+    @Schema(description = "ID de la cuenta de cobro de renta/amortización, cuando difiere de la cuenta de "
+            + "compra (sólo aplica a BONO/ON). Si es null y paymentCurrency coincide con currency, se usa accountId.")
+    UUID paymentAccountId,
+
+    @Schema(description = "Moneda en la que el instrumento paga renta/amortización (sólo aplica a BONO/ON). "
+            + "Si difiere de currency, requiere paymentAccountId con una cuenta en esa moneda.",
+            example = "USD", allowableValues = {"ARS", "USD"})
+    @Pattern(regexp = "^(ARS|USD)?$", message = "La moneda de pago debe ser ARS o USD")
+    String paymentCurrency
 ) {
+    // NOTA: la validación "paymentAccountId/paymentCurrency sólo para BONO/ON" se hace en
+    // InvestmentService (no acá con @AssertTrue) porque el plan pide responder 422
+    // (UNPROCESSABLE_ENTITY) para ese caso, y las violaciones de @AssertTrue siempre devuelven 400
+    // vía MethodArgumentNotValidException.
+
+    /**
+     * Constructor de compatibilidad (sin los campos de cobro, agregados en la feature de pagos de
+     * renta/amortización): delega con {@code paymentAccountId = null, paymentCurrency = null}.
+     * Evita tener que tocar decenas de call-sites de tests ya existentes que construyen este record
+     * con 11 argumentos.
+     */
+    public InvestmentRequest(String name, InvestmentAssetType type, String currency, BigDecimal principal,
+                              LocalDate purchaseDate, LocalDate maturityDate, BigDecimal tna, UUID accountId,
+                              boolean autoTrack, String externalId, Boolean includeInCashflow) {
+        this(name, type, currency, principal, purchaseDate, maturityDate, tna, accountId, autoTrack,
+                externalId, includeInCashflow, null, null);
+    }
 
     @AssertTrue(message = "La fecha de vencimiento debe ser posterior a la fecha de compra")
     public boolean isMaturityDateValid() {

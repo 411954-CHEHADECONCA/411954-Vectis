@@ -5,6 +5,20 @@
     <div>
       <h1 class="page-head__title">Inversiones</h1>
       <p class="page-head__lead">Tu cartera, sus tasas nominales y el rendimiento real frente a la inflación.</p>
+      @if (totalPendingPayments() > 0) {
+        <p class="page-head__notice" role="status">
+          Tenés {{ totalPendingPayments() }} pago{{ totalPendingPayments() === 1 ? '' : 's' }} de renta/amortización por cobrar.
+        </p>
+      }
+      @if (paymentConfirmFeedback(); as feedback) {
+        <p
+          class="market-refresh-feedback"
+          [class.market-refresh-feedback--warning]="feedback.tone === 'warning'"
+          role="status"
+        >
+          {{ feedback.text }}
+        </p>
+      }
     </div>
     <div class="page-head__actions">
       @if (marketRefreshFeedback(); as feedback) {
@@ -184,7 +198,7 @@
                 <tr
                   class="asset-row"
                   [class.asset-row--open]="expanded().has(asset.id)"
-                  (click)="toggleExpanded(asset.id)"
+                  (click)="toggleExpanded(asset)"
                   role="button"
                   [attr.aria-expanded]="expanded().has(asset.id)"
                 >
@@ -220,6 +234,11 @@
                     }
                     @if (asset.status === 'COBRADA') {
                       <span class="badge-cobrada">Cobrada</span>
+                    }
+                    @if ((asset.type === 'BONO' || asset.type === 'ON') && pendingCountForAsset(asset.id) > 0) {
+                      <span class="badge-pending-payments" [attr.aria-label]="pendingCountForAsset(asset.id) + ' pagos por cobrar'">
+                        {{ pendingCountForAsset(asset.id) }} pago{{ pendingCountForAsset(asset.id) === 1 ? '' : 's' }} por cobrar
+                      </span>
                     }
                   </td>
                   <td class="asset-cell asset-cell--num">{{ diasPeriodo(asset) }}</td>
@@ -702,6 +721,113 @@
                               </div>
                             }
                           </div>
+
+                          @if (asset.type === 'BONO' || asset.type === 'ON') {
+                            <!-- Calendario de pagos: renta y amortización de cupones -->
+                            <div class="tramos-section payments-section">
+                              <div class="tramos-header">
+                                <span class="detail-label">Calendario de pagos</span>
+                                <div class="payments-actions">
+                                  <button
+                                    type="button" class="btn-ghost btn-sm"
+                                    [disabled]="syncingPaymentsId() === asset.id"
+                                    (click)="syncAssetPayments(asset)"
+                                  >
+                                    <svg lucideRefreshCw [size]="13" [class.icon-spin]="syncingPaymentsId() === asset.id"></svg>
+                                    {{ syncingPaymentsId() === asset.id ? 'Actualizando…' : 'Actualizar desde PPI' }}
+                                  </button>
+                                  <button type="button" class="btn-add-mov" (click)="openAddPaymentModal(asset)">
+                                    <svg lucidePlus [size]="13"></svg>
+                                    Agregar pago manual
+                                  </button>
+                                </div>
+                              </div>
+
+                              @if (paymentsLoadingIds().has(asset.id)) {
+                                <p class="movements-empty">Cargando calendario de pagos…</p>
+                              } @else if (paymentsFor(asset.id).length === 0) {
+                                <p class="movements-empty">Sin pagos registrados. Sincronizá desde PPI o agregá uno manual.</p>
+                              } @else {
+                                <div class="tramos-scroll">
+                                  <table class="tramos-table">
+                                    <thead>
+                                      <tr>
+                                        <th>Fecha de corte</th>
+                                        <th class="th--right">Renta est.</th>
+                                        <th class="th--right">Amortización est.</th>
+                                        <th>Moneda</th>
+                                        <th>Estado</th>
+                                        <th></th>
+                                      </tr>
+                                    </thead>
+                                    <tbody>
+                                      @for (payment of paymentsFor(asset.id); track payment.id) {
+                                        <tr>
+                                          <td class="tramo-cell">{{ fmtDate(payment.cuttingDate) }}</td>
+                                          <td class="tramo-cell tramo-cell--num">
+                                            {{ payment.currency === 'ARS' ? fmtARS(payment.estimatedRentAmount) : fmtUSD(payment.estimatedRentAmount) }}
+                                          </td>
+                                          <td class="tramo-cell tramo-cell--num">
+                                            {{ payment.currency === 'ARS' ? fmtARS(payment.estimatedAmortizationAmount) : fmtUSD(payment.estimatedAmortizationAmount) }}
+                                          </td>
+                                          <td class="tramo-cell">{{ payment.currency }}</td>
+                                          <td class="tramo-cell">
+                                            @if (payment.status === 'PENDIENTE' && paymentIsVencido(payment)) {
+                                              <span class="payment-badge payment-badge--vencido">Pendiente · vencido</span>
+                                            } @else if (payment.status === 'PENDIENTE') {
+                                              <span class="payment-badge payment-badge--pendiente">Pendiente</span>
+                                            } @else if (payment.status === 'COBRADO') {
+                                              <span class="payment-badge payment-badge--cobrado">Cobrado</span>
+                                            } @else {
+                                              <span class="payment-badge payment-badge--omitido">Omitido</span>
+                                            }
+                                          </td>
+                                          <td class="tramo-cell">
+                                            <div class="actions-inner">
+                                              <span class="action-icons">
+                                                @if (payment.status === 'PENDIENTE') {
+                                                  <button
+                                                    type="button" class="icon-btn icon-btn--accent"
+                                                    (click)="openConfirmPaymentModal(asset, payment)"
+                                                    title="Confirmar cobro" aria-label="Confirmar cobro"
+                                                  >
+                                                    <svg lucideWallet [size]="14"></svg>
+                                                  </button>
+                                                  <button
+                                                    type="button" class="icon-btn"
+                                                    (click)="openEditPaymentModal(asset, payment)"
+                                                    title="Editar pago" aria-label="Editar pago"
+                                                  >
+                                                    <svg lucidePen [size]="14"></svg>
+                                                  </button>
+                                                  <button
+                                                    type="button" class="icon-btn"
+                                                    (click)="omitPayment(asset, payment)"
+                                                    title="Omitir pago" aria-label="Omitir pago"
+                                                  >
+                                                    <svg lucideX [size]="14"></svg>
+                                                  </button>
+                                                  @if (payment.source === 'MANUAL') {
+                                                    <button
+                                                      type="button" class="icon-btn icon-btn--danger"
+                                                      (click)="deletePayment(asset, payment)"
+                                                      title="Eliminar pago" aria-label="Eliminar pago"
+                                                    >
+                                                      <svg lucideTrash2 [size]="14"></svg>
+                                                    </button>
+                                                  }
+                                                }
+                                              </span>
+                                            </div>
+                                          </td>
+                                        </tr>
+                                      }
+                                    </tbody>
+                                  </table>
+                                </div>
+                              }
+                            </div>
+                          }
 
                         } @else {
                           <!-- Detalle PF -->
@@ -1772,6 +1898,50 @@
               </select>
             </div>
 
+            <!-- Cobro de cupones: sólo BONO/ON, cuando la moneda de pago difiere de la de compra -->
+            @if (modal()?.assetType === 'BONO' || modal()?.assetType === 'ON') {
+              <div class="cfg-field">
+                <label class="cfg-label">Moneda de pago (renta/amortización)</label>
+                <div class="segmented">
+                  <button
+                    type="button" class="segmented-btn"
+                    [class.segmented-btn--active]="letraForm.controls.paymentCurrency.value === 'ARS'"
+                    (click)="letraForm.controls.paymentCurrency.setValue('ARS')"
+                  >ARS</button>
+                  <button
+                    type="button" class="segmented-btn"
+                    [class.segmented-btn--active]="letraForm.controls.paymentCurrency.value === 'USD'"
+                    (click)="letraForm.controls.paymentCurrency.setValue('USD')"
+                  >USD</button>
+                </div>
+                <span class="field-hint">
+                  @if (showPaymentAccountBlock()) {
+                    Los cupones se cobran en una moneda distinta a la de compra del instrumento.
+                  } @else {
+                    Coincide con la moneda de compra: se va a usar la misma cuenta asociada.
+                  }
+                </span>
+              </div>
+
+              @if (showPaymentAccountBlock()) {
+                <div class="cfg-field">
+                  <label class="cfg-label" for="letra-payment-account">Cuenta de cobro</label>
+                  <select id="letra-payment-account" class="text-input" formControlName="paymentAccountId">
+                    <option value="">— Sin cuenta —</option>
+                    @for (acc of paymentAccountsFiltered(); track acc.id) {
+                      <option [value]="acc.id">{{ acc.name }} ({{ acc.ccy }})</option>
+                    }
+                  </select>
+                  @if (paymentAccountsFiltered().length === 0) {
+                    <span class="field-hint field-hint--warning">
+                      No tenés cuentas en {{ letraForm.controls.paymentCurrency.value }}. Creá una cuenta en esa
+                      moneda antes de guardar: es obligatoria para poder cobrar los cupones.
+                    </span>
+                  }
+                </div>
+              }
+            }
+
             <label class="cfg-checkbox-field" for="letra-include-cashflow">
               <input id="letra-include-cashflow" type="checkbox" class="cfg-checkbox" formControlName="includeInCashflow" />
               <span>Incluir en cashflow</span>
@@ -2090,7 +2260,7 @@
 
   <!-- ── subModal apilado: Agregar movimiento / valuación ──────────────────── -->
   @if (subModal()) {
-    <div class="backdrop backdrop--stacked" (click)="closeSubModal()" role="dialog" aria-modal="true" aria-label="Agregar movimiento">
+    <div class="backdrop backdrop--stacked" (click)="closeSubModal()" role="dialog" aria-modal="true" [attr.aria-label]="subModalTitle()">
       <div class="modal modal--sub" (click)="$event.stopPropagation()">
 
         @if (subModal()?.kind === 'add-movement') {
@@ -2382,6 +2552,149 @@
               Guardar
             </button>
           </div>
+        }
+
+        @if (subModal()?.kind === 'confirm-payment') {
+          @let payAsset = subModal()!.asset;
+          @let payment = subModal()!.payment!;
+
+          <div class="modal-head">
+            <div>
+              <h3>Confirmar cobro</h3>
+              <p class="modal-sub">{{ payAsset.name }} · corte {{ fmtDate(payment.cuttingDate) }}</p>
+            </div>
+            <button class="close-btn" (click)="closeSubModal()" type="button" aria-label="Cerrar">
+              <svg lucideX [size]="18"></svg>
+            </button>
+          </div>
+
+          <form [formGroup]="paymentConfirmForm" (ngSubmit)="submitConfirmPayment()">
+            <div class="modal-body">
+              <p class="modal-hint">
+                Confirmá la fecha y los montos efectivamente cobrados. Se generan movimientos de
+                ingreso por renta y/o amortización según corresponda.
+              </p>
+
+              <div class="cfg-field">
+                <label class="cfg-label" for="pay-confirm-date">Fecha de cobro</label>
+                <input id="pay-confirm-date" class="text-input" formControlName="collectedDate" type="date" [max]="collectMaxDate()" />
+              </div>
+
+              <div class="add-mov-form__grid">
+                <div class="cfg-field">
+                  <label class="cfg-label" for="pay-confirm-rent">Renta</label>
+                  <input
+                    id="pay-confirm-rent" class="text-input text-input--mono"
+                    formControlName="rentAmount" type="number" min="0" step="0.01"
+                  />
+                </div>
+                <div class="cfg-field">
+                  <label class="cfg-label" for="pay-confirm-amort">Amortización</label>
+                  <input
+                    id="pay-confirm-amort" class="text-input text-input--mono"
+                    formControlName="amortizationAmount" type="number" min="0" step="0.01"
+                  />
+                </div>
+              </div>
+
+              <div class="cfg-field">
+                <span class="detail-label">Cuenta de acreditación</span>
+                <span class="detail-value">{{ payAsset.paymentAccountName ?? payAsset.accountName ?? '— Sin cuenta —' }}</span>
+              </div>
+
+              @if (!payAsset.paymentAccountName && !payAsset.accountName) {
+                <p class="modal-hint modal-hint--warning" role="status">
+                  Sin cuenta de cobro asociada: al confirmar, el pago se marcará como cobrado pero
+                  no se generará ningún movimiento.
+                </p>
+              } @else if (confirmCurrencyMismatch()) {
+                <p class="modal-hint modal-hint--warning" role="status">
+                  La moneda de la cuenta de acreditación no coincide con la del pago ({{ payment.currency }}):
+                  el cobro va a fallar hasta que corrijas la cuenta de cobro del activo.
+                </p>
+              }
+
+              @if (paymentFormError()) {
+                <p class="form-error" role="alert">{{ paymentFormError() }}</p>
+              }
+            </div>
+
+            <div class="modal-footer">
+              <button type="button" class="btn-ghost" (click)="closeSubModal()">Cancelar</button>
+              <button type="submit" class="btn-confirm" [disabled]="paymentConfirmForm.invalid || submitting()">
+                {{ submitting() ? 'Confirmando…' : 'Confirmar cobro' }}
+              </button>
+            </div>
+          </form>
+        }
+
+        @if (subModal()?.kind === 'add-payment' || subModal()?.kind === 'edit-payment') {
+          @let payFormAsset = subModal()!.asset;
+
+          <div class="modal-head">
+            <div>
+              <h3>{{ subModal()?.kind === 'edit-payment' ? 'Editar pago' : 'Agregar pago manual' }}</h3>
+              <p class="modal-sub">{{ payFormAsset.name }}</p>
+            </div>
+            <button class="close-btn" (click)="closeSubModal()" type="button" aria-label="Cerrar">
+              <svg lucideX [size]="18"></svg>
+            </button>
+          </div>
+
+          <form [formGroup]="paymentForm" (ngSubmit)="submitPaymentForm()">
+            <div class="modal-body">
+              <div class="cfg-field">
+                <label class="cfg-label" for="pay-form-date">Fecha de corte</label>
+                <input id="pay-form-date" class="text-input" formControlName="cuttingDate" type="date" />
+              </div>
+
+              @if (subModal()?.kind === 'add-payment') {
+                <div class="cfg-field">
+                  <label class="cfg-label">Moneda</label>
+                  <div class="segmented">
+                    <button
+                      type="button" class="segmented-btn"
+                      [class.segmented-btn--active]="paymentForm.controls.currency.value === 'ARS'"
+                      (click)="paymentForm.controls.currency.setValue('ARS')"
+                    >ARS</button>
+                    <button
+                      type="button" class="segmented-btn"
+                      [class.segmented-btn--active]="paymentForm.controls.currency.value === 'USD'"
+                      (click)="paymentForm.controls.currency.setValue('USD')"
+                    >USD</button>
+                  </div>
+                </div>
+              }
+
+              <div class="add-mov-form__grid">
+                <div class="cfg-field">
+                  <label class="cfg-label" for="pay-form-rent">Renta</label>
+                  <input
+                    id="pay-form-rent" class="text-input text-input--mono"
+                    formControlName="rentAmount" type="number" min="0" step="0.01" placeholder="0,00"
+                  />
+                </div>
+                <div class="cfg-field">
+                  <label class="cfg-label" for="pay-form-amort">Amortización</label>
+                  <input
+                    id="pay-form-amort" class="text-input text-input--mono"
+                    formControlName="amortizationAmount" type="number" min="0" step="0.01" placeholder="0,00"
+                  />
+                </div>
+              </div>
+
+              @if (paymentFormError()) {
+                <p class="form-error" role="alert">{{ paymentFormError() }}</p>
+              }
+            </div>
+
+            <div class="modal-footer">
+              <button type="button" class="btn-ghost" (click)="closeSubModal()">Cancelar</button>
+              <button type="submit" class="btn-confirm" [disabled]="paymentForm.invalid || submitting()">
+                {{ submitting() ? 'Guardando…' : 'Guardar' }}
+              </button>
+            </div>
+          </form>
         }
 
       </div>

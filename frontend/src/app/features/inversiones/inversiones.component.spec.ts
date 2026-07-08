@@ -11,6 +11,7 @@ import { MacroService } from '../../core/services/macro.service';
 import { CurrencyService } from '../../core/services/currency.service';
 import { FciFundOption, InstrumentOption, InvestmentMovement, InvestmentResponse, ASSET_TINTS } from '../../core/models/investment.models';
 import { InvestmentValuationRequest } from '../../core/models/investment.models';
+import { InvestmentPaymentResponse, InvestmentPendingPayment } from '../../core/models/investment.models';
 import { InflationResponse, ExchangeRateResponse } from '../../core/models/macro.models';
 import { signal } from '@angular/core';
 
@@ -44,6 +45,36 @@ const MOCK_ASSETS: InvestmentResponse[] = [
     valuations: [],
   },
 ];
+
+const MOCK_PAYMENT: InvestmentPaymentResponse = {
+  id: 'pay-1',
+  cuttingDate: '2026-07-01',
+  rentPer100: 5.5,
+  amortizationPer100: 0,
+  estimatedRentAmount: 5500,
+  estimatedAmortizationAmount: 0,
+  currency: 'USD',
+  status: 'PENDIENTE',
+  source: 'PPI',
+  userEdited: false,
+  collectedDate: null,
+  rentTransactionId: null,
+  amortizationTransactionId: null,
+  residualAfterPer100: 100,
+};
+
+const MOCK_BONO_ASSET: InvestmentResponse = {
+  id: 'inv-bono', name: 'AL30', type: 'BONO', currency: 'ARS',
+  principal: 500000, purchaseDate: '2026-01-15', maturityDate: '2030-07-09',
+  tna: 0, accountId: 'acc-ars', accountName: 'Cuenta ARS',
+  autoTrack: true, externalId: 'AL30', includeInCashflow: true,
+  createdAt: '2026-06-01T00:00:00Z', updatedAt: '2026-06-01T00:00:00Z',
+  movements: [
+    { id: 'mov-bono-1', movementDate: '2026-01-15', type: 'SUSCRIPCION' as const, amount: 500000, units: 500000, createdAt: '2026-01-15T00:00:00Z' },
+  ],
+  valuations: [],
+  paymentAccountId: 'acc-usd', paymentAccountName: 'Cuenta USD', paymentCurrency: 'USD',
+};
 
 const MOCK_INFLATION: InflationResponse = {
   monthlyRate: '2.4000',
@@ -83,6 +114,8 @@ function buildSpies() {
     'previewCollect',
     'addMovement', 'updateMovement', 'deleteMovement', 'addValuation', 'updateValuation', 'deleteValuation',
     'getFciFunds', 'getInstruments', 'getFciVcp', 'getInstrumentPrice', 'refreshMarketData',
+    'getPayments', 'createPayment', 'updatePayment', 'deletePayment', 'omitPayment', 'confirmPayment',
+    'syncPayments', 'getPendingPayments',
   ]);
   investSpy.getInvestments.and.returnValue(of([...MOCK_ASSETS]));
   investSpy.refreshMarketData.and.returnValue(of({
@@ -113,6 +146,18 @@ function buildSpies() {
   investSpy.getInstruments.and.returnValue(of(MOCK_INSTRUMENTS));
   investSpy.getFciVcp.and.returnValue(of(null));
   investSpy.getInstrumentPrice.and.returnValue(of(null));
+  investSpy.getPayments.and.returnValue(of([]));
+  investSpy.createPayment.and.returnValue(of(MOCK_PAYMENT));
+  investSpy.updatePayment.and.returnValue(of(MOCK_PAYMENT));
+  investSpy.deletePayment.and.returnValue(of(undefined));
+  investSpy.omitPayment.and.returnValue(of({ ...MOCK_PAYMENT, status: 'OMITIDO' }));
+  investSpy.confirmPayment.and.returnValue(of({
+    payment: { ...MOCK_PAYMENT, status: 'COBRADO', collectedDate: '2026-07-15' },
+    transactionsCreated: 1,
+    assetCollected: false,
+  }));
+  investSpy.syncPayments.and.returnValue(of([MOCK_PAYMENT]));
+  investSpy.getPendingPayments.and.returnValue(of([]));
 
   const accountSpy = jasmine.createSpyObj<AccountService>('AccountService', ['getAccounts']);
   accountSpy.getAccounts.and.returnValue(of([]));
@@ -724,6 +769,21 @@ describe('InversionesComponent', () => {
     });
   });
 
+  describe('fmtPct — valores no finitos', () => {
+    it('degrada NaN a "—" en vez de mostrar "NaN%"', () => {
+      expect(component.fmtPct(NaN)).toBe('—');
+    });
+
+    it('degrada Infinity a "—"', () => {
+      expect(component.fmtPct(Infinity)).toBe('—');
+      expect(component.fmtPct(-Infinity)).toBe('—');
+    });
+
+    it('formatea normalmente un valor finito', () => {
+      expect(component.fmtPct(12.5)).toContain('12,5');
+    });
+  });
+
   // ── 3. openCreate ──────────────────────────────────────────────────────────
 
   it('openCreate abre el selector de tipo y resetea el formulario', () => {
@@ -1045,11 +1105,11 @@ describe('InversionesComponent', () => {
   // ── 8. toggleExpanded ────────────────────────────────────────────────────
 
   it('toggleExpanded agrega y quita un ID del Set', () => {
-    const id = 'inv-1';
-    component.toggleExpanded(id);
-    expect(component.expanded().has(id)).toBeTrue();
-    component.toggleExpanded(id);
-    expect(component.expanded().has(id)).toBeFalse();
+    const asset = MOCK_ASSETS[0];
+    component.toggleExpanded(asset);
+    expect(component.expanded().has(asset.id)).toBeTrue();
+    component.toggleExpanded(asset);
+    expect(component.expanded().has(asset.id)).toBeFalse();
   });
 
   // ── 9. fmtARS ────────────────────────────────────────────────────────────
@@ -2322,6 +2382,25 @@ describe('InversionesComponent', () => {
       expect(component.modal()).not.toBeNull();
     });
 
+    it('al crear BONO con moneda de pago distinta y sin cuenta de cobro bloquea el submit y muestra error', () => {
+      investSpy.createInvestment.calls.reset();
+      component.accounts.set([]); // sin cuentas → no hay cuenta de cobro posible en USD
+
+      component.openCreate();
+      component.selectType('BONO');
+      component.setTrackingMode('manual');
+      component.letraForm.patchValue({
+        name: 'AL30', currency: 'ARS', purchaseDate: '2026-06-01', maturityDate: '2030-12-31',
+        paymentCurrency: 'USD', paymentAccountId: null,
+      });
+
+      component.submit();
+
+      expect(investSpy.createInvestment).not.toHaveBeenCalled();
+      expect(component.formError()).toContain('cuenta de cobro');
+      expect(component.modal()).not.toBeNull();
+    });
+
   });
 
   // ── calcValorActualCP para LETRA sin valuaciones (Bug #6) ─────────────────
@@ -2411,6 +2490,264 @@ describe('InversionesComponent', () => {
       };
       const types = component.movementTypesFor(autoAsset);
       expect(types.some(t => t.value === 'REVALUO')).toBeTrue();
+    });
+
+  });
+
+  // ── Calendario de pagos (renta/amortización) — BONO / ON ────────────────────
+
+  describe('Badge de pagos pendientes', () => {
+
+    it('ngOnInit pide los pendientes al service y expone el total', () => {
+      const mockPending: InvestmentPendingPayment[] = [
+        { paymentId: 'pay-1', assetId: 'inv-bono', assetName: 'AL30', cuttingDate: '2026-07-01', currency: 'USD', estimatedRent: 5500, estimatedAmortization: 0 },
+        { paymentId: 'pay-2', assetId: 'inv-bono', assetName: 'AL30', cuttingDate: '2026-08-01', currency: 'USD', estimatedRent: 5500, estimatedAmortization: 0 },
+      ];
+      investSpy.getPendingPayments.and.returnValue(of(mockPending));
+
+      component.refreshPendingPayments();
+
+      expect(investSpy.getPendingPayments).toHaveBeenCalled();
+      expect(component.totalPendingPayments()).toBe(2);
+      expect(component.pendingCountForAsset('inv-bono')).toBe(2);
+      expect(component.pendingCountForAsset('inv-1')).toBe(0);
+    });
+
+    it('el header muestra el aviso de pagos por cobrar cuando hay pendientes', () => {
+      component.pendingPayments.set([
+        { paymentId: 'pay-1', assetId: 'inv-bono', assetName: 'AL30', cuttingDate: '2026-07-01', currency: 'USD', estimatedRent: 5500, estimatedAmortization: 0 },
+      ]);
+      fixture.detectChanges();
+
+      const notice = fixture.nativeElement.querySelector('.page-head__notice');
+      expect(notice?.textContent).toContain('1 pago');
+    });
+
+    it('no muestra el aviso cuando no hay pendientes', () => {
+      component.pendingPayments.set([]);
+      fixture.detectChanges();
+      expect(fixture.nativeElement.querySelector('.page-head__notice')).toBeNull();
+    });
+
+  });
+
+  describe('Filtro de cuentas por moneda de pago', () => {
+
+    it('paymentAccountsFiltered() sólo devuelve cuentas de la moneda de pago elegida', () => {
+      component.accounts.set([
+        { id: 'acc-ars', name: 'Cuenta ARS', kind: 'Banco', detail: null, ccy: 'ARS', balance: 0, computedBalance: 0, remunerada: false, tna: null, createdAt: '', updatedAt: '' },
+        { id: 'acc-usd', name: 'Cuenta USD', kind: 'Banco', detail: null, ccy: 'USD', balance: 0, computedBalance: 0, remunerada: false, tna: null, createdAt: '', updatedAt: '' },
+      ] as any);
+
+      component.letraForm.controls.paymentCurrency.setValue('USD');
+      expect(component.paymentAccountsFiltered().map(a => a.id)).toEqual(['acc-usd']);
+
+      component.letraForm.controls.paymentCurrency.setValue('ARS');
+      expect(component.paymentAccountsFiltered().map(a => a.id)).toEqual(['acc-ars']);
+    });
+
+    it('showPaymentAccountBlock() sólo es true para BONO/ON cuando la moneda de pago difiere de la de compra', () => {
+      component.editingAssetType.set('BONO');
+      component.letraForm.controls.currency.setValue('ARS');
+      component.letraForm.controls.paymentCurrency.setValue('USD');
+      expect(component.showPaymentAccountBlock()).toBeTrue();
+
+      component.letraForm.controls.paymentCurrency.setValue('ARS');
+      expect(component.showPaymentAccountBlock()).toBeFalse();
+
+      component.editingAssetType.set('LETRA');
+      component.letraForm.controls.paymentCurrency.setValue('USD');
+      expect(component.showPaymentAccountBlock()).toBeFalse();
+    });
+
+    it('selectInstrument() preselecciona la moneda de pago desde el catálogo', () => {
+      component.selectInstrument({
+        ticker: 'GD30', nombre: 'Global 2030', tipo: 'BONO',
+        lastPrice: 57.4, priceDate: '2026-06-24', maturityDate: '2030-07-09', currency: 'USD',
+      });
+      expect(component.letraForm.controls.paymentCurrency.value).toBe('USD');
+    });
+
+  });
+
+  describe('Modal de confirmación de pago', () => {
+
+    it('openConfirmPaymentModal precarga fecha y montos con los estimados del pago', () => {
+      component.openConfirmPaymentModal(MOCK_BONO_ASSET, MOCK_PAYMENT);
+
+      expect(component.subModal()?.kind).toBe('confirm-payment');
+      expect(component.paymentConfirmForm.controls.collectedDate.value).toBe(MOCK_PAYMENT.cuttingDate);
+      expect(component.paymentConfirmForm.controls.rentAmount.value).toBe(MOCK_PAYMENT.estimatedRentAmount);
+      expect(component.paymentConfirmForm.controls.amortizationAmount.value).toBe(MOCK_PAYMENT.estimatedAmortizationAmount);
+    });
+
+    it('no abre el modal si el pago no está PENDIENTE', () => {
+      component.openConfirmPaymentModal(MOCK_BONO_ASSET, { ...MOCK_PAYMENT, status: 'COBRADO' });
+      expect(component.subModal()).toBeNull();
+    });
+
+    it('submitConfirmPayment() llama a confirmPayment con el body correcto y refresca pendientes', () => {
+      investSpy.getPendingPayments.calls.reset();
+      component.openConfirmPaymentModal(MOCK_BONO_ASSET, MOCK_PAYMENT);
+      component.paymentConfirmForm.setValue({
+        collectedDate: '2026-07-01', rentAmount: 5500, amortizationAmount: 0,
+      });
+
+      component.submitConfirmPayment();
+
+      expect(investSpy.confirmPayment).toHaveBeenCalledWith(MOCK_BONO_ASSET.id, MOCK_PAYMENT.id, {
+        collectedDate: '2026-07-01', rentAmount: 5500, amortizationAmount: 0,
+      });
+      expect(investSpy.getPendingPayments).toHaveBeenCalled();
+      expect(component.subModal()).toBeNull();
+    });
+
+    it('submitConfirmPayment() recarga la lista de activos cuando assetCollected es true', () => {
+      investSpy.confirmPayment.and.returnValue(of({
+        payment: { ...MOCK_PAYMENT, status: 'COBRADO' },
+        transactionsCreated: 1,
+        assetCollected: true,
+      }));
+      investSpy.getInvestments.calls.reset();
+
+      component.openConfirmPaymentModal(MOCK_BONO_ASSET, MOCK_PAYMENT);
+      component.paymentConfirmForm.setValue({
+        collectedDate: '2026-07-01', rentAmount: 5500, amortizationAmount: 0,
+      });
+      component.submitConfirmPayment();
+
+      expect(investSpy.getInvestments).toHaveBeenCalled();
+    });
+
+    it('submitConfirmPayment() muestra el error del backend si falla', () => {
+      investSpy.confirmPayment.and.returnValue(
+        throwError(() => ({ error: { message: 'El mes ya está cerrado' } })),
+      );
+      component.openConfirmPaymentModal(MOCK_BONO_ASSET, MOCK_PAYMENT);
+      component.paymentConfirmForm.setValue({
+        collectedDate: '2026-07-01', rentAmount: 5500, amortizationAmount: 0,
+      });
+
+      component.submitConfirmPayment();
+
+      expect(component.paymentFormError()).toBe('El mes ya está cerrado');
+    });
+
+    it('submitConfirmPayment() avisa en tono warning cuando no se generó ningún movimiento', () => {
+      investSpy.confirmPayment.and.returnValue(of({
+        payment: { ...MOCK_PAYMENT, status: 'COBRADO' },
+        transactionsCreated: 0,
+        assetCollected: false,
+      }));
+
+      component.openConfirmPaymentModal(MOCK_BONO_ASSET, MOCK_PAYMENT);
+      component.paymentConfirmForm.setValue({
+        collectedDate: '2026-07-01', rentAmount: 0, amortizationAmount: 0,
+      });
+      component.submitConfirmPayment();
+
+      const feedback = component.paymentConfirmFeedback();
+      expect(feedback?.tone).toBe('warning');
+      expect(feedback?.text).toContain('no se generó ningún movimiento');
+    });
+
+    it('submitConfirmPayment() confirma en tono success con la cantidad de movimientos generados', () => {
+      investSpy.confirmPayment.and.returnValue(of({
+        payment: { ...MOCK_PAYMENT, status: 'COBRADO' },
+        transactionsCreated: 2,
+        assetCollected: false,
+      }));
+
+      component.openConfirmPaymentModal(MOCK_BONO_ASSET, MOCK_PAYMENT);
+      component.paymentConfirmForm.setValue({
+        collectedDate: '2026-07-01', rentAmount: 5500, amortizationAmount: 3000,
+      });
+      component.submitConfirmPayment();
+
+      const feedback = component.paymentConfirmFeedback();
+      expect(feedback?.tone).toBe('success');
+      expect(feedback?.text).toContain('2 movimientos');
+    });
+
+    it('openConfirmPaymentModal limpia el feedback previo de confirmación', () => {
+      component.paymentConfirmFeedback.set({ tone: 'warning', text: 'previo' });
+      component.openConfirmPaymentModal(MOCK_BONO_ASSET, MOCK_PAYMENT);
+      expect(component.paymentConfirmFeedback()).toBeNull();
+    });
+
+    it('openConfirmPaymentModal con fecha de corte futura precarga hoy (no una fecha futura)', () => {
+      const futureCut = { ...MOCK_PAYMENT, cuttingDate: '2999-01-01' };
+      component.openConfirmPaymentModal(MOCK_BONO_ASSET, futureCut);
+      expect(component.paymentConfirmForm.controls.collectedDate.value).toBe(isoToday());
+    });
+
+    it('subModalTitle() devuelve la etiqueta accesible del modal de confirmación', () => {
+      component.openConfirmPaymentModal(MOCK_BONO_ASSET, MOCK_PAYMENT);
+      expect(component.subModalTitle()).toBe('Confirmar cobro');
+    });
+
+    it('confirmCurrencyMismatch() es false cuando la cuenta de cobro coincide con la moneda del pago', () => {
+      // MOCK_BONO_ASSET tiene cuenta de cobro USD y el pago es USD → sin mismatch.
+      component.openConfirmPaymentModal(MOCK_BONO_ASSET, MOCK_PAYMENT);
+      expect(component.confirmCurrencyMismatch()).toBeFalse();
+    });
+
+    it('confirmCurrencyMismatch() es true cuando la cuenta de acreditación es de otra moneda que el pago', () => {
+      // Sin cuenta de cobro: se usa la cuenta de compra (ARS) mientras el pago es USD → mismatch.
+      const inconsistente: InvestmentResponse = {
+        ...MOCK_BONO_ASSET, paymentAccountId: null, paymentAccountName: null,
+        accountId: 'acc-ars', accountName: 'Cuenta ARS', currency: 'ARS',
+      };
+      component.openConfirmPaymentModal(inconsistente, MOCK_PAYMENT); // pago USD
+      expect(component.confirmCurrencyMismatch()).toBeTrue();
+    });
+
+  });
+
+  describe('Calendario de pagos — sync y CRUD', () => {
+
+    it('syncAssetPayments() llama a syncPayments y guarda la lista devuelta', () => {
+      component.syncAssetPayments(MOCK_BONO_ASSET);
+      expect(investSpy.syncPayments).toHaveBeenCalledWith(MOCK_BONO_ASSET.id);
+      expect(component.paymentsFor(MOCK_BONO_ASSET.id)).toEqual([MOCK_PAYMENT]);
+    });
+
+    it('toggleExpanded() carga el calendario de pagos para BONO/ON al expandir', () => {
+      investSpy.getPayments.and.returnValue(of([MOCK_PAYMENT]));
+      component.toggleExpanded(MOCK_BONO_ASSET);
+      expect(investSpy.getPayments).toHaveBeenCalledWith(MOCK_BONO_ASSET.id);
+      expect(component.paymentsFor(MOCK_BONO_ASSET.id)).toEqual([MOCK_PAYMENT]);
+    });
+
+    it('omitPayment() actualiza el pago a OMITIDO y refresca pendientes', () => {
+      investSpy.getPendingPayments.calls.reset();
+      component.omitPayment(MOCK_BONO_ASSET, MOCK_PAYMENT);
+      expect(investSpy.omitPayment).toHaveBeenCalledWith(MOCK_BONO_ASSET.id, MOCK_PAYMENT.id);
+      expect(investSpy.getPendingPayments).toHaveBeenCalled();
+    });
+
+    it('deletePayment() no llama al service si el pago no es MANUAL', () => {
+      component.deletePayment(MOCK_BONO_ASSET, MOCK_PAYMENT); // source: 'PPI'
+      expect(investSpy.deletePayment).not.toHaveBeenCalled();
+    });
+
+    it('deletePayment() llama al service cuando el pago es MANUAL y PENDIENTE', () => {
+      const manualPayment = { ...MOCK_PAYMENT, source: 'MANUAL' as const };
+      component.deletePayment(MOCK_BONO_ASSET, manualPayment);
+      expect(investSpy.deletePayment).toHaveBeenCalledWith(MOCK_BONO_ASSET.id, manualPayment.id);
+    });
+
+    it('submitPaymentForm() crea un pago manual con el body correcto', () => {
+      component.openAddPaymentModal(MOCK_BONO_ASSET);
+      component.paymentForm.setValue({
+        cuttingDate: '2026-09-01', currency: 'USD', rentAmount: 1000, amortizationAmount: 0,
+      });
+
+      component.submitPaymentForm();
+
+      expect(investSpy.createPayment).toHaveBeenCalledWith(MOCK_BONO_ASSET.id, {
+        cuttingDate: '2026-09-01', currency: 'USD', rentAmount: 1000, amortizationAmount: 0,
+      });
     });
 
   });

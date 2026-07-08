@@ -74,5 +74,15 @@ public record InvestmentResponse(
     String status,
 
     @Schema(description = "Fecha de cobro (null si el activo sigue ACTIVA)", example = "2026-07-05")
-    LocalDate collectDate
+    LocalDate collectDate,
+
+    @Schema(description = "ID de la cuenta de cobro de renta/amortización (null si se usa accountId)")
+    UUID paymentAccountId,
+
+    @Schema(description = "Nombre de la cuenta de cobro (null si no hay una distinta de la cuenta de compra)",
+            example = "Cuenta USD Galicia")
+    String paymentAccountName,
+
+    @Schema(description = "Moneda en la que el instrumento paga renta/amortización (null si no aplica)", example = "USD")
+    String paymentCurrency
 ) {}

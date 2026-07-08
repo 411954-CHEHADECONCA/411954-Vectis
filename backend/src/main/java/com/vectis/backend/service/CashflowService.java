@@ -122,8 +122,13 @@ public class CashflowService {
             BigDecimal totalCollectionCapital   = sumInvestmentSourceTypeTotal(investmentTxs, InvestmentSourceType.COLLECTION_CAPITAL, TransactionType.INCOME);
             BigDecimal totalCollectionYieldIn   = sumInvestmentSourceTypeTotal(investmentTxs, InvestmentSourceType.COLLECTION_YIELD, TransactionType.INCOME);
             BigDecimal totalCollectionYieldOut  = sumInvestmentSourceTypeTotal(investmentTxs, InvestmentSourceType.COLLECTION_YIELD, TransactionType.EXPENSE);
+            // Cobro de cupones de renta/amortización de BONO/ON (calendario de pagos confirmado por el
+            // usuario) — siempre INCOME, nunca generan pérdida como COLLECTION_YIELD.
+            BigDecimal totalCouponRent          = sumInvestmentSourceTypeTotal(investmentTxs, InvestmentSourceType.COUPON_RENT, TransactionType.INCOME);
+            BigDecimal totalAmortization        = sumInvestmentSourceTypeTotal(investmentTxs, InvestmentSourceType.AMORTIZATION, TransactionType.INCOME);
 
-            BigDecimal totalInvestmentIncome  = totalRescate.add(totalCollectionCapital, MC).add(totalCollectionYieldIn, MC);
+            BigDecimal totalInvestmentIncome  = totalRescate.add(totalCollectionCapital, MC).add(totalCollectionYieldIn, MC)
+                    .add(totalCouponRent, MC).add(totalAmortization, MC);
             BigDecimal totalIncome  = sumProjections(incomeRows).add(totalInvestmentIncome, MC);
             BigDecimal totalExpense = sumProjections(expenseRows).add(totalCollectionYieldOut, MC);
 
@@ -131,6 +136,8 @@ public class CashflowService {
             incomeInvestmentRows.put("Rescates de inversión", totalRescate);
             incomeInvestmentRows.put("Cobro de inversión (capital)", totalCollectionCapital);
             incomeInvestmentRows.put("Cobro de inversión (rendimiento)", totalCollectionYieldIn);
+            incomeInvestmentRows.put("Renta de inversión (cupones)", totalCouponRent);
+            incomeInvestmentRows.put("Amortización de inversión", totalAmortization);
             Map<String, BigDecimal> expenseInvestmentRows = new LinkedHashMap<>();
             expenseInvestmentRows.put("Cobro de inversión (pérdida)", totalCollectionYieldOut);
 

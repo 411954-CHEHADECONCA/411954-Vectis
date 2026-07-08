@@ -65,6 +65,11 @@ export interface InvestmentResponse {
   // fixtures/tests existentes que construyen InvestmentResponse sin ellos. Ausente = 'ACTIVA'.
   status?:      InvestmentAssetStatus;
   collectDate?: string | null;   // yyyy-MM-dd; fecha de cobro elegida por el usuario (null si ACTIVA)
+  /** Solo BONO/ON: cuenta de cobro de renta/amortización, si difiere de la cuenta del activo. */
+  paymentAccountId?:   string | null;
+  paymentAccountName?: string | null;
+  /** Solo BONO/ON: moneda en la que se cobran renta/amortización. */
+  paymentCurrency?:    'ARS' | 'USD' | null;
 }
 
 export interface InvestmentRequest {
@@ -79,6 +84,10 @@ export interface InvestmentRequest {
   autoTrack:    boolean;
   externalId:   string | null;
   includeInCashflow: boolean;
+  /** Solo BONO/ON: cuenta de cobro de renta/amortización, si difiere de `accountId`. */
+  paymentAccountId?: string | null;
+  /** Solo BONO/ON: moneda en la que se cobran renta/amortización. */
+  paymentCurrency?:  'ARS' | 'USD' | null;
 }
 
 export interface InvestmentCollectResponse {
@@ -155,7 +164,77 @@ export interface InstrumentOption {
   lastPrice:    number | null;
   priceDate:    string | null;
   maturityDate: string | null;
+  /** Moneda de pago del instrumento según el catálogo (BONO/ON). Ausente = desconocida. */
+  currency?:    'ARS' | 'USD' | null;
 }
+
+// ── Calendario de pagos (renta/amortización) — BONO / ON ────────────────────────
+
+export type InvestmentPaymentStatus = 'PENDIENTE' | 'COBRADO' | 'OMITIDO';
+export type InvestmentPaymentSource = 'PPI' | 'MANUAL';
+
+export interface InvestmentPaymentResponse {
+  id:                        string;
+  cuttingDate:               string;   // yyyy-MM-dd
+  rentPer100:                number;
+  amortizationPer100:        number;
+  estimatedRentAmount:       number;
+  estimatedAmortizationAmount: number;
+  currency:                  'ARS' | 'USD';
+  status:                    InvestmentPaymentStatus;
+  source:                    InvestmentPaymentSource;
+  userEdited:                boolean;
+  collectedDate:             string | null;
+  rentTransactionId:         string | null;
+  amortizationTransactionId: string | null;
+  residualAfterPer100:       number | null;
+}
+
+/** Body de alta manual (`POST /{id}/payments`) — sólo pagos `source: 'MANUAL'`. */
+export interface InvestmentPaymentRequest {
+  cuttingDate:          string;   // yyyy-MM-dd
+  currency:             'ARS' | 'USD';
+  rentAmount?:          number;
+  amortizationAmount?:  number;
+}
+
+/** Body de edición (`PUT /{id}/payments/{paymentId}`) — sólo pagos PENDIENTE. */
+export interface InvestmentPaymentUpdateRequest {
+  cuttingDate?:         string;
+  rentAmount?:          number;
+  amortizationAmount?:  number;
+}
+
+/** Body de confirmación (`POST /{id}/payments/{paymentId}/confirm`). */
+export interface InvestmentPaymentConfirmRequest {
+  collectedDate:        string;   // yyyy-MM-dd
+  rentAmount:           number;
+  amortizationAmount:   number;
+}
+
+export interface InvestmentPaymentConfirmResponse {
+  payment:             InvestmentPaymentResponse;
+  transactionsCreated: number;
+  /** true si el activo pasó a COBRADA (residual 0 y sin más pagos PENDIENTE). */
+  assetCollected:      boolean;
+}
+
+/** Ítem del badge global `GET /investments/payments/pending`. */
+export interface InvestmentPendingPayment {
+  paymentId:            string;
+  assetId:              string;
+  assetName:            string;
+  cuttingDate:          string;
+  currency:             'ARS' | 'USD';
+  estimatedRent:        number;
+  estimatedAmortization: number;
+}
+
+export const PAYMENT_STATUS_LABELS: Record<InvestmentPaymentStatus, string> = {
+  PENDIENTE: 'Pendiente',
+  COBRADO:   'Cobrado',
+  OMITIDO:   'Omitido',
+};
 
 export const ASSET_TINTS = [
   'var(--color-primary)',

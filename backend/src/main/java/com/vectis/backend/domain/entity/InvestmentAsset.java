@@ -33,6 +33,19 @@ public class InvestmentAsset {
     @JoinColumn(name = "account_id")
     private Account account;
 
+    /**
+     * Cuenta de acreditación para renta/amortización de BONO/ON, cuando su moneda de pago difiere
+     * de la moneda de compra del activo ({@link #currency}). Si es null, {@link #confirmPayment}
+     * usa {@link #account}. Sólo aplica a BONO/ON — ver validación en {@code InvestmentService}.
+     */
+    @ManyToOne(fetch = FetchType.LAZY)
+    @JoinColumn(name = "payment_account_id")
+    private Account paymentAccount;
+
+    /** Moneda en la que el instrumento paga renta/amortización (puede diferir de {@link #currency}). */
+    @Column(name = "payment_currency", length = 3)
+    private String paymentCurrency;
+
     @Column(nullable = false, length = 255)
     private String name;
 

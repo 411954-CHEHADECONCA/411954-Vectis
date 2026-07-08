@@ -54,6 +54,9 @@ import {
   InvestmentMovementType,
   InvestmentValuation,
   InvestmentValuationRequest,
+  InvestmentPaymentResponse,
+  InvestmentPendingPayment,
+  PAYMENT_STATUS_LABELS,
   ASSET_TYPE_LABELS,
   ASSET_TINTS,
 } from '../../core/models/investment.models';
@@ -176,14 +179,19 @@ export class InversionesComponent implements OnInit {
   // ── Refresh on-demand de datos de mercado ───────────────────────────────────
   refreshingMarket = signal(false);
   marketRefreshFeedback = signal<{ tone: 'success' | 'error'; text: string } | null>(null);
+  // Feedback inline tras confirmar el cobro de un pago: avisa cuándo NO se generó movimiento
+  // (sin cuenta de cobro o fuera de cashflow → transactionsCreated === 0). Se limpia al abrir
+  // un nuevo modal de confirmación (misma convención que marketRefreshFeedback, sin auto-dismiss).
+  paymentConfirmFeedback = signal<{ tone: 'success' | 'warning'; text: string } | null>(null);
   modal            = signal<ModalState | null>(null);
   subModal         = signal<{
-    kind:  'add-movement' | 'add-valuation' | 'edit-tramo-interest';
+    kind:  'add-movement' | 'add-valuation' | 'edit-tramo-interest' | 'confirm-payment' | 'edit-payment' | 'add-payment';
     asset: InvestmentResponse;
     mov?:  InvestmentMovement;   // movimiento en edición (kind 'edit-tramo-interest')
     // Qué campo edita el modal de interés: 'amount' = REVALUO que cierra el tramo (capitaliza);
     // 'override' = interestOverride del movimiento que abre el tramo (no capitaliza).
     editField?: 'amount' | 'override';
+    payment?: InvestmentPaymentResponse;   // pago en edición/confirmación (kinds *-payment)
   } | null>(null);
   submitting       = signal(false);
   formError        = signal<string | null>(null);
@@ -240,6 +248,16 @@ export class InversionesComponent implements OnInit {
   pendingValuaciones  = signal<InvestmentValuationRequest[]>([]);
   showAddValuation    = signal(false);
   editingValuationId  = signal<string | null>(null);
+
+  // ── Calendario de pagos (renta/amortización) — BONO / ON ───────────────────
+  readonly PAYMENT_STATUS_LABELS = PAYMENT_STATUS_LABELS;
+  paymentsByAsset     = signal<Map<string, InvestmentPaymentResponse[]>>(new Map());
+  paymentsLoadingIds  = signal<Set<string>>(new Set());
+  syncingPaymentsId   = signal<string | null>(null);
+  pendingPayments     = signal<InvestmentPendingPayment[]>([]);
+  paymentFormError    = signal<string | null>(null);
+
+  readonly totalPendingPayments = computed(() => this.pendingPayments().length);
 
   // ── Macro data ────────────────────────────────────────────────────────────
   readonly ipc = toSignal<InflationResponse | null>(
@@ -482,7 +500,44 @@ export class InversionesComponent implements OnInit {
     accountId:    new FormControl<string | null>(null),
     externalId:   new FormControl<string | null>(null),
     includeInCashflow: new FormControl(true, { nonNullable: true }),
+    // Solo BONO/ON: cobro de cupones (renta/amortización) en una moneda/cuenta distinta a la de compra.
+    paymentCurrency:  new FormControl<'ARS' | 'USD'>('ARS', { nonNullable: true }),
+    paymentAccountId: new FormControl<string | null>(null),
   }, { validators: maturityAfterPurchaseValidator });
+
+  private readonly _letraFormValues = toSignal(this.letraForm.valueChanges, {
+    initialValue: this.letraForm.getRawValue(),
+  });
+
+  /** Cuentas cuya moneda coincide con la moneda de pago elegida (mismo patrón que el resto de selects de cuenta). */
+  readonly paymentAccountsFiltered = computed(() => {
+    this._letraFormValues();
+    const ccy = this.letraForm.controls.paymentCurrency.value;
+    return this.accounts().filter(acc => acc.ccy === ccy);
+  });
+
+  /** El bloque "Cobro de cupones" sólo aplica a BONO/ON, y sólo hace falta mostrarlo si la moneda de pago difiere de la de compra. */
+  readonly showPaymentAccountBlock = computed(() => {
+    this._letraFormValues();
+    const type = this.editingAssetType();
+    if (type !== 'BONO' && type !== 'ON') return false;
+    return this.letraForm.controls.paymentCurrency.value !== this.letraForm.controls.currency.value;
+  });
+
+  // ── Confirmación de pago (renta/amortización) ───────────────────────────────
+  readonly paymentConfirmForm = new FormGroup({
+    collectedDate:       new FormControl('', { nonNullable: true, validators: [Validators.required] }),
+    rentAmount:          new FormControl<number | null>(null, [Validators.required, Validators.min(0)]),
+    amortizationAmount:  new FormControl<number | null>(null, [Validators.required, Validators.min(0)]),
+  });
+
+  // ── Alta/edición manual de un pago ───────────────────────────────────────────
+  readonly paymentForm = new FormGroup({
+    cuttingDate:         new FormControl('', { nonNullable: true, validators: [Validators.required] }),
+    currency:            new FormControl<'ARS' | 'USD'>('ARS', { nonNullable: true }),
+    rentAmount:          new FormControl<number | null>(null, [Validators.min(0)]),
+    amortizationAmount:  new FormControl<number | null>(null, [Validators.min(0)]),
+  });
 
   // Kept for backwards compat with existing tests
   readonly pendingBalancePreview = computed(() => {
@@ -524,6 +579,7 @@ export class InversionesComponent implements OnInit {
   // ── Lifecycle ─────────────────────────────────────────────────────────────
   ngOnInit(): void {
     this.loadAssets();
+    this.refreshPendingPayments();
     this.accountService.getAccounts()
       .pipe(takeUntilDestroyed(this.destroyRef))
       .subscribe({ next: accs => this.accounts.set(accs) });
@@ -648,6 +704,7 @@ export class InversionesComponent implements OnInit {
   }
 
   fmtPct(v: number): string {
+    if (!isFinite(v)) return '—';
     return `${v.toLocaleString('es-AR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}%`;
   }
 
@@ -664,12 +721,16 @@ export class InversionesComponent implements OnInit {
     return ASSET_TINTS[index % ASSET_TINTS.length];
   }
 
-  toggleExpanded(id: string): void {
+  toggleExpanded(asset: InvestmentResponse): void {
+    const wasExpanded = this.expanded().has(asset.id);
     this.expanded.update(s => {
       const n = new Set(s);
-      n.has(id) ? n.delete(id) : n.add(id);
+      n.has(asset.id) ? n.delete(asset.id) : n.add(asset.id);
       return n;
     });
+    if (!wasExpanded && (asset.type === 'BONO' || asset.type === 'ON')) {
+      this.ensurePaymentsLoaded(asset);
+    }
   }
 
   // ── Per-row metrics (with FCI / FCI_CUOTAPARTES dispatch) ─────────────────
@@ -1136,7 +1197,7 @@ export class InversionesComponent implements OnInit {
     });
     this.fciForm.reset({ name: '', currency: 'ARS', tna: null, purchaseDate: this.todayIso(), initialAmount: null, accountId: null, includeInCashflow: true });
     this.fciCPForm.reset({ name: '', currency: 'ARS', accountId: null, includeInCashflow: true });
-    this.letraForm.reset({ name: '', currency: 'ARS', purchaseDate: this.todayIso(), maturityDate: '', accountId: null, includeInCashflow: true });
+    this.letraForm.reset({ name: '', currency: 'ARS', purchaseDate: this.todayIso(), maturityDate: '', accountId: null, includeInCashflow: true, paymentCurrency: 'ARS', paymentAccountId: null });
     this.formError.set(null);
     this.movFormError.set(null);
     this.modal.set({ kind: 'type-select' });
@@ -1161,7 +1222,7 @@ export class InversionesComponent implements OnInit {
       this.addMovementCPForm.reset({ movementDate: this.todayIso(), type: 'SUSCRIPCION', amount: null, units: null, pricePerUnit: null });
     }
     if (type === 'LETRA' || type === 'BONO' || type === 'ON') {
-      this.letraForm.reset({ name: '', currency: 'ARS', purchaseDate: this.todayIso(), maturityDate: '', accountId: null, externalId: null, includeInCashflow: true });
+      this.letraForm.reset({ name: '', currency: 'ARS', purchaseDate: this.todayIso(), maturityDate: '', accountId: null, externalId: null, includeInCashflow: true, paymentCurrency: 'ARS', paymentAccountId: null });
       this.addMovementCPForm.reset({ movementDate: this.todayIso(), type: 'SUSCRIPCION', amount: null, units: null, pricePerUnit: null });
     }
     this.modal.update(m => m ? { ...m, kind: 'form-create', assetType: type } : null);
@@ -1212,6 +1273,8 @@ export class InversionesComponent implements OnInit {
         accountId:    asset.accountId ?? null,
         externalId:   asset.externalId ?? null,
         includeInCashflow: asset.includeInCashflow ?? true,
+        paymentCurrency:  asset.paymentCurrency ?? asset.currency,
+        paymentAccountId: asset.paymentAccountId ?? null,
       });
       this.trackingMode.set(asset.autoTrack ? 'auto' : 'manual');
       if (asset.autoTrack && asset.externalId) {
@@ -1435,6 +1498,8 @@ export class InversionesComponent implements OnInit {
     this.movFormError.set(null);
     this.priceForMovement.set(null);
     this.priceSource.set(null);
+    this.paymentFormError.set(null);
+    this.submitting.set(false);
   }
 
   // ── FCI movement actions ──────────────────────────────────────────────────
@@ -1764,6 +1829,10 @@ export class InversionesComponent implements OnInit {
     // Autocompletar la fecha de vencimiento conocida del instrumento (viene del catálogo/API).
     if (instr.maturityDate) {
       this.letraForm.controls.maturityDate.setValue(instr.maturityDate);
+    }
+    // Preseleccionar la moneda de pago (renta/amortización) desde el catálogo, si viene informada.
+    if (instr.currency) {
+      this.letraForm.controls.paymentCurrency.setValue(instr.currency);
     }
     // Pre-cargar el precio de mercado a la FECHA DE COMPRA (precio histórico si es una compra
     // vieja), no necesariamente el de hoy.
@@ -2129,12 +2198,22 @@ export class InversionesComponent implements OnInit {
       return;
     }
 
+    // Cobro de cupones en otra moneda: la cuenta de cobro es obligatoria. Sin ella el bono queda
+    // incobrable (el backend responde 422). Se bloquea acá para dar feedback inmediato.
+    if (this.showPaymentAccountBlock() && !this.letraForm.controls.paymentAccountId.value) {
+      this.formError.set('Elegí una cuenta de cobro en '
+        + this.letraForm.controls.paymentCurrency.value
+        + ': los cupones se pagan en una moneda distinta a la de compra.');
+      return;
+    }
+
     const raw  = this.letraForm.getRawValue();
     const type = m.assetType as 'LETRA' | 'BONO' | 'ON';
     const isAutoTrack = this.trackingMode() === 'auto';
 
     this.submitting.set(true);
     this.formError.set(null);
+    const isBonoOrOn = type === 'BONO' || type === 'ON';
     const req: InvestmentRequest = {
       name:         raw.name,
       type,
@@ -2147,6 +2226,11 @@ export class InversionesComponent implements OnInit {
       autoTrack:    isAutoTrack,
       externalId:   isAutoTrack ? (raw.externalId || null) : null,
       includeInCashflow: raw.includeInCashflow,
+      // Cobro de cupones: sólo aplica a BONO/ON. El backend devuelve 422 si viene para otros tipos.
+      ...(isBonoOrOn ? {
+        paymentCurrency:  raw.paymentCurrency,
+        paymentAccountId: raw.paymentAccountId || null,
+      } : {}),
     };
 
     const isEdit = m.kind === 'form-edit';
@@ -2242,6 +2326,252 @@ export class InversionesComponent implements OnInit {
         error: (err: HttpErrorResponse) => {
           this.submitting.set(false);
           this.formError.set(err.error?.message ?? 'No se pudo cobrar el activo');
+        },
+      });
+  }
+
+  // ── Calendario de pagos (renta/amortización) — BONO / ON ───────────────────
+
+  /** Pagos ordenados por fecha de corte ascendente para un activo dado. */
+  paymentsFor(assetId: string): InvestmentPaymentResponse[] {
+    return [...(this.paymentsByAsset().get(assetId) ?? [])]
+      .sort((a, b) => a.cuttingDate.localeCompare(b.cuttingDate));
+  }
+
+  /** Cantidad de pagos PENDIENTE del badge global para un asset puntual (fila de la tabla). */
+  pendingCountForAsset(assetId: string): number {
+    return this.pendingPayments().filter(p => p.assetId === assetId).length;
+  }
+
+  /** Un PENDIENTE cuya fecha de corte ya pasó se resalta como "vencido" (listo para confirmar). */
+  paymentIsVencido(payment: InvestmentPaymentResponse): boolean {
+    return payment.status === 'PENDIENTE' && payment.cuttingDate <= this.todayIso();
+  }
+
+  private ensurePaymentsLoaded(asset: InvestmentResponse, force = false): void {
+    if (!force && this.paymentsByAsset().has(asset.id)) return;
+    this.paymentsLoadingIds.update(s => new Set(s).add(asset.id));
+    this.investmentService.getPayments(asset.id)
+      .pipe(
+        catchError(() => of([] as InvestmentPaymentResponse[])),
+        finalize(() => this.paymentsLoadingIds.update(s => {
+          const n = new Set(s);
+          n.delete(asset.id);
+          return n;
+        })),
+        takeUntilDestroyed(this.destroyRef),
+      )
+      .subscribe(list => this.paymentsByAsset.update(m => new Map(m).set(asset.id, list)));
+  }
+
+  /** Refresca el calendario de pagos desde PPI (idempotente; no pisa ediciones manuales del usuario). */
+  syncAssetPayments(asset: InvestmentResponse): void {
+    if (this.syncingPaymentsId() === asset.id) return;
+    this.syncingPaymentsId.set(asset.id);
+    this.investmentService.syncPayments(asset.id)
+      .pipe(
+        catchError(() => of(null)),
+        finalize(() => this.syncingPaymentsId.set(null)),
+        takeUntilDestroyed(this.destroyRef),
+      )
+      .subscribe(list => {
+        if (!list) return;
+        this.paymentsByAsset.update(m => new Map(m).set(asset.id, list));
+        this.refreshPendingPayments();
+      });
+  }
+
+  refreshPendingPayments(): void {
+    this.investmentService.getPendingPayments()
+      .pipe(catchError(() => of([])), takeUntilDestroyed(this.destroyRef))
+      .subscribe(list => this.pendingPayments.set(list));
+  }
+
+  private _replacePaymentInAsset(assetId: string, updated: InvestmentPaymentResponse): void {
+    this.paymentsByAsset.update(m => {
+      const n = new Map(m);
+      const list = n.get(assetId) ?? [];
+      n.set(assetId, list.map(p => p.id === updated.id ? updated : p));
+      return n;
+    });
+  }
+
+  openConfirmPaymentModal(asset: InvestmentResponse, payment: InvestmentPaymentResponse): void {
+    if (payment.status !== 'PENDIENTE') return;
+    this.paymentFormError.set(null);
+    this.paymentConfirmFeedback.set(null);
+    this.paymentConfirmForm.reset({
+      // No pre-cargar una fecha futura: si el corte todavía no llegó, arrancamos en hoy (el backend
+      // rechaza cobros con fecha futura y el input está topado con [max]="collectMaxDate()").
+      collectedDate:      payment.cuttingDate <= this.todayIso() ? payment.cuttingDate : this.todayIso(),
+      rentAmount:         payment.estimatedRentAmount,
+      amortizationAmount: payment.estimatedAmortizationAmount,
+    });
+    this.subModal.set({ kind: 'confirm-payment', asset, payment });
+  }
+
+  /** Etiqueta accesible del sub-modal apilado según su tipo (evita el aria-label genérico del backdrop). */
+  subModalTitle(): string {
+    switch (this.subModal()?.kind) {
+      case 'confirm-payment':     return 'Confirmar cobro';
+      case 'add-payment':         return 'Agregar pago manual';
+      case 'edit-payment':        return 'Editar pago';
+      case 'add-valuation':       return 'Agregar valuación';
+      case 'edit-tramo-interest': return 'Editar interés del tramo';
+      case 'add-movement':        return 'Agregar movimiento';
+      default:                    return 'Agregar movimiento';
+    }
+  }
+
+  /**
+   * True cuando el activo del modal de confirmación tiene una cuenta de acreditación cuya moneda no
+   * coincide con la del pago: confirmar fallará (409) hasta corregir la cuenta de cobro del activo.
+   * La moneda esperada de la cuenta es paymentCurrency (si hay cuenta de cobro) o currency (si se usa
+   * la cuenta de compra); si no hay cuenta alguna, no hay mismatch (lo cubre el aviso de "sin cuenta").
+   */
+  confirmCurrencyMismatch(): boolean {
+    const sub = this.subModal();
+    if (!sub || sub.kind !== 'confirm-payment' || !sub.payment) return false;
+    const asset = sub.asset;
+    let expectedAccountCcy: 'ARS' | 'USD' | null = null;
+    if (asset.paymentAccountName) {
+      expectedAccountCcy = asset.paymentCurrency ?? null;
+    } else if (asset.accountName) {
+      expectedAccountCcy = asset.currency;
+    }
+    return expectedAccountCcy != null && expectedAccountCcy !== sub.payment.currency;
+  }
+
+  submitConfirmPayment(): void {
+    const sub = this.subModal();
+    if (!sub || sub.kind !== 'confirm-payment' || !sub.payment) return;
+    if (this.paymentConfirmForm.invalid || this.submitting()) return;
+    this.submitting.set(true);
+    this.paymentFormError.set(null);
+    const { collectedDate, rentAmount, amortizationAmount } = this.paymentConfirmForm.getRawValue();
+
+    this.investmentService.confirmPayment(sub.asset.id, sub.payment.id, {
+      collectedDate,
+      rentAmount:         rentAmount ?? 0,
+      amortizationAmount: amortizationAmount ?? 0,
+    }).pipe(takeUntilDestroyed(this.destroyRef)).subscribe({
+      next: res => {
+        this.submitting.set(false);
+        this._replacePaymentInAsset(sub.asset.id, res.payment);
+        this.refreshPendingPayments();
+        this.closeSubModal();
+        // Avisar el resultado del cobro: si no se generó ningún movimiento (sin cuenta de cobro
+        // o fuera de cashflow) el usuario debe enterarse; si se generaron, confirmar cuántos.
+        if (res.transactionsCreated === 0) {
+          this.paymentConfirmFeedback.set({
+            tone: 'warning',
+            text: 'El pago se marcó como cobrado, pero no se generó ningún movimiento (sin cuenta de cobro).',
+          });
+        } else {
+          const plural = res.transactionsCreated === 1 ? 'movimiento' : 'movimientos';
+          this.paymentConfirmFeedback.set({
+            tone: 'success',
+            text: `Cobro confirmado: se generaron ${res.transactionsCreated} ${plural}.`,
+          });
+        }
+        // El asset pasó a COBRADA (residual 0, sin más pendientes): recargar la lista completa.
+        if (res.assetCollected) this.loadAssets();
+      },
+      error: (err: HttpErrorResponse) => {
+        this.submitting.set(false);
+        this.paymentFormError.set(err.error?.message ?? 'No se pudo confirmar el cobro');
+      },
+    });
+  }
+
+  openAddPaymentModal(asset: InvestmentResponse): void {
+    this.paymentFormError.set(null);
+    this.paymentForm.reset({
+      cuttingDate: this.todayIso(),
+      currency:    asset.paymentCurrency ?? asset.currency,
+      rentAmount:  null,
+      amortizationAmount: null,
+    });
+    this.subModal.set({ kind: 'add-payment', asset });
+  }
+
+  openEditPaymentModal(asset: InvestmentResponse, payment: InvestmentPaymentResponse): void {
+    if (payment.status !== 'PENDIENTE') return;
+    this.paymentFormError.set(null);
+    this.paymentForm.reset({
+      cuttingDate: payment.cuttingDate,
+      currency:    payment.currency,
+      rentAmount:  payment.estimatedRentAmount,
+      amortizationAmount: payment.estimatedAmortizationAmount,
+    });
+    this.subModal.set({ kind: 'edit-payment', asset, payment });
+  }
+
+  submitPaymentForm(): void {
+    const sub = this.subModal();
+    if (!sub || (sub.kind !== 'add-payment' && sub.kind !== 'edit-payment')) return;
+    if (this.paymentForm.invalid || this.submitting()) return;
+    this.submitting.set(true);
+    this.paymentFormError.set(null);
+    const raw = this.paymentForm.getRawValue();
+    const isEdit = sub.kind === 'edit-payment' && sub.payment;
+
+    const op = isEdit
+      ? this.investmentService.updatePayment(sub.asset.id, sub.payment!.id, {
+          cuttingDate:         raw.cuttingDate,
+          rentAmount:          raw.rentAmount ?? undefined,
+          amortizationAmount:  raw.amortizationAmount ?? undefined,
+        })
+      : this.investmentService.createPayment(sub.asset.id, {
+          cuttingDate:         raw.cuttingDate,
+          currency:            raw.currency,
+          rentAmount:          raw.rentAmount ?? undefined,
+          amortizationAmount:  raw.amortizationAmount ?? undefined,
+        });
+
+    op.pipe(takeUntilDestroyed(this.destroyRef)).subscribe({
+      next: payment => {
+        this.submitting.set(false);
+        this.paymentsByAsset.update(m => {
+          const n = new Map(m);
+          const list = n.get(sub.asset.id) ?? [];
+          n.set(sub.asset.id, isEdit ? list.map(p => p.id === payment.id ? payment : p) : [...list, payment]);
+          return n;
+        });
+        this.refreshPendingPayments();
+        this.closeSubModal();
+      },
+      error: (err: HttpErrorResponse) => {
+        this.submitting.set(false);
+        this.paymentFormError.set(err.error?.message ?? 'No se pudo guardar el pago');
+      },
+    });
+  }
+
+  omitPayment(asset: InvestmentResponse, payment: InvestmentPaymentResponse): void {
+    if (payment.status !== 'PENDIENTE') return;
+    this.investmentService.omitPayment(asset.id, payment.id)
+      .pipe(takeUntilDestroyed(this.destroyRef))
+      .subscribe({
+        next: updated => {
+          this._replacePaymentInAsset(asset.id, updated);
+          this.refreshPendingPayments();
+        },
+      });
+  }
+
+  deletePayment(asset: InvestmentResponse, payment: InvestmentPaymentResponse): void {
+    if (payment.status !== 'PENDIENTE' || payment.source !== 'MANUAL') return;
+    this.investmentService.deletePayment(asset.id, payment.id)
+      .pipe(takeUntilDestroyed(this.destroyRef))
+      .subscribe({
+        next: () => {
+          this.paymentsByAsset.update(m => {
+            const n = new Map(m);
+            n.set(asset.id, (n.get(asset.id) ?? []).filter(p => p.id !== payment.id));
+            return n;
+          });
+          this.refreshPendingPayments();
         },
       });
   }
@@ -2348,6 +2678,9 @@ export class InversionesComponent implements OnInit {
   private irr(cashflows: { days: number; amount: number }[]): number {
     let r = 0.1;
     for (let i = 0; i < 100; i++) {
+      // Newton-Raphson diverge a r ≤ -1 con pérdidas fuertes en pocos días: ahí la base (1 + r) se
+      // vuelve ≤ 0 y Math.pow(base, fracción) → NaN, que contaminaría todas las iteraciones. Cortamos.
+      if (1 + r <= 0) return NaN;
       let npv = 0, dnpv = 0;
       for (const cf of cashflows) {
         const t        = cf.days / 365;
@@ -2360,6 +2693,6 @@ export class InversionesComponent implements OnInit {
       r -= delta;
       if (Math.abs(delta) < 0.00001) break;
     }
-    return r * 100;
+    return isFinite(r) ? r * 100 : NaN;
   }
 }

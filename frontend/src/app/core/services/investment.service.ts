@@ -11,6 +11,12 @@ import {
   InvestmentCollectResponse,
   InvestmentMovementRequest,
   InvestmentMovementUpdateRequest,
+  InvestmentPaymentConfirmRequest,
+  InvestmentPaymentConfirmResponse,
+  InvestmentPaymentRequest,
+  InvestmentPaymentResponse,
+  InvestmentPaymentUpdateRequest,
+  InvestmentPendingPayment,
   InvestmentRequest,
   InvestmentResponse,
   InvestmentValuationRequest,
@@ -115,5 +121,47 @@ export class InvestmentService {
         { params: { ticker, type, fecha } },
       )
       .pipe(catchError(() => of(null)));
+  }
+
+  // ── Calendario de pagos (renta/amortización) — BONO / ON ──────────────────
+
+  getPayments(investmentId: string): Observable<InvestmentPaymentResponse[]> {
+    return this.http.get<InvestmentPaymentResponse[]>(`${this.baseUrl}/${investmentId}/payments`);
+  }
+
+  createPayment(investmentId: string, req: InvestmentPaymentRequest): Observable<InvestmentPaymentResponse> {
+    return this.http.post<InvestmentPaymentResponse>(`${this.baseUrl}/${investmentId}/payments`, req);
+  }
+
+  updatePayment(
+    investmentId: string, paymentId: string, req: InvestmentPaymentUpdateRequest,
+  ): Observable<InvestmentPaymentResponse> {
+    return this.http.put<InvestmentPaymentResponse>(`${this.baseUrl}/${investmentId}/payments/${paymentId}`, req);
+  }
+
+  deletePayment(investmentId: string, paymentId: string): Observable<void> {
+    return this.http.delete<void>(`${this.baseUrl}/${investmentId}/payments/${paymentId}`);
+  }
+
+  omitPayment(investmentId: string, paymentId: string): Observable<InvestmentPaymentResponse> {
+    return this.http.post<InvestmentPaymentResponse>(`${this.baseUrl}/${investmentId}/payments/${paymentId}/omit`, null);
+  }
+
+  confirmPayment(
+    investmentId: string, paymentId: string, req: InvestmentPaymentConfirmRequest,
+  ): Observable<InvestmentPaymentConfirmResponse> {
+    return this.http.post<InvestmentPaymentConfirmResponse>(
+      `${this.baseUrl}/${investmentId}/payments/${paymentId}/confirm`, req,
+    );
+  }
+
+  /** Refresca el calendario de pagos desde PPI (idempotente; no pisa ediciones manuales). */
+  syncPayments(investmentId: string): Observable<InvestmentPaymentResponse[]> {
+    return this.http.post<InvestmentPaymentResponse[]>(`${this.baseUrl}/${investmentId}/payments/sync`, null);
+  }
+
+  /** Badge global: pagos PENDIENTE del usuario (todos los assets). */
+  getPendingPayments(): Observable<InvestmentPendingPayment[]> {
+    return this.http.get<InvestmentPendingPayment[]>(`${this.baseUrl}/payments/pending`);
   }
 }

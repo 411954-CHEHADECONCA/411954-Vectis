@@ -55,6 +55,22 @@ public final class InvestmentValuationCalculator {
     }
 
     /**
+     * Variante de {@link #calcHeldUnits} a una fecha arbitraria: sólo considera los movimientos con
+     * {@code movementDate <= asOfDate}. Usada por {@code InvestmentPaymentService} para calcular el
+     * monto real de un pago de calendario (renta/amortización), que se estima con los nominales
+     * tenidos a la fecha de corte del pago — no con la tenencia actual — así comprar más nominales
+     * después de generado el calendario no infla retroactivamente pagos ya pasados.
+     */
+    public static BigDecimal unitsHeldAsOf(InvestmentAsset asset, LocalDate asOfDate) {
+        return asset.getMovements().stream()
+                .filter(m -> m.getUnits() != null && !m.getMovementDate().isAfter(asOfDate))
+                .map(m -> m.getType() == InvestmentMovementType.SUSCRIPCION
+                        ? m.getUnits()
+                        : m.getUnits().negate())
+                .reduce(BigDecimal.ZERO, BigDecimal::add);
+    }
+
+    /**
      * Valor de mercado actual del activo.
      *
      * <p>FCI (Cuenta Remunerada): {@code principal} ya capitaliza los REVALUO, así que ya es el valor
@@ -149,6 +165,16 @@ public final class InvestmentValuationCalculator {
     }
 
     /**
+     * Calcula el split capital/rendimiento de un activo a una fecha de cobro elegida. Delega en la
+     * sobrecarga de 3 argumentos con {@code residualCapitalFraction = 1} (ninguna porción del
+     * capital fue devuelta todavía vía cupones de amortización) — ver esa sobrecarga para el caso
+     * BONO/ON con amortizaciones parciales ya cobradas.
+     */
+    public static CollectBreakdown calculateCollectBreakdown(InvestmentAsset asset, LocalDate asOfDate) {
+        return calculateCollectBreakdown(asset, asOfDate, BigDecimal.ONE);
+    }
+
+    /**
      * Calcula el split capital/rendimiento de un activo a una fecha de cobro elegida:
      * <ul>
      *   <li>PLAZO_FIJO: capital = principal; rendimiento = interés simple por TNA desde la fecha de
@@ -158,12 +184,22 @@ public final class InvestmentValuationCalculator {
      *       REVALUOs pasados ({@code principal - capital}) + interés adicional devengado por TNA desde
      *       la fecha del último movimiento hasta {@code asOfDate} (réplica de
      *       {@code accruedInterestForDate} en {@code inversiones.component.ts}).</li>
-     *   <li>Familia cuotapartes (FCI_CUOTAPARTES/LETRA/BONO/ON): capital = principal (costo de
-     *       adquisición); rendimiento = {@link #calculateValueAsOf(InvestmentAsset, LocalDate)} menos
-     *       ese capital.</li>
+     *   <li>Familia cuotapartes (FCI_CUOTAPARTES/LETRA/BONO/ON): capital = principal ×
+     *       {@code residualCapitalFraction} (costo de adquisición neto de las amortizaciones
+     *       parciales ya cobradas vía el calendario de pagos de {@code InvestmentPaymentService} —
+     *       evita devolver dos veces la misma porción de capital al cobrar el activo entero después
+     *       de haber cobrado cupones de amortización); rendimiento =
+     *       {@link #calculateValueAsOf(InvestmentAsset, LocalDate)} menos ese capital.</li>
      * </ul>
+     *
+     * @param residualCapitalFraction fracción del principal aún no devuelta como capital (1 = nada
+     *                                amortizado todavía; {@code 1 − Σ amortization_per_100 cobradas / 100}
+     *                                para un BONO/ON con cupones de amortización ya confirmados).
+     *                                Sólo se aplica en la rama por defecto (familia cuotapartes);
+     *                                PLAZO_FIJO y FCI no tienen calendario de amortización.
      */
-    public static CollectBreakdown calculateCollectBreakdown(InvestmentAsset asset, LocalDate asOfDate) {
+    public static CollectBreakdown calculateCollectBreakdown(
+            InvestmentAsset asset, LocalDate asOfDate, BigDecimal residualCapitalFraction) {
         return switch (asset.getType()) {
             case PLAZO_FIJO -> {
                 BigDecimal capital = asset.getPrincipal();
@@ -195,7 +231,9 @@ public final class InvestmentValuationCalculator {
                 yield new CollectBreakdown(capital, rendimiento);
             }
             default -> {
-                BigDecimal capital = asset.getPrincipal();
+                BigDecimal capital = asset.getPrincipal()
+                        .multiply(residualCapitalFraction, MC)
+                        .setScale(MONEY_SCALE, RM);
                 BigDecimal valorAsOf = calculateValueAsOf(asset, asOfDate);
                 BigDecimal rendimiento = valorAsOf.subtract(capital, MC).setScale(MONEY_SCALE, RM);
                 yield new CollectBreakdown(capital, rendimiento);

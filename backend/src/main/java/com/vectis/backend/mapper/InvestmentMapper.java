@@ -44,6 +44,9 @@ public class InvestmentMapper {
                 .includeInCashflow(asset.isIncludeInCashflow())
                 .status(asset.getStatus().name())
                 .collectDate(asset.getCollectDate())
+                .paymentAccountId(asset.getPaymentAccount() != null ? asset.getPaymentAccount().getId() : null)
+                .paymentAccountName(asset.getPaymentAccount() != null ? asset.getPaymentAccount().getName() : null)
+                .paymentCurrency(asset.getPaymentCurrency())
                 .build();
     }
 

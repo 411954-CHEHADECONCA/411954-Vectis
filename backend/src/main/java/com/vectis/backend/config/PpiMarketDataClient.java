@@ -233,6 +233,198 @@ public class PpiMarketDataClient {
     /** A single close: its date and its normalized price (rawPrice / 100). */
     public record DatedPrice(LocalDate date, BigDecimal price) {}
 
+    // ─── Bond payment schedule (Bonds/Estimate) ───────────────────────────────────
+
+    /**
+     * Fetches the full payment flow (renta + amortización schedule) of a bond/ON via
+     * {@code GET /api/1/MarketData/Bonds/Estimate}, used to build the payment calendar of a
+     * BONO/ON with auto-tracking.
+     *
+     * <h3>Hallazgos empíricos (Fase 0 — validado contra credenciales reales de PPI)</h3>
+     * <ul>
+     *   <li><b>Parámetros obligatorios</b>: el endpoint devuelve 400 si falta cualquiera de
+     *       {@code Ticker, Date, QuantityType, Quantity, Price, AmountOfMoney, ExchangeRate,
+     *       EquityRate, ExchangeRateAmortization, RateAdjustmentAmortization}. Este cliente siempre
+     *       llama con {@code QuantityType=PAPELES&Quantity=100&Price=100&AmountOfMoney=0&
+     *       ExchangeRate=0&EquityRate=0&ExchangeRateAmortization=0&RateAdjustmentAmortization=0}.</li>
+     *   <li><b>Escala de los flows</b>: con {@code Quantity=100} los {@code flows[]} vienen en
+     *       montos <b>absolutos por 100 nominales</b> (probado: {@code Quantity=200} escala 2× los
+     *       montos; {@code Quantity=100} es la base "por 100 VN" que se persiste). {@code Price} NO
+     *       afecta los flows (sólo la TIR/sensitivity) — se manda fijo en 100 por convención.</li>
+     *   <li><b>Forma de la respuesta</b>: a diferencia de {@code MarketData/Search}, este endpoint
+     *       devuelve un <b>único objeto JSON</b> (no un array) — confirmado contra fixtures reales
+     *       capturados en {@code src/test/resources/ppi/}. Se deserializa directo a
+     *       {@link PpiBondEstimateResponseDto}, sin envolver en {@code List}/array.</li>
+     *   <li><b>Moneda de pago</b>: viene en los campos top-level {@code currency}/
+     *       {@code abbreviationCurrencyPay} — típicamente los símbolos {@code "US$"} (dólar) y
+     *       {@code "AR$"} (peso) — mientras que los {@code flows[].currency} individuales vienen
+     *       siempre {@code null}. Se normalizan vía {@link #normalizePpiCurrency}, que tolera tanto
+     *       símbolos como palabras ({@code "Dólares"}, {@code "Pesos"}, {@code "USD"}, …); un literal
+     *       no reconocido cae a {@link Optional#empty()} para que el caller decida el fallback
+     *       (típicamente {@code issueCurrency} y luego la currency del propio activo).</li>
+     *   <li><b>Semántica de {@code Date}</b>: define desde cuándo se devuelven flujos. Con la fecha
+     *       de hoy sólo trae cortes futuros; con una fecha pasada (p. ej. la {@code purchaseDate}
+     *       del activo) incluye también los cortes ya vencidos desde esa fecha — necesario para
+     *       capturar pagos que ya vencieron pero el usuario nunca confirmó/cobró.</li>
+     *   <li><b>Formato de fecha de los flows</b>: {@code flows[].cuttingDate} viene como ISO offset
+     *       datetime (p. ej. {@code "2026-07-09T00:00:00-03:00"}), se trunca a {@link LocalDate}.</li>
+     *   <li><b>{@code residualValue} es una FRACCIÓN (0..1) ANTES del pago del flow correspondiente</b>
+     *       (no un monto por 100). Ejemplo real (AL30): primer flow {@code residualValue=0.72,
+     *       amortization=8} → el residual DESPUÉS de ese pago, por 100 nominales, es
+     *       {@code 0.72 × 100 − 8 = 64}, que coincide con el {@code residualValue=0.64} del
+     *       siguiente flow. Quien persista el calendario debe calcular
+     *       {@code residualAfterPer100 = residualValue × 100 − amortization} para detectar el pago
+     *       final (residual 0).</li>
+     * </ul>
+     *
+     * @param ticker           e.g. "AL30", "TX26"
+     * @param date             lower bound for the flows to return — pass the asset's purchase date
+     *                         to capture overdue uncollected payments, not just future ones
+     * @return the parsed estimate (flows + payment currency + issue metadata), or empty if not
+     *         configured, the HTTP call fails, or the response has no flows (degrades gracefully,
+     *         never throws)
+     */
+    public Optional<PpiBondEstimate> getBondEstimate(String ticker, LocalDate date) {
+        if (!isConfigured()) {
+            log.warn("PPI client no configurado — se omite getBondEstimate para {}", ticker);
+            return Optional.empty();
+        }
+        try {
+            String token = getToken();
+            if (token == null) return Optional.empty();
+
+            String url = UriComponentsBuilder.fromHttpUrl(baseUrl)
+                    .path("/api/1/MarketData/Bonds/Estimate")
+                    .queryParam("Ticker",     ticker)
+                    .queryParam("Date",       date.toString())
+                    .queryParam("QuantityType", "PAPELES")
+                    .queryParam("Quantity",   "100")
+                    .queryParam("Price",      "100")
+                    .queryParam("AmountOfMoney", "0")
+                    .queryParam("ExchangeRate",  "0")
+                    .queryParam("EquityRate",    "0")
+                    .queryParam("ExchangeRateAmortization", "0")
+                    .queryParam("RateAdjustmentAmortization", "0")
+                    .build()
+                    .toUriString();
+
+            ResponseEntity<PpiBondEstimateResponseDto> response = restTemplate.exchange(
+                    url, HttpMethod.GET, new HttpEntity<>(bearerHeaders(token)),
+                    PpiBondEstimateResponseDto.class);
+
+            PpiBondEstimateResponseDto body = response.getBody();
+            if (body == null || body.flows() == null || body.flows().isEmpty()) {
+                log.debug("PPI Bonds/Estimate vacío para ticker={} date={}", ticker, date);
+                return Optional.empty();
+            }
+
+            List<PpiBondFlow> flows = body.flows().stream()
+                    .filter(f -> f.cuttingDate() != null)
+                    .map(f -> new PpiBondFlow(
+                            parseFlowDate(f.cuttingDate()),
+                            nz(f.residualValue()),
+                            nz(f.rent()),
+                            nz(f.amortization()),
+                            f.currency()))
+                    .toList();
+
+            return Optional.of(new PpiBondEstimate(
+                    flows, body.abbreviationCurrencyPay(), body.issueCurrency(), body.expirationDate()));
+
+        } catch (Exception e) {
+            log.warn("PPI getBondEstimate({}, {}) falló: {}", ticker, date, e.getMessage());
+            return Optional.empty();
+        }
+    }
+
+    /** Trunca el ISO offset datetime de un flow ({@code "2026-07-09T00:00:00-03:00"}) a su LocalDate. */
+    private static LocalDate parseFlowDate(String iso) {
+        return OffsetDateTime.parse(iso).toLocalDate();
+    }
+
+    private static BigDecimal nz(BigDecimal value) {
+        return value != null ? value : BigDecimal.ZERO;
+    }
+
+    /**
+     * Normaliza cualquier literal de moneda cruda de PPI a {@code "USD"}/{@code "ARS"} — fuente
+     * única para todos los endpoints (Bonds/Estimate {@code abbreviationCurrencyPay}/{@code issueCurrency}
+     * y SearchInstrument {@code currency}). Tolera símbolos ({@code "US$"}, {@code "U$S"}, {@code "AR$"})
+     * y palabras ({@code "Dólar"}, {@code "Dólares"}, {@code "USD"}, {@code "Pesos"}, {@code "ARS"}),
+     * insensible a acentos y mayúsculas/minúsculas. Devuelve {@link Optional#empty()} ante un literal
+     * no reconocido — el caller decide el fallback (típicamente la currency del activo) — y se loguea
+     * un warning acá mismo para que el desconocido quede visible sin propagar una excepción.
+     */
+    public static Optional<String> normalizePpiCurrency(String rawCurrency) {
+        if (rawCurrency == null || rawCurrency.isBlank()) return Optional.empty();
+        // Quita acentos y pasa a mayúsculas para comparar de forma robusta ("Dólares" → "DOLARES").
+        String norm = java.text.Normalizer.normalize(rawCurrency.trim(), java.text.Normalizer.Form.NFD)
+                .replaceAll("\\p{M}", "")
+                .toUpperCase();
+        // Peso primero: cubre "dólar linked EN PESOS" (liquida en ARS aunque nombre al dólar),
+        // consistente con el orden histórico de InstrumentCatalogSyncService.normalizeCurrency.
+        if (norm.contains("AR$") || norm.contains("PESO") || norm.contains("ARS")) return Optional.of("ARS");
+        if (norm.contains("US$") || norm.contains("U$S") || norm.contains("DOLAR") || norm.contains("USD")) return Optional.of("USD");
+        log.warn("Literal de moneda PPI no reconocido: '{}' — el caller debe aplicar su fallback", rawCurrency);
+        return Optional.empty();
+    }
+
+    /** Flujo de fondos (por 100 nominales) del activo en una fecha de corte — ver {@link #getBondEstimate}. */
+    public record PpiBondFlow(
+            LocalDate cuttingDate,
+            BigDecimal residualValue,
+            BigDecimal rent,
+            BigDecimal amortization,
+            String currency
+    ) {}
+
+    /** Estimación completa del flujo de pagos de un bono/ON — ver {@link #getBondEstimate}. */
+    public record PpiBondEstimate(
+            List<PpiBondFlow> flows,
+            String abbreviationCurrencyPay,
+            String issueCurrency,
+            LocalDate expirationDate
+    ) {}
+
+    /**
+     * Raw deserialization target for {@code Bonds/Estimate} — a single JSON object, not an array.
+     * Package-private (not private) so unit tests in the same package can build fixtures directly.
+     */
+    @com.fasterxml.jackson.annotation.JsonIgnoreProperties(ignoreUnknown = true)
+    record PpiBondEstimateResponseDto(
+            @JsonProperty("flows")                   List<PpiBondFlowDto> flows,
+            @JsonProperty("abbreviationCurrencyPay")  String abbreviationCurrencyPay,
+            @JsonProperty("issueCurrency")            String issueCurrency,
+            @JsonProperty("expirationDate")           @com.fasterxml.jackson.databind.annotation.JsonDeserialize(using = FlexibleDateDeserializer.class) LocalDate expirationDate
+    ) {}
+
+    @com.fasterxml.jackson.annotation.JsonIgnoreProperties(ignoreUnknown = true)
+    record PpiBondFlowDto(
+            @JsonProperty("cuttingDate")    String cuttingDate,
+            @JsonProperty("residualValue")  BigDecimal residualValue,
+            @JsonProperty("rent")           BigDecimal rent,
+            @JsonProperty("amortization")   BigDecimal amortization,
+            @JsonProperty("currency")       String currency
+    ) {}
+
+    /** Parses PPI's "dd/MM/yyyy" expirationDate string to LocalDate; null-safe. */
+    private static class FlexibleDateDeserializer extends com.fasterxml.jackson.databind.JsonDeserializer<LocalDate> {
+        private static final java.time.format.DateTimeFormatter FMT =
+                java.time.format.DateTimeFormatter.ofPattern("dd/MM/yyyy");
+
+        @Override
+        public LocalDate deserialize(com.fasterxml.jackson.core.JsonParser p,
+                                      com.fasterxml.jackson.databind.DeserializationContext ctxt) throws java.io.IOException {
+            String text = p.getValueAsString();
+            if (text == null || text.isBlank()) return null;
+            try {
+                return LocalDate.parse(text, FMT);
+            } catch (Exception e) {
+                return null;
+            }
+        }
+    }
+
     // ─── Instrument search / validation ─────────────────────────────────────────
 
     /**

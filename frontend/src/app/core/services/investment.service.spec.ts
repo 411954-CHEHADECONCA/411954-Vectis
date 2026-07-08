@@ -8,6 +8,11 @@ import {
   InvestmentCollectRequest,
   InvestmentCollectResponse,
   InvestmentMovementRequest,
+  InvestmentPaymentConfirmRequest,
+  InvestmentPaymentConfirmResponse,
+  InvestmentPaymentRequest,
+  InvestmentPaymentResponse,
+  InvestmentPendingPayment,
   InvestmentRequest,
   InvestmentResponse,
   InvestmentValuationRequest,
@@ -414,5 +419,146 @@ describe('InvestmentService', () => {
       r.params.get('force') === 'false',
     );
     req.flush({ sources: [] });
+  });
+
+  // ── Calendario de pagos (renta/amortización) ──────────────────────────────────
+
+  const MOCK_PAYMENT: InvestmentPaymentResponse = {
+    id: 'pay-1',
+    cuttingDate: '2026-07-15',
+    rentPer100: 5.5,
+    amortizationPer100: 0,
+    estimatedRentAmount: 5500,
+    estimatedAmortizationAmount: 0,
+    currency: 'USD',
+    status: 'PENDIENTE',
+    source: 'PPI',
+    userEdited: false,
+    collectedDate: null,
+    rentTransactionId: null,
+    amortizationTransactionId: null,
+    residualAfterPer100: 100,
+  };
+
+  it('getPayments() hace GET a /api/investments/{id}/payments', () => {
+    const id = 'inv-1';
+
+    service.getPayments(id).subscribe(list => {
+      expect(list.length).toBe(1);
+      expect(list[0].id).toBe('pay-1');
+    });
+
+    const req = httpMock.expectOne(r => r.url === `${baseUrl}/${id}/payments` && r.method === 'GET');
+    req.flush([MOCK_PAYMENT]);
+  });
+
+  it('createPayment() hace POST a /api/investments/{id}/payments con el body correcto', () => {
+    const id = 'inv-1';
+    const body: InvestmentPaymentRequest = {
+      cuttingDate: '2026-08-01', currency: 'USD', rentAmount: 1000, amortizationAmount: 0,
+    };
+
+    service.createPayment(id, body).subscribe(res => {
+      expect(res.id).toBe('pay-1');
+    });
+
+    const req = httpMock.expectOne(r => r.url === `${baseUrl}/${id}/payments` && r.method === 'POST');
+    expect(req.request.body).toEqual(body);
+    req.flush(MOCK_PAYMENT);
+  });
+
+  it('updatePayment() hace PUT a /api/investments/{id}/payments/{paymentId} con el body correcto', () => {
+    const id = 'inv-1';
+    const paymentId = 'pay-1';
+    const body = { rentAmount: 6000 };
+
+    service.updatePayment(id, paymentId, body).subscribe(res => {
+      expect(res.id).toBe('pay-1');
+    });
+
+    const req = httpMock.expectOne(r => r.url === `${baseUrl}/${id}/payments/${paymentId}` && r.method === 'PUT');
+    expect(req.request.body).toEqual(body);
+    req.flush(MOCK_PAYMENT);
+  });
+
+  it('deletePayment() hace DELETE a /api/investments/{id}/payments/{paymentId}', () => {
+    const id = 'inv-1';
+    const paymentId = 'pay-1';
+
+    service.deletePayment(id, paymentId).subscribe(res => {
+      expect(res).toBeNull();
+    });
+
+    const req = httpMock.expectOne(r => r.url === `${baseUrl}/${id}/payments/${paymentId}` && r.method === 'DELETE');
+    req.flush(null);
+  });
+
+  it('omitPayment() hace POST a /api/investments/{id}/payments/{paymentId}/omit', () => {
+    const id = 'inv-1';
+    const paymentId = 'pay-1';
+
+    service.omitPayment(id, paymentId).subscribe(res => {
+      expect(res.id).toBe('pay-1');
+    });
+
+    const req = httpMock.expectOne(
+      r => r.url === `${baseUrl}/${id}/payments/${paymentId}/omit` && r.method === 'POST',
+    );
+    req.flush({ ...MOCK_PAYMENT, status: 'OMITIDO' });
+  });
+
+  it('confirmPayment() hace POST a /api/investments/{id}/payments/{paymentId}/confirm con el body correcto', () => {
+    const id = 'inv-1';
+    const paymentId = 'pay-1';
+    const body: InvestmentPaymentConfirmRequest = {
+      collectedDate: '2026-07-15', rentAmount: 5500, amortizationAmount: 0,
+    };
+    const mockResponse: InvestmentPaymentConfirmResponse = {
+      payment: { ...MOCK_PAYMENT, status: 'COBRADO', collectedDate: '2026-07-15' },
+      transactionsCreated: 1,
+      assetCollected: false,
+    };
+
+    service.confirmPayment(id, paymentId, body).subscribe(res => {
+      expect(res.transactionsCreated).toBe(1);
+      expect(res.assetCollected).toBeFalse();
+      expect(res.payment.status).toBe('COBRADO');
+    });
+
+    const req = httpMock.expectOne(
+      r => r.url === `${baseUrl}/${id}/payments/${paymentId}/confirm` && r.method === 'POST',
+    );
+    expect(req.request.body).toEqual(body);
+    req.flush(mockResponse);
+  });
+
+  it('syncPayments() hace POST a /api/investments/{id}/payments/sync', () => {
+    const id = 'inv-1';
+
+    service.syncPayments(id).subscribe(list => {
+      expect(list.length).toBe(1);
+    });
+
+    const req = httpMock.expectOne(r => r.url === `${baseUrl}/${id}/payments/sync` && r.method === 'POST');
+    expect(req.request.body).toBeNull();
+    req.flush([MOCK_PAYMENT]);
+  });
+
+  it('getPendingPayments() hace GET a /api/investments/payments/pending', () => {
+    const mockPending: InvestmentPendingPayment[] = [
+      {
+        paymentId: 'pay-1', assetId: 'inv-1', assetName: 'AL30',
+        cuttingDate: '2026-07-01', currency: 'USD',
+        estimatedRent: 5500, estimatedAmortization: 0,
+      },
+    ];
+
+    service.getPendingPayments().subscribe(list => {
+      expect(list.length).toBe(1);
+      expect(list[0].assetName).toBe('AL30');
+    });
+
+    const req = httpMock.expectOne(r => r.url === `${baseUrl}/payments/pending` && r.method === 'GET');
+    req.flush(mockPending);
   });
 });

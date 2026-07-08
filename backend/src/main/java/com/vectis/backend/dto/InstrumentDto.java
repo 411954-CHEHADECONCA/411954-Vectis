@@ -12,5 +12,7 @@ public record InstrumentDto(
         @Schema(example = "BONO")              String tipo,
         @Schema(example = "1450.5000")         BigDecimal lastPrice,
         @Schema(example = "2026-06-24")        LocalDate priceDate,
-        @Schema(example = "2030-07-09")        LocalDate maturityDate
+        @Schema(example = "2030-07-09")        LocalDate maturityDate,
+        @Schema(description = "Moneda de cotización/pago del instrumento (null si no se pudo determinar)",
+                example = "USD", nullable = true) String currency
 ) {}

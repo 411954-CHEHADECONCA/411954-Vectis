@@ -66,10 +66,12 @@ class InvestmentServiceTest {
     @Mock private InvestmentRepository           investmentRepository;
     @Mock private InvestmentMovementRepository   movementRepository;
     @Mock private InvestmentValuationRepository  valuationRepository;
+    @Mock private com.vectis.backend.repository.InvestmentPaymentRepository investmentPaymentRepository;
     @Mock private AccountRepository              accountRepository;
     @Mock private InvestmentMapper               investmentMapper;
     @Mock private FciValuationSyncService        fciValuationSyncService;
     @Mock private PpiValuationSyncService        ppiValuationSyncService;
+    @Mock private InvestmentPaymentSyncService   investmentPaymentSyncService;
     @Mock private TransactionRepository          transactionRepository;
     @Mock private MonthPeriodService             monthPeriodService;
     @Mock private BalanceService                 balanceService;
@@ -108,6 +110,10 @@ class InvestmentServiceTest {
         // Default: saldo amplio salvo que un test lo sobreescriba para probar el bloqueo por fondos insuficientes.
         lenient().when(balanceService.currentBalance(any(), any()))
                 .thenReturn(new BigDecimal("999999999.0000"));
+        // Default: sin amortizaciones cobradas todavía (fracción residual = 1), salvo que un test
+        // de anti doble-contabilización lo sobreescriba.
+        lenient().when(investmentPaymentRepository.sumCollectedAmortizationPer100(any()))
+                .thenReturn(BigDecimal.ZERO);
     }
 
     // ─── getInvestments ───────────────────────────────────────────────────────
@@ -2487,5 +2493,181 @@ class InvestmentServiceTest {
         investmentService.deleteInvestment(assetId, user);
 
         verify(investmentRepository).delete(asset);
+    }
+
+    // ─── resolvePaymentAccount (cuenta de cobro de renta/amortización para BONO/ON) ──
+
+    @Test
+    @DisplayName("createInvestment con paymentAccountId de otro usuario lanza 403")
+    void createInvestment_paymentAccountNotOwned_throws403() {
+        UUID paymentAccountId = UUID.randomUUID();
+        InvestmentRequest req = new InvestmentRequest(
+                "AL30", InvestmentAssetType.BONO, "ARS",
+                new BigDecimal("100000.00"), LocalDate.of(2026, 1, 15), null,
+                BigDecimal.ZERO, null, false, "AL30", true,
+                paymentAccountId, "USD");
+
+        given(accountRepository.findByIdAndUser_Id(paymentAccountId, userId)).willReturn(Optional.empty());
+
+        assertThatThrownBy(() -> investmentService.createInvestment(req, user))
+                .isInstanceOf(VectisException.class)
+                .satisfies(ex -> assertThat(((VectisException) ex).getStatus()).isEqualTo(HttpStatus.FORBIDDEN));
+    }
+
+    @Test
+    @DisplayName("createInvestment con paymentAccountId cuya moneda no coincide con paymentCurrency lanza 409")
+    void createInvestment_paymentAccountCurrencyMismatch_throws409() {
+        Account usdAccount = Account.builder()
+                .id(UUID.randomUUID()).user(user).name("Cuenta ARS").kind("Banco").ccy("ARS")
+                .balance(BigDecimal.ZERO).includeInCashflow(true)
+                .createdAt(OffsetDateTime.now()).updatedAt(OffsetDateTime.now()).build();
+        InvestmentRequest req = new InvestmentRequest(
+                "AL30", InvestmentAssetType.BONO, "ARS",
+                new BigDecimal("100000.00"), LocalDate.of(2026, 1, 15), null,
+                BigDecimal.ZERO, null, false, "AL30", true,
+                usdAccount.getId(), "USD");
+
+        given(accountRepository.findByIdAndUser_Id(usdAccount.getId(), userId)).willReturn(Optional.of(usdAccount));
+
+        assertThatThrownBy(() -> investmentService.createInvestment(req, user))
+                .isInstanceOf(VectisException.class)
+                .satisfies(ex -> assertThat(((VectisException) ex).getStatus()).isEqualTo(HttpStatus.CONFLICT));
+    }
+
+    @Test
+    @DisplayName("createInvestment con paymentCurrency para un tipo que no es BONO/ON lanza 422")
+    void createInvestment_paymentFieldsOnNonBondType_throws422() {
+        InvestmentRequest req = new InvestmentRequest(
+                "Plazo Fijo Test", InvestmentAssetType.PLAZO_FIJO, "ARS",
+                new BigDecimal("100000.00"), LocalDate.of(2026, 1, 15), null,
+                new BigDecimal("50"), null, false, null, true,
+                null, "USD");
+
+        assertThatThrownBy(() -> investmentService.createInvestment(req, user))
+                .isInstanceOf(VectisException.class)
+                .satisfies(ex -> assertThat(((VectisException) ex).getStatus())
+                        .isEqualTo(HttpStatus.UNPROCESSABLE_ENTITY));
+    }
+
+    @Test
+    @DisplayName("createInvestment con paymentAccountId válido para BONO lo persiste en el activo")
+    void createInvestment_validPaymentAccount_persistsOnAsset() {
+        Account usdAccount = Account.builder()
+                .id(UUID.randomUUID()).user(user).name("Cuenta USD").kind("Banco").ccy("USD")
+                .balance(BigDecimal.ZERO).includeInCashflow(true)
+                .createdAt(OffsetDateTime.now()).updatedAt(OffsetDateTime.now()).build();
+        InvestmentRequest req = new InvestmentRequest(
+                "AL30", InvestmentAssetType.BONO, "ARS",
+                BigDecimal.ZERO, LocalDate.of(2026, 1, 15), null,
+                BigDecimal.ZERO, null, false, null, true,
+                usdAccount.getId(), "USD");
+
+        given(accountRepository.findByIdAndUser_Id(usdAccount.getId(), userId)).willReturn(Optional.of(usdAccount));
+        given(investmentRepository.save(any())).willAnswer(inv -> inv.getArgument(0));
+        given(investmentMapper.toResponse(any())).willReturn(buildResponse(UUID.randomUUID(), null, null));
+
+        investmentService.createInvestment(req, user);
+
+        ArgumentCaptor<InvestmentAsset> captor = ArgumentCaptor.forClass(InvestmentAsset.class);
+        verify(investmentRepository).save(captor.capture());
+        assertThat(captor.getValue().getPaymentAccount()).isEqualTo(usdAccount);
+        assertThat(captor.getValue().getPaymentCurrency()).isEqualTo("USD");
+    }
+
+    @Test
+    @DisplayName("createInvestment BONO con paymentCurrency distinta a currency y sin cuenta de cobro lanza 422")
+    void createInvestment_foreignPaymentCurrencyWithoutAccount_throws422() {
+        InvestmentRequest req = new InvestmentRequest(
+                "AL30", InvestmentAssetType.BONO, "ARS",
+                BigDecimal.ZERO, LocalDate.of(2026, 1, 15), null,
+                BigDecimal.ZERO, null, false, null, true,
+                null, "USD");
+
+        assertThatThrownBy(() -> investmentService.createInvestment(req, user))
+                .isInstanceOf(VectisException.class)
+                .satisfies(ex -> assertThat(((VectisException) ex).getStatus())
+                        .isEqualTo(HttpStatus.UNPROCESSABLE_ENTITY));
+        verify(investmentRepository, never()).save(any());
+    }
+
+    @Test
+    @DisplayName("updateInvestment BONO con paymentCurrency distinta a currency y sin cuenta de cobro lanza 422")
+    void updateInvestment_foreignPaymentCurrencyWithoutAccount_throws422() {
+        UUID assetId = UUID.randomUUID();
+        InvestmentAsset asset = buildAsset(assetId, null); // ACTIVA
+        InvestmentRequest req = new InvestmentRequest(
+                "AL30", InvestmentAssetType.BONO, "ARS",
+                BigDecimal.ZERO, LocalDate.of(2026, 1, 15), null,
+                BigDecimal.ZERO, null, false, null, true,
+                null, "USD");
+
+        given(investmentRepository.findByIdAndUser_Id(assetId, userId)).willReturn(Optional.of(asset));
+
+        assertThatThrownBy(() -> investmentService.updateInvestment(assetId, req, user))
+                .isInstanceOf(VectisException.class)
+                .satisfies(ex -> assertThat(((VectisException) ex).getStatus())
+                        .isEqualTo(HttpStatus.UNPROCESSABLE_ENTITY));
+        verify(investmentRepository, never()).save(any());
+    }
+
+    // ─── Anti doble-contabilización: collect tras amortizaciones parciales ya cobradas ──
+
+    @Test
+    @DisplayName("collectInvestment tras cobrar cupones de amortización descuenta el capital ya devuelto")
+    void collectInvestment_afterPartialAmortizationCollected_discountsCapitalAlreadyReturned() {
+        UUID assetId = UUID.randomUUID();
+        InvestmentAsset asset = InvestmentAsset.builder()
+                .id(assetId).user(user).account(account).name("AL30").type(InvestmentAssetType.BONO)
+                .currency("ARS").principal(new BigDecimal("100000.0000"))
+                .purchaseDate(LocalDate.of(2026, 1, 1)).tna(BigDecimal.ZERO)
+                .includeInCashflow(true).status(InvestmentAssetStatus.ACTIVA)
+                .build();
+        asset.getMovements().add(com.vectis.backend.domain.entity.InvestmentMovement.builder()
+                .movementDate(LocalDate.of(2026, 1, 1))
+                .type(com.vectis.backend.domain.entity.InvestmentMovementType.SUSCRIPCION)
+                .amount(new BigDecimal("100000.00")).units(new BigDecimal("100")).build());
+        asset.getValuations().add(com.vectis.backend.domain.entity.InvestmentValuation.builder()
+                .valuationDate(LocalDate.of(2026, 9, 1)).pricePerUnit(new BigDecimal("920.0000")).source("PPI").build());
+
+        // El usuario ya cobró un cupón de amortización de 8 por 100 nominales vía el calendario de pagos.
+        given(investmentPaymentRepository.sumCollectedAmortizationPer100(assetId)).willReturn(new BigDecimal("8"));
+
+        InvestmentCollectRequest request = new InvestmentCollectRequest(LocalDate.of(2026, 9, 1), null);
+        given(investmentRepository.findByIdAndUser_Id(assetId, userId)).willReturn(Optional.of(asset));
+        given(investmentRepository.save(any())).willAnswer(inv -> inv.getArgument(0));
+
+        InvestmentCollectResponse response = investmentService.collectInvestment(assetId, request, user);
+
+        // capital = 100000 * (1 - 8/100) = 92000; valorAsOf = 100*920 = 92000 → rendimiento = 0
+        assertThat(response.capital()).isEqualByComparingTo("92000.0000");
+        assertThat(response.rendimiento()).isEqualByComparingTo("0.0000");
+        assertThat(response.amount()).isEqualByComparingTo("92000.0000");
+    }
+
+    @Test
+    @DisplayName("collectInvestment sin amortizaciones cobradas usa el capital completo (fracción 1)")
+    void collectInvestment_withoutPriorAmortization_usesFullCapital() {
+        UUID assetId = UUID.randomUUID();
+        InvestmentAsset asset = InvestmentAsset.builder()
+                .id(assetId).user(user).account(account).name("AL30").type(InvestmentAssetType.BONO)
+                .currency("ARS").principal(new BigDecimal("100000.0000"))
+                .purchaseDate(LocalDate.of(2026, 1, 1)).tna(BigDecimal.ZERO)
+                .includeInCashflow(true).status(InvestmentAssetStatus.ACTIVA)
+                .build();
+        asset.getMovements().add(com.vectis.backend.domain.entity.InvestmentMovement.builder()
+                .movementDate(LocalDate.of(2026, 1, 1))
+                .type(com.vectis.backend.domain.entity.InvestmentMovementType.SUSCRIPCION)
+                .amount(new BigDecimal("100000.00")).units(new BigDecimal("100")).build());
+        asset.getValuations().add(com.vectis.backend.domain.entity.InvestmentValuation.builder()
+                .valuationDate(LocalDate.of(2026, 9, 1)).pricePerUnit(new BigDecimal("1050.0000")).source("PPI").build());
+
+        InvestmentCollectRequest request = new InvestmentCollectRequest(LocalDate.of(2026, 9, 1), null);
+        given(investmentRepository.findByIdAndUser_Id(assetId, userId)).willReturn(Optional.of(asset));
+        given(investmentRepository.save(any())).willAnswer(inv -> inv.getArgument(0));
+
+        InvestmentCollectResponse response = investmentService.collectInvestment(assetId, request, user);
+
+        assertThat(response.capital()).isEqualByComparingTo("100000.0000");
+        assertThat(response.rendimiento()).isEqualByComparingTo("5000.0000");
     }
 }

@@ -900,7 +900,7 @@ class InvestmentControllerTest {
     void getInstruments_returns200_whenAuthenticated() throws Exception {
         InstrumentDto instrument = new InstrumentDto("AL30", "BONO SOBERANO AL30", "BONO",
                 new BigDecimal("1450.5000"), java.time.LocalDate.of(2026, 6, 24),
-                java.time.LocalDate.of(2030, 7, 9));
+                java.time.LocalDate.of(2030, 7, 9), "USD");
 
         given(ppiValuationSyncService.getInstrumentsByType("BONO"))
                 .willReturn(List.of(instrument));

@@ -105,7 +105,9 @@ public interface TransactionRepository extends JpaRepository<Transaction, UUID> 
               com.vectis.backend.domain.entity.InvestmentSourceType.SUSCRIPCION,
               com.vectis.backend.domain.entity.InvestmentSourceType.RESCATE,
               com.vectis.backend.domain.entity.InvestmentSourceType.COLLECTION_CAPITAL,
-              com.vectis.backend.domain.entity.InvestmentSourceType.COLLECTION_YIELD)
+              com.vectis.backend.domain.entity.InvestmentSourceType.COLLECTION_YIELD,
+              com.vectis.backend.domain.entity.InvestmentSourceType.COUPON_RENT,
+              com.vectis.backend.domain.entity.InvestmentSourceType.AMORTIZATION)
           AND (t.investmentAsset IS NOT NULL OR t.category IS NULL)
           AND t.transactionDate BETWEEN :from AND :to
         ORDER BY t.investmentAsset.id

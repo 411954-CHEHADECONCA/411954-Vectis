@@ -40,6 +40,10 @@ public class DoctaInstrumentCache {
     @Column(name = "maturity_date")
     private LocalDate maturityDate;
 
+    /** Moneda del instrumento (desde PPI SearchInstrument). Preselecciona la moneda de cobro al alta. */
+    @Column(length = 3)
+    private String currency;
+
     /** Vigencia en PPI: false = delisted/inválido, se oculta del selector (InstrumentCatalogSyncService). */
     @Column(nullable = false)
     @Builder.Default
