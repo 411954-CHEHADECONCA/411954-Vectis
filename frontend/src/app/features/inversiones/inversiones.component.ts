@@ -40,6 +40,7 @@ import { InvestmentService } from '../../core/services/investment.service';
 import { AccountService }    from '../../core/services/account.service';
 import { MacroService }      from '../../core/services/macro.service';
 import { CurrencyService }   from '../../core/services/currency.service';
+import { PortfolioSummaryService } from '../../core/services/portfolio-summary.service';
 import {
   FciFundOption,
   InstrumentOption,
@@ -146,6 +147,7 @@ export class InversionesComponent implements OnInit {
   private readonly accountService    = inject(AccountService);
   private readonly macroService      = inject(MacroService);
   protected readonly currencyService = inject(CurrencyService);
+  private readonly portfolio         = inject(PortfolioSummaryService);
   private readonly destroyRef        = inject(DestroyRef);
 
   // ── Expose to template ────────────────────────────────────────────────────
@@ -959,11 +961,7 @@ export class InversionesComponent implements OnInit {
   }
 
   calcSaldoFCI(asset: InvestmentResponse): number {
-    return (asset.movements ?? []).reduce((acc, m) => {
-      if (m.type === 'SUSCRIPCION' || m.type === 'REVALUO') return acc + +m.amount;
-      if (m.type === 'RESCATE') return acc - +m.amount;
-      return acc;
-    }, 0);
+    return this.portfolio.saldoFci(asset);
   }
 
   /** Días e interés por TNA del período abierto desde el último movimiento hasta `dateIso`. */
@@ -1027,20 +1025,11 @@ export class InversionesComponent implements OnInit {
 
   // ── FCI Cuotapartes helpers ───────────────────────────────────────────────
   calcCuotapartesHeld(asset: InvestmentResponse, upToDate?: string): number {
-    const movs = (asset.movements ?? []).filter(m => m.units != null);
-    const filtered = upToDate ? movs.filter(m => m.movementDate <= upToDate) : movs;
-    return filtered.reduce((acc, m) =>
-      acc + (m.type === 'SUSCRIPCION' ? +(m.units ?? 0) : -(m.units ?? 0)), 0);
+    return this.portfolio.cuotapartesHeld(asset, upToDate);
   }
 
   calcValorActualCP(asset: InvestmentResponse): number {
-    const latest = this.latestValuacion(asset);
-    if (!latest) {
-      // LETRA capitalizable (zero-coupon): VN=1 por unidad → valor de rescate = nominales × 1
-      if (asset.type === 'LETRA') return this.calcCuotapartesHeld(asset);
-      return asset.principal;
-    }
-    return this.calcCuotapartesHeld(asset) * latest.pricePerUnit;
+    return this.portfolio.valorActualCP(asset);
   }
 
   calcGananciaCP(asset: InvestmentResponse): number {
@@ -2636,8 +2625,7 @@ export class InversionesComponent implements OnInit {
   }
 
   private latestValuacion(asset: InvestmentResponse): InvestmentValuation | null {
-    if (!asset.valuations?.length) return null;
-    return [...asset.valuations].sort((a, b) => b.valuationDate.localeCompare(a.valuationDate))[0];
+    return this.portfolio.latestValuacion(asset);
   }
 
   private calcTIRCP(asset: InvestmentResponse): number {

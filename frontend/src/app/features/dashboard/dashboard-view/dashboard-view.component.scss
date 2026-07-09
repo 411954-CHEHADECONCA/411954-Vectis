@@ -26,6 +26,7 @@
     display: flex;
     align-items: center;
     justify-content: space-between;
+    min-height: 22px;
   }
 
   &__label {
@@ -60,17 +61,18 @@
     letter-spacing: var(--tracking-tight);
     line-height: 1;
     font-variant-numeric: tabular-nums;
-  }
 
-  &__unit {
-    font-size: var(--text-sm);
-    color: var(--color-outline);
+    &--good    { color: var(--color-positive); }
+    &--warning { color: var(--color-warning); }
+    &--bad     { color: var(--color-negative); }
+    &--muted   { color: var(--color-outline); }
   }
 
   &__footer {
     display: flex;
     align-items: center;
     gap: 8px;
+    min-height: 22px;
   }
 
   &__delta {
@@ -82,36 +84,58 @@
     border-radius: var(--radius-sm);
     padding: 2px 7px;
     font-variant-numeric: tabular-nums;
+    flex-shrink: 0;
 
-    svg {
-      width: 11px;
-      height: 11px;
-    }
+    svg { width: 11px; height: 11px; }
 
-    &--up {
-      color: var(--color-positive);
-      background-color: color-mix(in srgb, var(--color-positive) 12%, transparent);
-    }
-
-    &--down {
-      color: var(--color-negative);
-      background-color: color-mix(in srgb, var(--color-negative) 12%, transparent);
-    }
+    &--good { color: var(--color-positive); background-color: color-mix(in srgb, var(--color-positive) 12%, transparent); }
+    &--bad  { color: var(--color-negative); background-color: color-mix(in srgb, var(--color-negative) 12%, transparent); }
   }
 
   &__caption {
     font-size: var(--text-caption);
     color: var(--color-text-muted);
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    font-variant-numeric: tabular-nums;
+
+    &--alert { color: var(--color-warning); }
+  }
+}
+
+// ─── KPI toggle (3/6/12) ────────────────────────────────────────────────────────
+
+.kpi-toggle {
+  display: inline-flex;
+  gap: 2px;
+  background-color: var(--color-surface-container-high);
+  border-radius: var(--radius-sm);
+  padding: 2px;
+
+  &__btn {
+    border: none;
+    background: transparent;
+    color: var(--color-outline);
+    font-family: var(--font-sans);
+    font-size: var(--text-overline);
+    font-weight: 600;
+    font-variant-numeric: tabular-nums;
+    padding: 2px 7px;
+    border-radius: var(--radius-sm);
+    cursor: pointer;
+    transition: background-color var(--dur-base) var(--ease-standard), color var(--dur-base) var(--ease-standard);
+
+    &--active {
+      background-color: var(--color-primary-container);
+      color: var(--color-on-primary-container);
+    }
+
+    &:hover:not(&--active) { color: var(--color-on-surface-variant); }
   }
 }
 
 // ─── Panels ───────────────────────────────────────────────────────────────────
-
-.panels-grid {
-  display: grid;
-  grid-template-columns: 1.3fr 1fr;
-  gap: 20px;
-}
 
 .panel {
   background-color: var(--color-surface-container);
@@ -133,6 +157,124 @@
     letter-spacing: var(--tracking-snug);
     margin: 0;
   }
+
+  &__header-meta {
+    display: flex;
+    align-items: baseline;
+    gap: 8px;
+  }
+}
+
+.liquidez-label {
+  font-size: var(--text-label);
+  color: var(--color-outline);
+  letter-spacing: var(--tracking-wide);
+}
+
+.liquidez-value {
+  font-size: var(--text-body-lg);
+  font-weight: 700;
+  color: var(--color-on-surface);
+  font-variant-numeric: tabular-nums;
+}
+
+.panel-empty {
+  font-size: var(--text-sm);
+  color: var(--color-text-muted);
+  line-height: 1.6;
+  margin: 8px 0 0;
+}
+
+.panels-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 20px;
+  align-items: start;
+}
+
+// ─── Resultado del mes ──────────────────────────────────────────────────────────
+
+.result-grid {
+  display: flex;
+  flex-direction: column;
+  gap: 20px;
+}
+
+.result-line {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+
+  &__head {
+    display: flex;
+    justify-content: space-between;
+    align-items: baseline;
+  }
+
+  &__label {
+    font-size: var(--text-sm);
+    color: var(--color-on-surface-variant);
+  }
+
+  &__amount {
+    font-size: var(--text-metric);
+    font-weight: 700;
+    font-variant-numeric: tabular-nums;
+
+    &--positive { color: var(--color-positive); }
+    &--negative { color: var(--color-negative); }
+  }
+
+  &__ppto {
+    font-size: var(--text-caption);
+    color: var(--color-text-muted);
+    font-variant-numeric: tabular-nums;
+  }
+}
+
+.result-summary {
+  display: flex;
+  gap: 32px;
+  padding-top: 18px;
+  border-top: 1px solid var(--color-outline-variant);
+
+  &__block {
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+  }
+
+  &__label {
+    font-size: var(--text-label);
+    font-weight: 500;
+    color: var(--color-outline);
+    letter-spacing: var(--tracking-wide);
+  }
+
+  &__value {
+    font-size: var(--text-metric);
+    font-weight: 700;
+    color: var(--color-on-surface);
+    font-variant-numeric: tabular-nums;
+
+    &--positive { color: var(--color-positive); }
+    &--negative { color: var(--color-negative); }
+  }
+}
+
+.progress-track {
+  height: 6px;
+  border-radius: var(--radius-full);
+  background-color: var(--color-surface-container-high);
+  overflow: hidden;
+}
+
+.progress-fill {
+  height: 100%;
+  border-radius: var(--radius-full);
+  background-color: var(--color-primary-container);
+
+  &--expense { background-color: color-mix(in srgb, var(--color-negative) 70%, transparent); }
 }
 
 // ─── Badges ───────────────────────────────────────────────────────────────────
@@ -147,10 +289,115 @@
   padding: 3px 8px;
   line-height: 1.2;
   white-space: nowrap;
+  font-variant-numeric: tabular-nums;
 
-  &--accent   { color: var(--color-on-primary-container); background-color: var(--color-primary-container); }
-  &--neutral  { color: var(--color-on-surface-variant); background-color: var(--color-surface-container-high); }
-  &--positive { color: var(--color-positive); background-color: color-mix(in srgb, var(--color-positive) 14%, transparent); }
+  &--accent  { color: var(--color-on-primary-container); background-color: var(--color-primary-container); }
+  &--neutral { color: var(--color-on-surface-variant); background-color: var(--color-surface-container-high); }
+}
+
+// ─── Variación diaria total (header de composición) ─────────────────────────────
+
+.daily-total {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-size: var(--text-caption);
+  font-weight: 600;
+  border-radius: var(--radius-sm);
+  padding: 3px 9px;
+  font-variant-numeric: tabular-nums;
+
+  svg { width: 12px; height: 12px; }
+
+  &--up   { color: var(--color-positive); background-color: color-mix(in srgb, var(--color-positive) 12%, transparent); }
+  &--down { color: var(--color-negative); background-color: color-mix(in srgb, var(--color-negative) 12%, transparent); }
+
+  &__pct { opacity: 0.85; }
+}
+
+// ─── Tabla de composición ───────────────────────────────────────────────────────
+
+.composition-table-wrap {
+  overflow-x: auto;
+}
+
+.composition-table {
+  width: 100%;
+  border-collapse: collapse;
+
+  th, td {
+    padding: 12px 8px;
+    text-align: left;
+    font-size: var(--text-sm);
+  }
+
+  th {
+    font-size: var(--text-caption);
+    font-weight: 600;
+    color: var(--color-outline);
+    letter-spacing: var(--tracking-wide);
+    border-bottom: 1px solid var(--color-outline-variant);
+    white-space: nowrap;
+  }
+
+  tbody tr { border-bottom: 1px solid var(--color-outline-variant); }
+  tbody tr:last-child { border-bottom: none; }
+
+  .col-name {
+    color: var(--color-on-surface);
+    font-weight: 500;
+    padding-left: 0;
+  }
+
+  .col-num {
+    text-align: right;
+    font-variant-numeric: tabular-nums;
+    color: var(--color-on-surface);
+    white-space: nowrap;
+  }
+
+  th.col-num { text-align: right; }
+  td:last-child, th:last-child { padding-right: 0; }
+
+  .col-prev { color: var(--color-text-muted); }
+}
+
+.peso-cell {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  justify-content: flex-end;
+  width: 100%;
+}
+
+.peso-bar {
+  width: 60px;
+  height: 5px;
+  border-radius: var(--radius-full);
+  background-color: var(--color-surface-container-high);
+  overflow: hidden;
+  flex-shrink: 0;
+}
+
+.peso-fill {
+  height: 100%;
+  border-radius: var(--radius-full);
+  background-color: var(--color-primary-container);
+}
+
+.daily-change {
+  display: inline-flex;
+  align-items: baseline;
+  justify-content: flex-end;
+  gap: 6px;
+  font-size: var(--text-caption);
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+
+  &--up   { color: var(--color-positive); }
+  &--down { color: var(--color-negative); }
+
+  &__pct { opacity: 0.85; }
 }
 
 // ─── Accounts ─────────────────────────────────────────────────────────────────
@@ -182,10 +429,26 @@
     svg { width: 18px; height: 18px; }
   }
 
+  &__meta {
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+    flex: 1;
+    min-width: 0;
+  }
+
   &__name {
     font-size: var(--text-sm);
     color: var(--color-on-surface);
-    flex: 1;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+
+  &__sub {
+    font-size: var(--text-caption);
+    color: var(--color-primary);
+    font-variant-numeric: tabular-nums;
   }
 
   &__amount {
@@ -198,103 +461,53 @@
   }
 }
 
-// ─── Investments ──────────────────────────────────────────────────────────────
+// ─── Estados de carga y vacío ───────────────────────────────────────────────────
 
-.investment-list {
-  display: flex;
-  flex-direction: column;
-  gap: 20px;
-}
-
-.investment-item {
-  &__header {
-    display: flex;
-    justify-content: space-between;
-    align-items: baseline;
-    margin-bottom: 8px;
-  }
-
-  &__name { font-size: var(--text-sm); color: var(--color-on-surface-variant); }
-
-  &__rate {
-    font-size: var(--text-sm);
-    font-weight: 700;
-    color: var(--color-primary);
-    font-variant-numeric: tabular-nums;
-  }
-}
-
-.progress-track {
-  height: 6px;
-  border-radius: var(--radius-full);
-  background-color: var(--color-surface-container-high);
-  overflow: hidden;
-}
-
-.progress-fill {
-  height: 100%;
-  border-radius: var(--radius-full);
-  background-color: var(--color-primary-container);
-}
-
-// ─── Cash flow ────────────────────────────────────────────────────────────────
-
-.secondary-btn {
-  display: inline-flex;
-  align-items: center;
-  gap: 6px;
-  padding: 8px 14px;
-  background: transparent;
+.skeleton {
+  background: linear-gradient(
+    90deg,
+    var(--color-surface-container) 0%,
+    var(--color-surface-container-high) 50%,
+    var(--color-surface-container) 100%
+  );
+  background-size: 200% 100%;
   border: 1px solid var(--color-outline-variant);
-  border-radius: var(--radius);
-  font-size: var(--text-sm);
-  font-weight: 500;
-  font-family: var(--font-sans);
-  color: var(--color-on-surface);
-  cursor: pointer;
-  transition: border-color var(--dur-base) var(--ease-standard), color var(--dur-base) var(--ease-standard);
+  border-radius: var(--radius-lg);
+  animation: skeleton-shimmer 1.4s ease-in-out infinite;
 
-  &:hover {
-    border-color: var(--color-primary);
-    color: var(--color-primary);
-  }
+  &--card  { height: 116px; }
+  &--panel { height: 220px; }
 }
 
-.flow-list {
+@keyframes skeleton-shimmer {
+  0%   { background-position: 200% 0; }
+  100% { background-position: -200% 0; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .skeleton { animation: none; }
+}
+
+.dashboard-empty {
   display: flex;
   flex-direction: column;
-}
-
-.flow-row {
-  display: flex;
   align-items: center;
-  gap: 12px;
-  padding: 12px 0;
+  justify-content: center;
+  gap: 8px;
+  min-height: 320px;
+  text-align: center;
 
-  &--bordered { border-top: 1px solid var(--color-outline-variant); }
-
-  &__date {
-    font-size: var(--text-caption);
-    color: var(--color-text-muted);
-    width: 52px;
-    font-variant-numeric: tabular-nums;
-    flex-shrink: 0;
-  }
-
-  &__desc {
-    font-size: var(--text-sm);
-    color: var(--color-on-surface);
-    flex: 1;
-  }
-
-  &__amount {
-    font-size: var(--text-sm);
+  &__title {
+    font-size: var(--text-h3);
     font-weight: 600;
-    font-variant-numeric: tabular-nums;
-    min-width: 120px;
-    text-align: right;
+    color: var(--color-on-surface-variant);
+    margin: 0;
+  }
 
-    &--positive { color: var(--color-positive); }
-    &--negative { color: var(--color-negative); }
+  &__hint {
+    font-size: var(--text-sm);
+    color: var(--color-text-muted);
+    max-width: 320px;
+    line-height: 1.6;
   }
 }
