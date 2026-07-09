@@ -186,6 +186,7 @@ public class TransactionService {
         Transaction tx = transactionRepository.findByIdAndDeletedAtIsNull(id)
                 .orElseThrow(() -> new TransactionNotFoundException(id));
         requireOwnership(tx, user, "modificar");
+        assertNotInvestmentLinked(tx, "modificar");
 
         if (tx.isInstallment()) {
             throw new VectisException("Las cuotas no se editan individualmente; eliminá el grupo y volvé a cargarlo",
@@ -241,6 +242,10 @@ public class TransactionService {
             throw new VectisException("Grupo de cuotas no encontrado: " + groupId, HttpStatus.NOT_FOUND);
         }
         requireOwnership(group.get(0), user, "modificar");
+        // Defensivo: hoy las transacciones de inversión nunca setean installmentGroupId (sólo las cuotas
+        // de tarjeta lo hacen), así que este grupo no debería contener ninguna. Igual se chequea para no
+        // depender de ese invariante tácito entre módulos si algún flujo futuro lo rompiera.
+        assertNotInvestmentLinked(group.get(0), "modificar");
 
         // Los planes de cuotas sólo se generan para egresos (ver createInstallmentPlan).
         Category category = resolveCategory(request.categoryId(), TransactionType.EXPENSE.name(), user);
@@ -260,6 +265,7 @@ public class TransactionService {
         Transaction tx = transactionRepository.findByIdAndDeletedAtIsNull(id)
                 .orElseThrow(() -> new TransactionNotFoundException(id));
         requireOwnership(tx, user, "eliminar");
+        assertNotInvestmentLinked(tx, "eliminar");
 
         assertMonthOpen(tx.getTransactionDate(), user.getId(), "eliminar movimientos");
 
@@ -298,6 +304,21 @@ public class TransactionService {
     private void requireOwnership(Transaction tx, User user, String action) {
         if (!tx.getUser().getId().equals(user.getId())) {
             throw new VectisException("No tenés permiso para " + action + " este movimiento", HttpStatus.FORBIDDEN);
+        }
+    }
+
+    /**
+     * Bloquea la edición/borrado de transacciones generadas por el motor de inversiones (suscripción,
+     * rescate, cupón, amortización, cobro). El movimiento de inversión es la fuente de verdad y mantiene
+     * su transacción contable sincronizada; borrarla o editarla suelta desde acá dejaría el movimiento
+     * vivo en Inversiones pero fuera del cashflow (drift). Se gestionan solo desde la sección Inversiones.
+     */
+    private void assertNotInvestmentLinked(Transaction tx, String action) {
+        if (tx.getInvestmentSourceType() != null) {
+            throw new VectisException(
+                    "No se puede " + action + " un movimiento vinculado a una inversión desde acá; "
+                            + "gestionalo desde la sección Inversiones",
+                    HttpStatus.CONFLICT);
         }
     }
 

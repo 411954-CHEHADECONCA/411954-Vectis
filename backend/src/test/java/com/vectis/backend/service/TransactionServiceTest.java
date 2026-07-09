@@ -4,6 +4,7 @@ import com.vectis.backend.domain.entity.Account;
 import com.vectis.backend.domain.entity.Category;
 import com.vectis.backend.domain.entity.CategoryType;
 import com.vectis.backend.domain.entity.CreditCard;
+import com.vectis.backend.domain.entity.InvestmentSourceType;
 import com.vectis.backend.domain.entity.Transaction;
 import com.vectis.backend.domain.entity.TransactionType;
 import com.vectis.backend.domain.entity.User;
@@ -25,6 +26,8 @@ import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.EnumSource;
 import org.mockito.ArgumentCaptor;
 import org.mockito.ArgumentMatchers;
 import org.mockito.InjectMocks;
@@ -588,6 +591,44 @@ class TransactionServiceTest {
         assertThat(tx.getDeletedAt()).isNotNull();
         assertThat(other.getDeletedAt()).isNotNull();
         verify(transactionRepository).saveAll(List.of(tx, other));
+    }
+
+    @ParameterizedTest
+    @EnumSource(InvestmentSourceType.class)
+    @DisplayName("delete de una transacción vinculada a una inversión (cualquier origen) lanza CONFLICT y no la borra")
+    void delete_investmentLinked_throwsConflictAndDoesNotDelete(InvestmentSourceType src) {
+        UUID id = UUID.randomUUID();
+        Transaction tx = simpleTx(user);
+        tx.setInvestmentSourceType(src);
+        given(transactionRepository.findByIdAndDeletedAtIsNull(id)).willReturn(Optional.of(tx));
+
+        assertThatThrownBy(() -> transactionService.delete(id, user))
+                .isInstanceOf(VectisException.class)
+                .satisfies(ex -> assertThat(((VectisException) ex).getStatus()).isEqualTo(HttpStatus.CONFLICT));
+
+        assertThat(tx.getDeletedAt()).isNull();
+        verify(transactionRepository, never()).save(any());
+        verify(transactionRepository, never()).saveAll(any());
+    }
+
+    @ParameterizedTest
+    @EnumSource(InvestmentSourceType.class)
+    @DisplayName("update de una transacción vinculada a una inversión (cualquier origen) lanza CONFLICT y no la modifica")
+    void update_investmentLinked_throwsConflict(InvestmentSourceType src) {
+        UUID id = UUID.randomUUID();
+        Transaction tx = simpleTx(user);
+        tx.setInvestmentSourceType(src);
+        given(transactionRepository.findByIdAndDeletedAtIsNull(id)).willReturn(Optional.of(tx));
+
+        MovementRequest req = new MovementRequest(
+                "X", new BigDecimal("1000"), "ARS", "INCOME", null, null, null, LocalDate.of(2026, 6, 10), 1);
+
+        assertThatThrownBy(() -> transactionService.update(id, req, user))
+                .isInstanceOf(VectisException.class)
+                .satisfies(ex -> assertThat(((VectisException) ex).getStatus()).isEqualTo(HttpStatus.CONFLICT));
+
+        assertThat(tx.getDescription()).isEqualTo("Coto");
+        verify(transactionRepository, never()).save(any());
     }
 
     // ─── search / summary ───────────────────────────────────────────────────────
