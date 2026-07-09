@@ -489,6 +489,16 @@
                                                 @case ('RESCATE')     { <span class="mov-badge mov-badge--rescate">Rescate</span> }
                                                 @case ('REVALUO')     { <span class="mov-badge mov-badge--revaluo">Revalúo</span> }
                                                 @case ('VALUACION')   { <span class="mov-badge mov-badge--valuacion">Valuación</span> }
+                                                @case ('AMORTIZATION') {
+                                                  <span class="mov-badge mov-badge--amortizacion">Amortización</span>
+                                                  @if (tramo.amortizacionSinNeutralizar) {
+                                                    <span
+                                                      class="amort-warning"
+                                                      title="Sin dato de residual o de precio de mercado a la fecha de cobro: la devolución de capital no se pudo neutralizar en este tramo"
+                                                      aria-label="Devolución de capital no neutralizada por falta de datos"
+                                                    >!</span>
+                                                  }
+                                                }
                                               }
                                             }
                                           </div>
@@ -639,6 +649,16 @@
                                                 @case ('RESCATE')     { <span class="mov-badge mov-badge--rescate">Rescate</span> }
                                                 @case ('REVALUO')     { <span class="mov-badge mov-badge--revaluo">Revalúo</span> }
                                                 @case ('VALUACION')   { <span class="mov-badge mov-badge--valuacion">Valuación</span> }
+                                                @case ('AMORTIZATION') {
+                                                  <span class="mov-badge mov-badge--amortizacion">Amortización</span>
+                                                  @if (tramo.amortizacionSinNeutralizar) {
+                                                    <span
+                                                      class="amort-warning"
+                                                      title="Sin dato de residual o de precio de mercado a la fecha de cobro: la devolución de capital no se pudo neutralizar en este tramo"
+                                                      aria-label="Devolución de capital no neutralizada por falta de datos"
+                                                    >!</span>
+                                                  }
+                                                }
                                               }
                                             }
                                           </div>

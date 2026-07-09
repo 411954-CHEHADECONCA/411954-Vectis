@@ -84,5 +84,9 @@ public record InvestmentResponse(
     String paymentAccountName,
 
     @Schema(description = "Moneda en la que el instrumento paga renta/amortización (null si no aplica)", example = "USD")
-    String paymentCurrency
+    String paymentCurrency,
+
+    @Schema(description = "Amortizaciones ya cobradas del calendario de pagos (status COBRADO, amortizationPer100 > 0). "
+            + "Poblado sólo para BONO/ON con amortizaciones cobradas; vacío/null para el resto de los tipos.")
+    List<InvestmentPaymentResponse> collectedAmortizations
 ) {}

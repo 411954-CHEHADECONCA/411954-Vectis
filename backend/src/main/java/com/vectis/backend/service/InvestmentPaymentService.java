@@ -407,14 +407,8 @@ public class InvestmentPaymentService {
 
     private PendingPaymentResponse toPendingResponse(InvestmentPayment p) {
         InvestmentAsset asset = p.getInvestmentAsset();
-        BigDecimal unitsHeld = InvestmentValuationCalculator.unitsHeldAsOf(asset, p.getCuttingDate());
-
-        BigDecimal estimatedRent = p.getRentAmountOverride() != null
-                ? p.getRentAmountOverride()
-                : p.getRentPer100().multiply(unitsHeld, MC).divide(HUNDRED, MONEY_SCALE, RM);
-        BigDecimal estimatedAmortization = p.getAmortizationAmountOverride() != null
-                ? p.getAmortizationAmountOverride()
-                : p.getAmortizationPer100().multiply(unitsHeld, MC).divide(HUNDRED, MONEY_SCALE, RM);
+        InvestmentValuationCalculator.EstimatedPaymentAmounts estimated =
+                InvestmentValuationCalculator.estimatePaymentAmounts(p, asset);
 
         return PendingPaymentResponse.builder()
                 .paymentId(p.getId())
@@ -422,28 +416,28 @@ public class InvestmentPaymentService {
                 .assetName(asset.getName())
                 .cuttingDate(p.getCuttingDate())
                 .currency(p.getCurrency())
-                .estimatedRent(estimatedRent)
-                .estimatedAmortization(estimatedAmortization)
+                .estimatedRent(estimated.rent())
+                .estimatedAmortization(estimated.amortization())
                 .build();
     }
 
+    /**
+     * El monto estimado de renta/amortización se resuelve vía
+     * {@link InvestmentValuationCalculator#estimatePaymentAmounts} — única fuente de verdad
+     * compartida con {@code InvestmentMapper#toPaymentResponse}, para que {@code GET /investments}
+     * y {@code GET /investments/{id}/payments} nunca diverjan en el monto mostrado.
+     */
     private InvestmentPaymentResponse toResponse(InvestmentPayment p, InvestmentAsset asset) {
-        BigDecimal unitsHeld = InvestmentValuationCalculator.unitsHeldAsOf(asset, p.getCuttingDate());
-
-        BigDecimal estimatedRent = p.getRentAmountOverride() != null
-                ? p.getRentAmountOverride()
-                : p.getRentPer100().multiply(unitsHeld, MC).divide(HUNDRED, MONEY_SCALE, RM);
-        BigDecimal estimatedAmortization = p.getAmortizationAmountOverride() != null
-                ? p.getAmortizationAmountOverride()
-                : p.getAmortizationPer100().multiply(unitsHeld, MC).divide(HUNDRED, MONEY_SCALE, RM);
+        InvestmentValuationCalculator.EstimatedPaymentAmounts estimated =
+                InvestmentValuationCalculator.estimatePaymentAmounts(p, asset);
 
         return InvestmentPaymentResponse.builder()
                 .id(p.getId())
                 .cuttingDate(p.getCuttingDate())
                 .rentPer100(p.getRentPer100())
                 .amortizationPer100(p.getAmortizationPer100())
-                .estimatedRentAmount(estimatedRent)
-                .estimatedAmortizationAmount(estimatedAmortization)
+                .estimatedRentAmount(estimated.rent())
+                .estimatedAmortizationAmount(estimated.amortization())
                 .currency(p.getCurrency())
                 .status(p.getStatus().name())
                 .source(p.getSource().name())

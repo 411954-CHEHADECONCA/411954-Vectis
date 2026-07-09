@@ -126,13 +126,15 @@ class InvestmentServiceTest {
 
         given(investmentRepository.findAllByUser_IdOrderByCreatedAtAsc(userId))
                 .willReturn(List.of(asset));
-        given(investmentMapper.toResponse(asset)).willReturn(resp);
+        given(investmentMapper.toResponse(asset, List.of())).willReturn(resp);
 
         List<InvestmentResponse> result = investmentService.getInvestments(userId);
 
         assertThat(result).hasSize(1);
         assertThat(result.get(0).id()).isEqualTo(asset.getId());
-        verify(investmentMapper, times(1)).toResponse(asset);
+        verify(investmentMapper, times(1)).toResponse(asset, List.of());
+        verify(investmentPaymentRepository, never())
+                .findAllByInvestmentAsset_IdInAndStatusOrderByCuttingDateAsc(any(), any());
     }
 
     @Test
@@ -2669,5 +2671,46 @@ class InvestmentServiceTest {
 
         assertThat(response.capital()).isEqualByComparingTo("100000.0000");
         assertThat(response.rendimiento()).isEqualByComparingTo("5000.0000");
+    }
+
+    // ─── getInvestments: batch de amortizaciones cobradas (BONO/ON) ────────────
+
+    @Test
+    @DisplayName("getInvestments agrupa en batch las amortizaciones cobradas de los activos BONO/ON")
+    void getInvestments_batchesCollectedAmortizationsForBondOrOnAssets() {
+        UUID bondId  = UUID.randomUUID();
+        UUID otherId = UUID.randomUUID();
+        InvestmentAsset bond  = InvestmentAsset.builder()
+                .id(bondId).user(user).name("AL30").type(InvestmentAssetType.BONO)
+                .currency("ARS").principal(BigDecimal.ZERO).purchaseDate(LocalDate.of(2026, 1, 1))
+                .tna(BigDecimal.ZERO).status(InvestmentAssetStatus.ACTIVA).build();
+        InvestmentAsset other = buildAsset(otherId, null); // LETRA, no es BONO/ON
+
+        com.vectis.backend.domain.entity.InvestmentPayment payment =
+                com.vectis.backend.domain.entity.InvestmentPayment.builder()
+                        .id(UUID.randomUUID()).investmentAsset(bond)
+                        .cuttingDate(LocalDate.of(2026, 7, 1))
+                        .amortizationPer100(new BigDecimal("8.000000"))
+                        .status(com.vectis.backend.domain.entity.InvestmentPaymentStatus.COBRADO)
+                        .source(com.vectis.backend.domain.entity.InvestmentPaymentSource.PPI)
+                        .currency("ARS")
+                        .build();
+
+        InvestmentResponse bondResp  = buildResponse(bondId, null, null);
+        InvestmentResponse otherResp = buildResponse(otherId, null, null);
+
+        given(investmentRepository.findAllByUser_IdOrderByCreatedAtAsc(userId))
+                .willReturn(List.of(bond, other));
+        given(investmentPaymentRepository.findAllByInvestmentAsset_IdInAndStatusOrderByCuttingDateAsc(
+                List.of(bondId), com.vectis.backend.domain.entity.InvestmentPaymentStatus.COBRADO))
+                .willReturn(List.of(payment));
+        given(investmentMapper.toResponse(bond, List.of(payment))).willReturn(bondResp);
+        given(investmentMapper.toResponse(other, List.of())).willReturn(otherResp);
+
+        List<InvestmentResponse> result = investmentService.getInvestments(userId);
+
+        assertThat(result).containsExactly(bondResp, otherResp);
+        verify(investmentMapper).toResponse(bond, List.of(payment));
+        verify(investmentMapper).toResponse(other, List.of());
     }
 }

@@ -4,6 +4,7 @@ import com.vectis.backend.domain.entity.InvestmentAsset;
 import com.vectis.backend.domain.entity.InvestmentAssetType;
 import com.vectis.backend.domain.entity.InvestmentMovement;
 import com.vectis.backend.domain.entity.InvestmentMovementType;
+import com.vectis.backend.domain.entity.InvestmentPayment;
 import com.vectis.backend.domain.entity.InvestmentValuation;
 
 import java.math.BigDecimal;
@@ -155,6 +156,34 @@ public final class InvestmentValuationCalculator {
         return base.multiply(tasaDiaria, MC)
                 .multiply(BigDecimal.valueOf(dias), MC)
                 .setScale(MONEY_SCALE, RM);
+    }
+
+    /** Monto estimado de renta/amortización de un pago de calendario (ver {@link #estimatePaymentAmounts}). */
+    public record EstimatedPaymentAmounts(BigDecimal rent, BigDecimal amortization) {
+    }
+
+    /**
+     * Única fuente de verdad para estimar el monto de renta y amortización de un
+     * {@code InvestmentPayment} del calendario de pagos de BONO/ON. Usada tanto por
+     * {@code InvestmentPaymentService} ({@code toResponse}/{@code toPendingResponse}, el calendario
+     * completo del activo) como por {@code InvestmentMapper} ({@code collectedAmortizations} expuesto
+     * en {@code InvestmentResponse}), para que ambos caminos no diverjan si la fórmula cambia.
+     *
+     * <p>Precedencia: si el usuario cargó un override manual ({@code rentAmountOverride}/
+     * {@code amortizationAmountOverride}) se usa tal cual; si no, se estima a partir del nominal
+     * tenido a la fecha de corte del pago ({@link #unitsHeldAsOf}) y el {@code per100} del calendario.
+     */
+    public static EstimatedPaymentAmounts estimatePaymentAmounts(InvestmentPayment payment, InvestmentAsset asset) {
+        BigDecimal unitsHeld = unitsHeldAsOf(asset, payment.getCuttingDate());
+
+        BigDecimal estimatedRent = payment.getRentAmountOverride() != null
+                ? payment.getRentAmountOverride()
+                : payment.getRentPer100().multiply(unitsHeld, MC).divide(HUNDRED, MONEY_SCALE, RM);
+        BigDecimal estimatedAmortization = payment.getAmortizationAmountOverride() != null
+                ? payment.getAmortizationAmountOverride()
+                : payment.getAmortizationPer100().multiply(unitsHeld, MC).divide(HUNDRED, MONEY_SCALE, RM);
+
+        return new EstimatedPaymentAmounts(estimatedRent, estimatedAmortization);
     }
 
     /** Split capital/rendimiento resultante de cobrar (liquidar) un activo. */

@@ -1793,6 +1793,261 @@ describe('InversionesComponent', () => {
     });
   });
 
+  // ── Amortización de capital (solo BONO/ON) ─────────────────────────────────
+
+  describe('BONO/ON — neutralización del escalón de precio por amortización cobrada', () => {
+    /**
+     * 1000 nominales a $100 (principal 100.000). Valuación de $100 el 01/02, y el 01/03 el precio
+     * de mercado escalona a $87 (PPI cotiza sobre nominal original) porque ese mismo día se cobró
+     * una amortización de 13% (queda 87% de residual). Sin corrección, el tramo 01/02→01/03
+     * mostraría una "pérdida" de 1000×(87−100) = −13.000 que en realidad es capital devuelto.
+     */
+    function buildBonoAssetConAmortizacion(residualAfterPer100: number | null = 87): InvestmentResponse {
+      return {
+        id: 'bono-amort', name: 'AL30', type: 'BONO', currency: 'ARS',
+        principal: 100000, purchaseDate: '2026-01-01', maturityDate: '2030-01-01',
+        tna: 0, accountId: 'acc-ars', accountName: 'Cuenta ARS',
+        autoTrack: true, externalId: 'AL30', includeInCashflow: true,
+        createdAt: '2026-01-01T00:00:00Z', updatedAt: '2026-01-01T00:00:00Z',
+        movements: [
+          { id: 'm1', movementDate: '2026-01-01', type: 'SUSCRIPCION', amount: 100000, units: 1000, createdAt: '' },
+        ],
+        valuations: [
+          { id: 'v1', valuationDate: '2026-02-01', pricePerUnit: 100, source: 'MANUAL', createdAt: '' },
+          { id: 'v2', valuationDate: '2026-03-01', pricePerUnit: 87,  source: 'MANUAL', createdAt: '' },
+        ],
+        collectedAmortizations: [
+          {
+            id: 'pay-amort-1', cuttingDate: '2026-03-01', rentPer100: 0, amortizationPer100: 13,
+            estimatedRentAmount: 0, estimatedAmortizationAmount: 130, currency: 'ARS',
+            status: 'COBRADO', source: 'PPI', userEdited: false, collectedDate: '2026-03-01',
+            rentTransactionId: null, amortizationTransactionId: 'tx-amort-1',
+            residualAfterPer100,
+          },
+        ],
+      };
+    }
+
+    it('calcTramosCP genera un tramo endEvent=AMORTIZATION y neutraliza la ganancia (no queda como pérdida cruda)', () => {
+      const asset = buildBonoAssetConAmortizacion(87);
+      const tramos = component.calcTramosCP(asset);
+
+      const tramoAmort = tramos.find(t => t.endEvent === 'AMORTIZATION');
+      expect(tramoAmort).toBeDefined();
+      expect(tramoAmort!.startDate).toBe('2026-02-01');
+      expect(tramoAmort!.endDate).toBe('2026-03-01');
+      expect(tramoAmort!.startPrice).toBeCloseTo(100, 6);
+      expect(tramoAmort!.endPrice).toBeCloseTo(87, 6);
+      // capitalDevuelto = 1000 × 100 × (13/(13+87)) = 13.000 → neutraliza el escalón de −13.000.
+      expect(tramoAmort!.ganancia).toBeCloseTo(0, 4);
+      expect(tramoAmort!.ganancia).not.toBeCloseTo(-13000, 0);
+      // Caso normal (neutralizado): NO se marca el indicador de advertencia.
+      expect(tramoAmort!.amortizacionSinNeutralizar).toBeFalsy();
+
+      // La valuación del 01/03 (misma fecha del cobro) NO debe generar además un tramo 'VALUACION'
+      // propio: es el evento 'amortization' el único que consume ese precio.
+      expect(tramos.some(t => t.endEvent === 'VALUACION' && t.endDate === '2026-03-01')).toBeFalse();
+    });
+
+    it('calcTramosCP con residualAfterPer100 null: fallback conservador, NO neutraliza (deja la ganancia cruda del escalón) y marca amortizacionSinNeutralizar', () => {
+      const asset = buildBonoAssetConAmortizacion(null);
+      const tramos = component.calcTramosCP(asset);
+
+      const tramoAmort = tramos.find(t => t.endEvent === 'AMORTIZATION');
+      expect(tramoAmort).toBeDefined();
+      // Sin residual no se puede calcular fraccionDevuelta con precisión → fraccionDevuelta = 0,
+      // ganancia = units × (endPrice − prevPrice) = 1000 × (87 − 100) = −13.000.
+      expect(tramoAmort!.ganancia).toBeCloseTo(-13000, 0);
+      // Indicador visual: la ganancia mostrada NO es una pérdida de mercado real.
+      expect(tramoAmort!.amortizacionSinNeutralizar).toBeTrue();
+    });
+
+    it('calcTramosCP sin valuación ≤ fecha de amortización: NO se fabrica ganancia espuria (capitalDevuelto no se suma sin endPrice de mercado) y marca amortizacionSinNeutralizar', () => {
+      const asset = buildBonoAssetConAmortizacion(87);
+      // Sin valuaciones: valuacionAtOrBefore(asset, '2026-03-01') devuelve null → endPrice cae a
+      // prevPrice (100). Sin este fix, capitalDevuelto (derivado del residual, no del precio
+      // observado) igual se sumaría entero, fabricando una ganancia positiva de +13.000 sin
+      // respaldo de mercado — exactamente el bug inverso al del residual faltante.
+      asset.valuations = [];
+
+      const tramos = component.calcTramosCP(asset);
+      const tramoAmort = tramos.find(t => t.endEvent === 'AMORTIZATION');
+      expect(tramoAmort).toBeDefined();
+      expect(tramoAmort!.endPrice).toBeCloseTo(100, 6); // cae a prevPrice, no hay precio de mercado
+      expect(tramoAmort!.ganancia).toBeCloseTo(0, 4);
+      expect(tramoAmort!.ganancia).not.toBeCloseTo(13000, 0);
+      // Sin precio de mercado tampoco se pudo neutralizar con certeza → se avisa igual.
+      expect(tramoAmort!.amortizacionSinNeutralizar).toBeTrue();
+    });
+
+    it('gate de aislamiento: FCI_CUOTAPARTES con los mismos movimientos ignora collectedAmortizations — resultado idéntico sin el campo', () => {
+      const conAmortAccidental: InvestmentResponse = { ...buildBonoAssetConAmortizacion(), type: 'FCI_CUOTAPARTES' };
+      const sinCampo: InvestmentResponse = { ...conAmortAccidental, collectedAmortizations: undefined };
+
+      const tramosCon = component.calcTramosCP(conAmortAccidental);
+      const tramosSin = component.calcTramosCP(sinCampo);
+
+      expect(tramosCon.some(t => t.endEvent === 'AMORTIZATION')).toBeFalse();
+      expect(tramosCon.map(t => ({ ganancia: t.ganancia, endEvent: t.endEvent, endDate: t.endDate })))
+        .toEqual(tramosSin.map(t => ({ ganancia: t.ganancia, endEvent: t.endEvent, endDate: t.endDate })));
+    });
+
+    it('gate de aislamiento: LETRA con los mismos movimientos ignora collectedAmortizations — resultado idéntico sin el campo', () => {
+      const conAmortAccidental: InvestmentResponse = { ...buildBonoAssetConAmortizacion(), type: 'LETRA' };
+      const sinCampo: InvestmentResponse = { ...conAmortAccidental, collectedAmortizations: undefined };
+
+      const tramosCon = component.calcTramosCP(conAmortAccidental);
+      const tramosSin = component.calcTramosCP(sinCampo);
+
+      expect(tramosCon.some(t => t.endEvent === 'AMORTIZATION')).toBeFalse();
+      expect(tramosCon.map(t => ({ ganancia: t.ganancia, endEvent: t.endEvent, endDate: t.endDate })))
+        .toEqual(tramosSin.map(t => ({ ganancia: t.ganancia, endEvent: t.endEvent, endDate: t.endDate })));
+    });
+
+    it('tirAcumuladaCP: con amortización cobrada, inserta el flujo de caja REAL (capitalDevuelto) y la TIR es mayor que sin ese flujo (mismo valorFinal crudo)', () => {
+      const conAmort = buildBonoAssetConAmortizacion(87);
+      const sinAmort: InvestmentResponse = { ...conAmort, collectedAmortizations: undefined };
+      const hastaFecha = '2026-06-01';
+      const valorFinal = 90000; // crudo, SIN ajustar — ya no hay gross-up terminal
+
+      const tirCon = (component as any).tirAcumuladaCP(conAmort, hastaFecha, valorFinal);
+      const tirSin = (component as any).tirAcumuladaCP(sinAmort, hastaFecha, valorFinal);
+
+      // Con el flujo real insertado (−100.000 día 0, +13.000 día 59, +90.000 día 151) la TIR es
+      // mayor que la que ve sólo el flujo terminal (−100.000 día 0, +90.000 día 151): recibir
+      // 13.000 antes de tiempo mejora el retorno anualizado, coherente con la ganancia neutralizada
+      // en el tramo (el capital devuelto es efectivo real, no un supuesto de reinversión terminal).
+      expect(tirCon).toBeGreaterThan(tirSin);
+    });
+
+    it('tirAcumuladaCP: BONO/ON sin amortizaciones cobradas es no-op (idéntica con collectedAmortizations:[] o undefined)', () => {
+      const conCampoVacio: InvestmentResponse = { ...buildBonoAssetConAmortizacion(), collectedAmortizations: [] };
+      const sinCampo: InvestmentResponse = { ...buildBonoAssetConAmortizacion(), collectedAmortizations: undefined };
+      const hastaFecha = '2026-06-01';
+      const valorFinal = 90000;
+
+      const tirConCampoVacio = (component as any).tirAcumuladaCP(conCampoVacio, hastaFecha, valorFinal);
+      const tirSinCampo      = (component as any).tirAcumuladaCP(sinCampo, hastaFecha, valorFinal);
+      expect(tirConCampoVacio).toBe(tirSinCampo);
+    });
+
+    it('tirAcumuladaCP: gate de aislamiento — FCI_CUOTAPARTES/LETRA con collectedAmortizations accidental dan la misma TIR que sin el campo (no insertan flujos)', () => {
+      const hastaFecha = '2026-06-01';
+      const valorFinal = 90000;
+
+      const cpConAmort: InvestmentResponse = { ...buildBonoAssetConAmortizacion(87), type: 'FCI_CUOTAPARTES' };
+      const cpSinCampo: InvestmentResponse = { ...cpConAmort, collectedAmortizations: undefined };
+      expect((component as any).tirAcumuladaCP(cpConAmort, hastaFecha, valorFinal))
+        .toBe((component as any).tirAcumuladaCP(cpSinCampo, hastaFecha, valorFinal));
+
+      const letraConAmort: InvestmentResponse = { ...buildBonoAssetConAmortizacion(87), type: 'LETRA' };
+      const letraSinCampo: InvestmentResponse = { ...letraConAmort, collectedAmortizations: undefined };
+      expect((component as any).tirAcumuladaCP(letraConAmort, hastaFecha, valorFinal))
+        .toBe((component as any).tirAcumuladaCP(letraSinCampo, hastaFecha, valorFinal));
+    });
+
+    it('single source of truth: el capitalDevuelto insertado en la XIRR (amortizacionCashflowsCP) es EXACTAMENTE el mismo que neutraliza la ganancia del tramo', () => {
+      const asset = buildBonoAssetConAmortizacion(87);
+      const tramoAmort = component.calcTramosCP(asset).find(t => t.endEvent === 'AMORTIZATION')!;
+      expect(tramoAmort).toBeDefined();
+
+      const cashflows = (component as any).amortizacionCashflowsCP(asset) as { date: string; amount: number }[];
+      const cf = cashflows.find(c => c.date === tramoAmort.endDate);
+      expect(cf).toBeDefined();
+      expect(cf!.amount).toBe(tramoAmort.capitalDevuelto!);
+    });
+
+    // ── calcGananciaCP: consistencia footer == suma de tramos (BONO/ON con amortización) ──────
+
+    it('calcGananciaCP para BONO con amortización cobrada = suma de las ganancias de calcTramosCP (footer == filas), no el crudo', () => {
+      const asset = buildBonoAssetConAmortizacion(87);
+
+      const tramos = component.calcTramosCP(asset);
+      const sumaTramos = tramos.reduce((acc, t) => acc + t.ganancia, 0);
+      const crudo = component.calcValorActualCP(asset) - asset.principal; // −13.000: ignora el capital ya cobrado
+
+      const ganancia = component.calcGananciaCP(asset);
+      expect(ganancia).toBeCloseTo(sumaTramos, 6);
+      expect(ganancia).not.toBeCloseTo(crudo, 0);
+
+      // calcIntereses y calcTEPeriodo delegan en calcGananciaCP para CP → quedan consistentes también.
+      expect(component.calcIntereses(asset)).toBeCloseTo(sumaTramos, 6);
+    });
+
+    it('calcGananciaCP: BONO sin amortizaciones cobradas es idéntico al cálculo crudo (aislamiento bit-idéntico)', () => {
+      const sinAmort: InvestmentResponse = { ...buildBonoAssetConAmortizacion(87), collectedAmortizations: [] };
+      const crudo = component.calcValorActualCP(sinAmort) - sinAmort.principal;
+      expect(component.calcGananciaCP(sinAmort)).toBe(crudo);
+    });
+
+    it('calcGananciaCP: FCI_CUOTAPARTES con los mismos movimientos/valuaciones es idéntico al crudo (gate de aislamiento)', () => {
+      const cpAsset: InvestmentResponse = { ...buildBonoAssetConAmortizacion(87), type: 'FCI_CUOTAPARTES' };
+      const crudo = component.calcValorActualCP(cpAsset) - cpAsset.principal;
+      expect(component.calcGananciaCP(cpAsset)).toBe(crudo);
+    });
+
+    it('calcGananciaCP: LETRA es idéntico al crudo (gate de aislamiento)', () => {
+      const letraAsset: InvestmentResponse = { ...buildBonoAssetConAmortizacion(87), type: 'LETRA' };
+      const crudo = component.calcValorActualCP(letraAsset) - letraAsset.principal;
+      expect(component.calcGananciaCP(letraAsset)).toBe(crudo);
+    });
+
+    it('calcGananciaCP: gate true pero calcTramosCP no respalda ningún tramo AMORTIZATION (evento anterior al ancla, se saltea con `continue`) → cae al crudo, NO a $0', () => {
+      const today = isoToday();
+      // La suscripción (ancla de inicio) es HOY; la valuación y la amortización cobrada quedan
+      // fechadas en el pasado (2020), antes del ancla. En `calcTramosCP` el evento 'amortization'
+      // (y también el de 'valuation', que queda excluido por coincidir con esa misma fecha) caen en
+      // `event.date < prevDate` y se saltean con `continue` — no se genera NINGÚN tramo (ni
+      // siquiera "en curso", porque diasHoy=0). `calcTramosCP(asset)` da `[]`.
+      const asset: InvestmentResponse = {
+        id: 'bono-edge', name: 'AL30', type: 'BONO', currency: 'ARS',
+        principal: 100000, purchaseDate: today, maturityDate: '2030-01-01',
+        tna: 0, accountId: 'acc-ars', accountName: 'Cuenta ARS',
+        autoTrack: true, externalId: 'AL30', includeInCashflow: true,
+        createdAt: '2026-01-01T00:00:00Z', updatedAt: '2026-01-01T00:00:00Z',
+        movements: [
+          { id: 'm1', movementDate: today, type: 'SUSCRIPCION', amount: 100000, units: 1000, createdAt: '' },
+        ],
+        valuations: [
+          { id: 'v1', valuationDate: '2020-01-01', pricePerUnit: 120, source: 'MANUAL', createdAt: '' },
+        ],
+        collectedAmortizations: [
+          {
+            id: 'pay-edge', cuttingDate: '2020-01-01', rentPer100: 0, amortizationPer100: 13,
+            estimatedRentAmount: 0, estimatedAmortizationAmount: 130, currency: 'ARS',
+            status: 'COBRADO', source: 'PPI', userEdited: false, collectedDate: '2020-01-01',
+            rentTransactionId: null, amortizationTransactionId: 'tx-edge', residualAfterPer100: 87,
+          },
+        ],
+      };
+
+      // Confirma la premisa del borde: calcTramosCP efectivamente queda vacío.
+      expect(component.calcTramosCP(asset)).toEqual([]);
+
+      // calcValorActualCP SÍ ve la valuación de 2020 (no filtra por ancla): 1000 × $120 = $120.000.
+      const crudo = component.calcValorActualCP(asset) - asset.principal; // 120.000 − 100.000 = 20.000
+      expect(crudo).toBeCloseTo(20000, 6);
+
+      // Sin la salvaguarda, un reduce([]) con semilla 0 devolvería $0 y ocultaría esta posición real.
+      const ganancia = component.calcGananciaCP(asset);
+      expect(ganancia).toBeCloseTo(crudo, 6);
+      expect(ganancia).not.toBe(0);
+    });
+
+    it('calcGananciaCP: PLAZO_FIJO es idéntico al crudo (tieneAmortizacionesCobradas siempre false)', () => {
+      const pf: InvestmentResponse = {
+        id: 'pf-gate', name: 'PF Test', type: 'PLAZO_FIJO', currency: 'ARS',
+        principal: 100000, purchaseDate: '2026-01-01', maturityDate: '2026-07-01',
+        tna: 60, accountId: null, accountName: null,
+        autoTrack: false, externalId: null, includeInCashflow: true,
+        createdAt: '2026-01-01T00:00:00Z', updatedAt: '2026-01-01T00:00:00Z',
+        movements: [], valuations: [],
+      };
+      const crudo = component.calcValorActualCP(pf) - pf.principal;
+      expect(component.calcGananciaCP(pf)).toBe(crudo);
+    });
+  });
+
   // ── subModal ──────────────────────────────────────────────────────────────
 
   describe('subModal', () => {

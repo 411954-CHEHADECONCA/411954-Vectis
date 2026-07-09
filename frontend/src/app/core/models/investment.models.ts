@@ -70,6 +70,13 @@ export interface InvestmentResponse {
   paymentAccountName?: string | null;
   /** Solo BONO/ON: moneda en la que se cobran renta/amortización. */
   paymentCurrency?:    'ARS' | 'USD' | null;
+  /**
+   * Solo BONO/ON: pagos de amortización ya cobrados (status='COBRADO', amortizationPer100>0).
+   * El backend los puebla únicamente para estos dos tipos; el resto nunca trae este campo.
+   * Se usa para neutralizar el escalón de precio (devolución de capital) en `calcTramosCP` y
+   * para el gross-up de `tirAcumuladaCP`.
+   */
+  collectedAmortizations?: InvestmentPaymentResponse[];
 }
 
 export interface InvestmentRequest {

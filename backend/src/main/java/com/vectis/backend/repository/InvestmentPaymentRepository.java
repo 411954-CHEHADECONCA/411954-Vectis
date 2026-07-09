@@ -10,6 +10,7 @@ import org.springframework.data.repository.query.Param;
 
 import java.math.BigDecimal;
 import java.time.LocalDate;
+import java.util.Collection;
 import java.util.List;
 import java.util.Optional;
 import java.util.UUID;
@@ -17,6 +18,16 @@ import java.util.UUID;
 public interface InvestmentPaymentRepository extends JpaRepository<InvestmentPayment, UUID> {
 
     List<InvestmentPayment> findAllByInvestmentAsset_IdOrderByCuttingDateAsc(UUID investmentAssetId);
+
+    /** Pagos de un único activo con el estado dado — usado por {@code InvestmentMapper} para los call
+     * sites de un solo activo (create/update/movement/valuation), donde una query extra no es N+1. */
+    List<InvestmentPayment> findAllByInvestmentAsset_IdAndStatusOrderByCuttingDateAsc(
+            UUID investmentAssetId, InvestmentPaymentStatus status);
+
+    /** Batch para listados: un único IN() en vez de una query por activo — evita N+1 en
+     * {@code InvestmentService#getInvestments}. */
+    List<InvestmentPayment> findAllByInvestmentAsset_IdInAndStatusOrderByCuttingDateAsc(
+            Collection<UUID> investmentAssetIds, InvestmentPaymentStatus status);
 
     Optional<InvestmentPayment> findByIdAndInvestmentAsset_Id(UUID id, UUID investmentAssetId);
 

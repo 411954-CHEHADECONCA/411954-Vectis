@@ -1,0 +1,90 @@
+[
+    {
+        "date": "2026-01-05T00:00:00-03:00",
+        "price": 100450,
+        "volume": 104033615872,
+        "openingPrice": 100700,
+        "max": 101000,
+        "min": 100030,
+        "previousClose": 0,
+        "marketChange": 0,
+        "marketChangePercent": null
+    },
+    {
+        "date": "2026-01-06T00:00:00-03:00",
+        "price": 100520,
+        "volume": 105280815104,
+        "openingPrice": 100580,
+        "max": 100580,
+        "min": 100120,
+        "previousClose": 0,
+        "marketChange": 0,
+        "marketChangePercent": null
+    },
+    {
+        "date": "2026-01-07T00:00:00-03:00",
+        "price": 100300,
+        "volume": 120525627392,
+        "openingPrice": 100480,
+        "max": 102000,
+        "min": 100120,
+        "previousClose": 0,
+        "marketChange": 0,
+        "marketChangePercent": null
+    },
+    {
+        "date": "2026-01-08T00:00:00-03:00",
+        "price": 87450,
+        "volume": 81656037376,
+        "openingPrice": 89380,
+        "max": 89380,
+        "min": 86000,
+        "previousClose": 0,
+        "marketChange": 0,
+        "marketChangePercent": null
+    },
+    {
+        "date": "2026-01-09T00:00:00-03:00",
+        "price": 88010,
+        "volume": 95376850944,
+        "openingPrice": 87500,
+        "max": 88290,
+        "min": 87470,
+        "previousClose": 0,
+        "marketChange": 0,
+        "marketChangePercent": null
+    },
+    {
+        "date": "2026-01-12T00:00:00-03:00",
+        "price": 87860,
+        "volume": 112810975232,
+        "openingPrice": 88020,
+        "max": 88400,
+        "min": 87600,
+        "previousClose": 0,
+        "marketChange": 0,
+        "marketChangePercent": null
+    },
+    {
+        "date": "2026-01-13T00:00:00-03:00",
+        "price": 87710,
+        "volume": 115786530816,
+        "openingPrice": 87940,
+        "max": 87940,
+        "min": 87550,
+        "previousClose": 0,
+        "marketChange": 0,
+        "marketChangePercent": null
+    },
+    {
+        "date": "2026-01-14T00:00:00-03:00",
+        "price": 87230,
+        "volume": 109062529024,
+        "openingPrice": 87500,
+        "max": 87880,
+        "min": 87080,
+        "previousClose": 0,
+        "marketChange": 0,
+        "marketChangePercent": null
+    }
+]

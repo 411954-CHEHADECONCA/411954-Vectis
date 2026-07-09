@@ -6,6 +6,8 @@ import com.vectis.backend.domain.entity.InvestmentAssetStatus;
 import com.vectis.backend.domain.entity.InvestmentAssetType;
 import com.vectis.backend.domain.entity.InvestmentMovement;
 import com.vectis.backend.domain.entity.InvestmentMovementType;
+import com.vectis.backend.domain.entity.InvestmentPayment;
+import com.vectis.backend.domain.entity.InvestmentPaymentStatus;
 import com.vectis.backend.domain.entity.InvestmentSourceType;
 import com.vectis.backend.domain.entity.InvestmentValuation;
 import com.vectis.backend.domain.entity.Transaction;
@@ -46,9 +48,11 @@ import java.time.LocalDate;
 import java.time.OffsetDateTime;
 import java.time.ZoneOffset;
 import java.util.List;
+import java.util.Map;
 import java.util.Objects;
 import java.util.Optional;
 import java.util.UUID;
+import java.util.stream.Collectors;
 
 @Slf4j
 @Service
@@ -70,9 +74,26 @@ public class InvestmentService {
     private final BalanceService                 balanceService;
 
     public List<InvestmentResponse> getInvestments(UUID userId) {
-        return investmentRepository.findAllByUser_IdOrderByCreatedAtAsc(userId)
-                .stream()
-                .map(investmentMapper::toResponse)
+        List<InvestmentAsset> assets = investmentRepository.findAllByUser_IdOrderByCreatedAtAsc(userId);
+
+        // Batch de amortizaciones cobradas (BONO/ON) con un único IN(), en vez de una query por
+        // activo: evita N+1 en el listado. Ver InvestmentMapper#toResponse(asset, payments).
+        List<UUID> bondOrOnIds = assets.stream()
+                .filter(a -> a.getType() == InvestmentAssetType.BONO || a.getType() == InvestmentAssetType.ON)
+                .map(InvestmentAsset::getId)
+                .toList();
+
+        Map<UUID, List<InvestmentPayment>> collectedByAsset = bondOrOnIds.isEmpty()
+                ? Map.of()
+                : investmentPaymentRepository
+                        .findAllByInvestmentAsset_IdInAndStatusOrderByCuttingDateAsc(
+                                bondOrOnIds, InvestmentPaymentStatus.COBRADO)
+                        .stream()
+                        .collect(Collectors.groupingBy(p -> p.getInvestmentAsset().getId()));
+
+        return assets.stream()
+                .map(asset -> investmentMapper.toResponse(
+                        asset, collectedByAsset.getOrDefault(asset.getId(), List.of())))
                 .toList();
     }
 
