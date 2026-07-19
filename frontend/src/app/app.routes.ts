@@ -26,6 +26,20 @@ export const routes: Routes = [
         m => m.ResetPasswordComponent
       ),
   },
+  {
+    path: 'terminos',
+    loadComponent: () =>
+      import('./features/legal/terminos-condiciones/terminos-condiciones.component').then(
+        m => m.TerminosCondicionesComponent
+      ),
+  },
+  {
+    path: 'contacto',
+    loadComponent: () =>
+      import('./features/legal/contacto/contacto.component').then(
+        m => m.ContactoComponent
+      ),
+  },
 
   // ── Authenticated shell ────────────────────────────────────────────────────
   {

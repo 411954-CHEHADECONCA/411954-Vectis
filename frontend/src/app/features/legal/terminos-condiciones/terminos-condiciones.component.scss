@@ -1,0 +1,115 @@
+// ─── Page meta ────────────────────────────────────────────────────────────────
+
+.page-meta {
+  font-size: var(--text-sm);
+  color: var(--color-text-muted);
+  margin: 0 0 32px;
+}
+
+// ─── Index nav ────────────────────────────────────────────────────────────────
+
+.legal-index {
+  background-color: var(--color-surface-container);
+  border: 1px solid var(--color-outline-variant);
+  border-radius: var(--radius-lg);
+  padding: 20px 24px;
+  margin-bottom: 40px;
+
+  .index-title {
+    display: block;
+    font-size: var(--text-overline);
+    font-weight: var(--weight-semibold);
+    letter-spacing: var(--tracking-overline);
+    text-transform: uppercase;
+    color: var(--color-text-muted);
+    margin-bottom: 12px;
+  }
+
+  ol {
+    list-style: none;
+    margin: 0;
+    padding: 0;
+    display: grid;
+    grid-template-columns: 1fr;
+    gap: 8px 24px;
+    counter-reset: legal-index;
+
+    @media (min-width: 640px) {
+      grid-template-columns: 1fr 1fr;
+    }
+  }
+
+  li {
+    counter-increment: legal-index;
+  }
+
+  a {
+    display: flex;
+    gap: 8px;
+    font-size: var(--text-sm);
+    color: var(--color-on-surface-variant);
+    text-decoration: none;
+    line-height: var(--leading-normal);
+
+    &::before {
+      content: counter(legal-index) '.';
+      color: var(--color-outline);
+      font-variant-numeric: tabular-nums;
+      flex-shrink: 0;
+    }
+
+    &:hover {
+      color: var(--color-primary);
+    }
+
+    &:focus-visible {
+      outline: 2px solid var(--color-primary);
+      outline-offset: 2px;
+      border-radius: var(--radius-sm);
+    }
+  }
+}
+
+// ─── Body sections ────────────────────────────────────────────────────────────
+
+.legal-body {
+  max-width: 68ch;
+}
+
+.legal-section {
+  padding-top: 40px;
+  margin-top: -16px;
+  scroll-margin-top: 88px;
+
+  &:first-child {
+    padding-top: 0;
+  }
+
+  & + .legal-section {
+    border-top: 1px solid var(--color-outline-variant);
+  }
+
+  h2 {
+    font-size: var(--text-h2);
+    font-weight: var(--weight-semibold);
+    letter-spacing: var(--tracking-tight);
+    color: var(--color-on-surface);
+    margin: 0 0 16px;
+  }
+
+  p {
+    font-size: var(--text-body);
+    color: var(--color-on-surface-variant);
+    line-height: var(--leading-relaxed);
+    margin: 0 0 14px;
+    text-wrap: pretty;
+
+    &:last-child {
+      margin-bottom: 0;
+    }
+  }
+
+  &:focus-visible {
+    outline: none;
+  }
+}
