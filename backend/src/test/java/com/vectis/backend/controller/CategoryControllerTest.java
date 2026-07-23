@@ -85,7 +85,7 @@ class CategoryControllerTest {
     @DisplayName("GET /api/categories con token retorna 200 y la lista")
     void getCategories_withToken_returns200WithList() throws Exception {
         CategoryResponse response = new CategoryResponse(
-                UUID.randomUUID(), "Alimentos", "utensils", "#10B981", CategoryType.EXPENSE, true, null);
+                UUID.randomUUID(), "Alimentos", "utensils", "#10B981", CategoryType.EXPENSE, true, false, null);
         given(categoryService.getCategories(userId)).willReturn(List.of(response));
 
         mockMvc.perform(get("/api/categories")
@@ -102,7 +102,7 @@ class CategoryControllerTest {
     void createCategory_validRequest_returns201() throws Exception {
         CategoryRequest request = new CategoryRequest("Gym", "dumbbell", "#EC4899", CategoryType.EXPENSE, null);
         CategoryResponse response = new CategoryResponse(
-                UUID.randomUUID(), "Gym", "dumbbell", "#EC4899", CategoryType.EXPENSE, false, null);
+                UUID.randomUUID(), "Gym", "dumbbell", "#EC4899", CategoryType.EXPENSE, false, false, null);
 
         given(categoryService.createCategory(any(CategoryRequest.class), any(User.class))).willReturn(response);
 

@@ -1,0 +1,167 @@
+import { Injectable, inject } from '@angular/core';
+import { HttpClient } from '@angular/common/http';
+import { Observable, of } from 'rxjs';
+import { catchError } from 'rxjs/operators';
+import { environment } from '../../../environments/environment';
+import {
+  FciFundOption,
+  InstrumentOption,
+  InvestmentCollectPreviewResponse,
+  InvestmentCollectRequest,
+  InvestmentCollectResponse,
+  InvestmentMovementRequest,
+  InvestmentMovementUpdateRequest,
+  InvestmentPaymentConfirmRequest,
+  InvestmentPaymentConfirmResponse,
+  InvestmentPaymentRequest,
+  InvestmentPaymentResponse,
+  InvestmentPaymentUpdateRequest,
+  InvestmentPendingPayment,
+  InvestmentRequest,
+  InvestmentResponse,
+  InvestmentValuationRequest,
+  MarketApiStatus,
+  MarketRefreshResponse,
+} from '../models/investment.models';
+
+@Injectable({ providedIn: 'root' })
+export class InvestmentService {
+  private readonly http    = inject(HttpClient);
+  private readonly baseUrl = `${environment.apiUrl}/investments`;
+
+  getInvestments(): Observable<InvestmentResponse[]> {
+    return this.http.get<InvestmentResponse[]>(this.baseUrl);
+  }
+
+  createInvestment(req: InvestmentRequest): Observable<InvestmentResponse> {
+    return this.http.post<InvestmentResponse>(this.baseUrl, req);
+  }
+
+  updateInvestment(id: string, req: InvestmentRequest): Observable<InvestmentResponse> {
+    return this.http.put<InvestmentResponse>(`${this.baseUrl}/${id}`, req);
+  }
+
+  deleteInvestment(id: string): Observable<void> {
+    return this.http.delete<void>(`${this.baseUrl}/${id}`);
+  }
+
+  collectInvestment(id: string, req: InvestmentCollectRequest): Observable<InvestmentCollectResponse> {
+    return this.http.post<InvestmentCollectResponse>(`${this.baseUrl}/${id}/collect`, req);
+  }
+
+  /** Preview de capital/rendimiento a una fecha de cobro dada, sin persistir nada. */
+  previewCollect(id: string, date: string): Observable<InvestmentCollectPreviewResponse> {
+    return this.http.get<InvestmentCollectPreviewResponse>(
+      `${this.baseUrl}/${id}/collect-preview`,
+      { params: { date } },
+    );
+  }
+
+  addMovement(investmentId: string, req: InvestmentMovementRequest): Observable<InvestmentResponse> {
+    return this.http.post<InvestmentResponse>(`${this.baseUrl}/${investmentId}/movements`, req);
+  }
+
+  updateMovement(investmentId: string, movId: string, req: InvestmentMovementUpdateRequest): Observable<InvestmentResponse> {
+    return this.http.put<InvestmentResponse>(`${this.baseUrl}/${investmentId}/movements/${movId}`, req);
+  }
+
+  deleteMovement(investmentId: string, movId: string): Observable<InvestmentResponse> {
+    return this.http.delete<InvestmentResponse>(`${this.baseUrl}/${investmentId}/movements/${movId}`);
+  }
+
+  addValuation(investmentId: string, req: InvestmentValuationRequest): Observable<InvestmentResponse> {
+    return this.http.post<InvestmentResponse>(`${this.baseUrl}/${investmentId}/valuations`, req);
+  }
+
+  updateValuation(investmentId: string, valId: string, req: InvestmentValuationRequest): Observable<InvestmentResponse> {
+    return this.http.put<InvestmentResponse>(`${this.baseUrl}/${investmentId}/valuations/${valId}`, req);
+  }
+
+  deleteValuation(investmentId: string, valId: string): Observable<InvestmentResponse> {
+    return this.http.delete<InvestmentResponse>(`${this.baseUrl}/${investmentId}/valuations/${valId}`);
+  }
+
+  getFciFunds(categoria: string): Observable<FciFundOption[]> {
+    return this.http.get<FciFundOption[]>(`${this.baseUrl}/market/fci-funds`, { params: { categoria } });
+  }
+
+  getInstruments(tipo?: string): Observable<InstrumentOption[]> {
+    const params: Record<string, string> = tipo ? { tipo } : {};
+    return this.http.get<InstrumentOption[]>(`${this.baseUrl}/market/instruments`, { params });
+  }
+
+  getMarketApiStatus(): Observable<MarketApiStatus> {
+    return this.http.get<MarketApiStatus>(`${this.baseUrl}/market/status`);
+  }
+
+  /** Refresh on-demand de datos de mercado (MEP, Oficial, FCI, PPI). `force=true` ignora el cache de "hoy". */
+  refreshMarketData(force: boolean): Observable<MarketRefreshResponse> {
+    return this.http.post<MarketRefreshResponse>(
+      `${this.baseUrl}/market/refresh`,
+      null,
+      { params: { force: String(force) } },
+    );
+  }
+
+  getFciVcp(fondo: string, fecha: string): Observable<{ fondo: string; vcp: number; fecha: string } | null> {
+    return this.http
+      .get<{ fondo: string; vcp: number; fecha: string }>(
+        `${this.baseUrl}/market/fci-vcp`,
+        { params: { fondo, fecha } },
+      )
+      .pipe(catchError(() => of(null)));
+  }
+
+  getInstrumentPrice(
+    ticker: string, type: string, fecha: string,
+  ): Observable<{ pricePerUnit: number; fecha: string } | null> {
+    return this.http
+      .get<{ pricePerUnit: number; fecha: string }>(
+        `${this.baseUrl}/market/instrument-price`,
+        { params: { ticker, type, fecha } },
+      )
+      .pipe(catchError(() => of(null)));
+  }
+
+  // ── Calendario de pagos (renta/amortización) — BONO / ON ──────────────────
+
+  getPayments(investmentId: string): Observable<InvestmentPaymentResponse[]> {
+    return this.http.get<InvestmentPaymentResponse[]>(`${this.baseUrl}/${investmentId}/payments`);
+  }
+
+  createPayment(investmentId: string, req: InvestmentPaymentRequest): Observable<InvestmentPaymentResponse> {
+    return this.http.post<InvestmentPaymentResponse>(`${this.baseUrl}/${investmentId}/payments`, req);
+  }
+
+  updatePayment(
+    investmentId: string, paymentId: string, req: InvestmentPaymentUpdateRequest,
+  ): Observable<InvestmentPaymentResponse> {
+    return this.http.put<InvestmentPaymentResponse>(`${this.baseUrl}/${investmentId}/payments/${paymentId}`, req);
+  }
+
+  deletePayment(investmentId: string, paymentId: string): Observable<void> {
+    return this.http.delete<void>(`${this.baseUrl}/${investmentId}/payments/${paymentId}`);
+  }
+
+  omitPayment(investmentId: string, paymentId: string): Observable<InvestmentPaymentResponse> {
+    return this.http.post<InvestmentPaymentResponse>(`${this.baseUrl}/${investmentId}/payments/${paymentId}/omit`, null);
+  }
+
+  confirmPayment(
+    investmentId: string, paymentId: string, req: InvestmentPaymentConfirmRequest,
+  ): Observable<InvestmentPaymentConfirmResponse> {
+    return this.http.post<InvestmentPaymentConfirmResponse>(
+      `${this.baseUrl}/${investmentId}/payments/${paymentId}/confirm`, req,
+    );
+  }
+
+  /** Refresca el calendario de pagos desde PPI (idempotente; no pisa ediciones manuales). */
+  syncPayments(investmentId: string): Observable<InvestmentPaymentResponse[]> {
+    return this.http.post<InvestmentPaymentResponse[]>(`${this.baseUrl}/${investmentId}/payments/sync`, null);
+  }
+
+  /** Badge global: pagos PENDIENTE del usuario (todos los assets). */
+  getPendingPayments(): Observable<InvestmentPendingPayment[]> {
+    return this.http.get<InvestmentPendingPayment[]>(`${this.baseUrl}/payments/pending`);
+  }
+}

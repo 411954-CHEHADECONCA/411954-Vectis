@@ -13,6 +13,7 @@ const MOCK_CATEGORY: CategoryResponse = {
   color: '#10B981',
   type: 'EXPENSE',
   isDefault: true,
+  isUncategorizedDefault: false,
   estimatedAmount: null,
 };
 
@@ -59,7 +60,7 @@ describe('CategoryService', () => {
       type: 'EXPENSE',
       estimatedAmount: null,
     };
-    const created: CategoryResponse = { ...request, id: 'new-id', isDefault: false, estimatedAmount: null };
+    const created: CategoryResponse = { ...request, id: 'new-id', isDefault: false, isUncategorizedDefault: false, estimatedAmount: null };
 
     service.createCategory(request).subscribe(res => {
       expect(res.id).toBe('new-id');
@@ -82,7 +83,7 @@ describe('CategoryService', () => {
       type: 'EXPENSE',
       estimatedAmount: null,
     };
-    const updated: CategoryResponse = { ...request, id, isDefault: false, estimatedAmount: null };
+    const updated: CategoryResponse = { ...request, id, isDefault: false, isUncategorizedDefault: false, estimatedAmount: null };
 
     service.updateCategory(id, request).subscribe(res => {
       expect(res.name).toBe('Gym pro');

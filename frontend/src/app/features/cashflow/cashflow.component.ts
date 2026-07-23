@@ -30,6 +30,7 @@ import {
   LucideCircle,
 } from '@lucide/angular';
 import { CashflowService } from '../../core/services/cashflow.service';
+import { CurrencyService } from '../../core/services/currency.service';
 import {
   CashflowAccountBalance,
   CashflowCategoryRow,
@@ -86,9 +87,12 @@ function fmtPct(value: string | number): string {
   changeDetection: ChangeDetectionStrategy.OnPush,
 })
 export class CashflowComponent implements OnInit {
-  private readonly cashflowService = inject(CashflowService);
-  private readonly destroyRef      = inject(DestroyRef);
-  private readonly router          = inject(Router);
+  private readonly cashflowService  = inject(CashflowService);
+  private readonly currencyService  = inject(CurrencyService);
+  private readonly destroyRef       = inject(DestroyRef);
+  private readonly router           = inject(Router);
+
+  readonly currencySymbol = this.currencyService.symbol;
 
   // Subject que dispara cargas; switchMap cancela el request anterior si llega uno nuevo.
   private readonly loadTrigger$ = new Subject<void>();
@@ -244,15 +248,33 @@ export class CashflowComponent implements OnInit {
   }
 
   // ── Formatting helpers (exposed to template) ──────────────────────────────
-  fmtBalance(balance: string, ccy: string): string { return fmtBalance(balance, ccy); }
-  fmtARS(value: string): string                    { return fmtARS(value); }
-  fmtPct(value: string): string                    { return fmtPct(value); }
-  parseFloat(value: string): number                { return parseFloat(value); }
 
-  /** Solo el número formateado, sin símbolo "$" (para stat-cards donde el $ va en span aparte). */
+  private periodRate(): string | null { return this.data()?.oficialRateAtPeriod ?? null; }
+
+  fmtBalance(balance: string, ccy: string): string {
+    const n = parseFloat(balance);
+    const converted = this.currencyService.convertHistorical(n, ccy as 'ARS' | 'USD', this.periodRate());
+    if (converted === null) return fmtBalance(balance, ccy);
+    return fmtBalance(String(converted), this.currencyService.selected());
+  }
+
+  fmtARS(value: string): string {
+    const n = parseFloat(value);
+    const converted = this.currencyService.convertHistorical(n, 'ARS', this.periodRate());
+    if (converted === null) return fmtARS(value);
+    if (this.currencyService.selected() === 'USD') return fmtUSD(converted);
+    return fmtARS(converted);
+  }
+
+  fmtPct(value: string): string  { return fmtPct(value); }
+  parseFloat(value: string): number { return parseFloat(value); }
+
+  /** Solo el número formateado, sin símbolo (para stat-cards donde el símbolo va aparte). */
   fmtAmt(value: string): string {
     const n = Math.abs(parseFloat(value));
-    return n.toLocaleString('es-AR', { minimumFractionDigits: 0, maximumFractionDigits: 2 });
+    const converted = this.currencyService.convertHistorical(n, 'ARS', this.periodRate());
+    const v = converted !== null ? Math.abs(converted) : n;
+    return v.toLocaleString('es-AR', { minimumFractionDigits: 0, maximumFractionDigits: 2 });
   }
 
   barWidth(pct: string): string {
@@ -262,7 +284,9 @@ export class CashflowComponent implements OnInit {
   fmtDeltaAmt(): string {
     const d = this.closingDelta();
     if (d === null) return '';
-    return Math.abs(d).toLocaleString('es-AR', { minimumFractionDigits: 0, maximumFractionDigits: 0 });
+    const converted = this.currencyService.convertHistorical(Math.abs(d), 'ARS', this.periodRate());
+    const v = converted !== null ? Math.abs(converted) : Math.abs(d);
+    return v.toLocaleString('es-AR', { minimumFractionDigits: 0, maximumFractionDigits: 0 });
   }
 
   varianceLabel(pctOfBudget: string): string {

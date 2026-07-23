@@ -25,6 +25,7 @@ export interface MovementResponse {
   paid: boolean;
   createdAt: string;
   transferGroupId: string | null;
+  exchangeRateAtTime: string | null;
 }
 
 export interface MovementRequest {

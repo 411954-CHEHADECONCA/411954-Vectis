@@ -410,6 +410,21 @@ class CategoryServiceTest {
         verify(categoryBudgetRepository).save(any(CategoryBudget.class));
     }
 
+    @Test
+    @DisplayName("updateBudget de categoría personalizada de otro usuario lanza FORBIDDEN")
+    void updateBudget_otherUserCategory_throwsForbidden() {
+        UUID id = UUID.randomUUID();
+        Category otherCategory = buildCategory(otherUser, "Viajes", false);
+
+        given(categoryRepository.findById(id)).willReturn(Optional.of(otherCategory));
+
+        assertThatThrownBy(() -> categoryService.updateBudget(id, new BigDecimal("50000"), user))
+                .isInstanceOf(VectisException.class)
+                .satisfies(ex -> assertThat(((VectisException) ex).getStatus()).isEqualTo(HttpStatus.FORBIDDEN));
+
+        verify(categoryBudgetRepository, never()).save(any(CategoryBudget.class));
+    }
+
     // ─── deleteCategory ───────────────────────────────────────────────────────
 
     @Test
@@ -423,6 +438,21 @@ class CategoryServiceTest {
         assertThatThrownBy(() -> categoryService.deleteCategory(id, user))
                 .isInstanceOf(VectisException.class)
                 .satisfies(ex -> assertThat(((VectisException) ex).getStatus()).isEqualTo(HttpStatus.FORBIDDEN));
+    }
+
+    @Test
+    @DisplayName("deleteCategory de categoría personalizada de otro usuario lanza FORBIDDEN (no la borra)")
+    void deleteCategory_otherUserOwnedCategory_throwsForbidden() {
+        UUID id = UUID.randomUUID();
+        Category otherCategory = buildCategory(otherUser, "Viajes", false);
+
+        given(categoryRepository.findById(id)).willReturn(Optional.of(otherCategory));
+
+        assertThatThrownBy(() -> categoryService.deleteCategory(id, user))
+                .isInstanceOf(VectisException.class)
+                .satisfies(ex -> assertThat(((VectisException) ex).getStatus()).isEqualTo(HttpStatus.FORBIDDEN));
+
+        verify(categoryRepository, never()).delete(any(Category.class));
     }
 
     @Test
@@ -453,6 +483,7 @@ class CategoryServiceTest {
     }
 
     private CategoryResponse buildResponse(Category c, BigDecimal estimatedAmount) {
-        return new CategoryResponse(c.getId(), c.getName(), c.getIcon(), c.getColor(), c.getType(), c.isDefault(), estimatedAmount);
+        return new CategoryResponse(c.getId(), c.getName(), c.getIcon(), c.getColor(), c.getType(),
+                c.isDefault(), c.isUncategorizedDefault(), estimatedAmount);
     }
 }

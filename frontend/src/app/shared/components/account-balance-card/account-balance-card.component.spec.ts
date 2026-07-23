@@ -1,6 +1,9 @@
 import { ComponentFixture, TestBed } from '@angular/core/testing';
+import { provideHttpClient } from '@angular/common/http';
+import { provideHttpClientTesting } from '@angular/common/http/testing';
 import { AccountBalanceCardComponent } from './account-balance-card.component';
 import { AccountResponse } from '../../../core/models/account.models';
+import { CurrencyService } from '../../../core/services/currency.service';
 
 function buildAccount(overrides: Partial<AccountResponse> = {}): AccountResponse {
   return {
@@ -33,6 +36,7 @@ describe('AccountBalanceCardComponent', () => {
   beforeEach(async () => {
     await TestBed.configureTestingModule({
       imports: [AccountBalanceCardComponent],
+      providers: [provideHttpClient(), provideHttpClientTesting()],
     }).compileComponents();
   });
 
@@ -72,13 +76,22 @@ describe('AccountBalanceCardComponent', () => {
     expect(badge?.textContent?.trim()).toBe('USD');
   });
 
-  it('fmtAmount formatea ARS sin decimales', () => {
+  it('fmtAmount formatea ARS sin decimales cuando moneda seleccionada es ARS', () => {
     create(buildAccount());
     expect(component.fmtAmount(150000, 'ARS')).toBe('$ 150.000');
   });
 
-  it('fmtAmount formatea USD con 2 decimales', () => {
+  it('fmtAmount retorna guion cuando hay cross-conversion sin cotizacion cargada', () => {
     create(buildAccount());
+    // selected=ARS, fromCcy=USD → rate null → '–'
+    expect(component.fmtAmount(1500.5, 'USD')).toBe('–');
+  });
+
+  it('fmtAmount formatea USD nativo cuando moneda seleccionada es USD', () => {
+    create(buildAccount());
+    const currencyService = TestBed.inject(CurrencyService);
+    currencyService.selected.set('USD');
+    // selected=USD, fromCcy=USD → no-op → 'US$ 1.500,50'
     expect(component.fmtAmount(1500.5, 'USD')).toBe('US$ 1.500,50');
   });
 });

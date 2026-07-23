@@ -50,7 +50,6 @@ class BalanceServiceTest {
                 .kind("Banco")
                 .ccy("ARS")
                 .balance(new BigDecimal("100000.0000"))
-                .remunerada(false)
                 .createdAt(OffsetDateTime.now())
                 .updatedAt(OffsetDateTime.now())
                 .build();

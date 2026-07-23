@@ -32,6 +32,7 @@ public class TransactionMapper {
                 .isProjected(t.isProjected())
                 .paid(t.isPaid())
                 .transferGroupId(t.getTransferGroupId())
+                .exchangeRateAtTime(t.getExchangeRateAtTime() != null ? t.getExchangeRateAtTime().toPlainString() : null)
                 .build();
     }
 }

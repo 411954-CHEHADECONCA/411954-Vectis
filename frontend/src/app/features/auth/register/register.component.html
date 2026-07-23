@@ -154,7 +154,25 @@
           }
         </div>
 
-        <button type="submit" class="submit-btn" [disabled]="loading()">
+        <!-- Accept terms -->
+        <div class="field-group">
+          <label class="checkbox-row">
+            <input type="checkbox" formControlName="acceptTerms" />
+            <span class="checkbox-box" aria-hidden="true">
+              <svg viewBox="0 0 20 20" fill="currentColor" aria-hidden="true">
+                <path fill-rule="evenodd" d="M16.704 4.153a.75.75 0 01.143 1.052l-8 10.5a.75.75 0 01-1.127.075l-4.5-4.5a.75.75 0 011.06-1.06l3.894 3.893 7.48-9.817a.75.75 0 011.05-.143z" clip-rule="evenodd"/>
+              </svg>
+            </span>
+            <span class="checkbox-label">
+              Acepto los <a routerLink="/terminos">Términos y Condiciones</a>
+            </span>
+          </label>
+          @if (form.controls.acceptTerms.invalid && form.controls.acceptTerms.touched) {
+            <span class="field-error">Debés aceptar los Términos y Condiciones para continuar.</span>
+          }
+        </div>
+
+        <button type="submit" class="submit-btn" [disabled]="loading() || form.invalid">
           @if (loading()) {
             <svg class="spinner" viewBox="0 0 24 24" fill="none" aria-hidden="true">
               <circle cx="12" cy="12" r="10" stroke="currentColor" stroke-width="3" stroke-dasharray="31.4" stroke-dashoffset="10"/>
@@ -162,7 +180,7 @@
             Creando cuenta...
           } @else {
             Crear cuenta
-            <svg viewBox="0 0 20 20" fill="currentColor" aria-hidden="true" style="width:18px;height:18px">
+            <svg class="submit-icon" viewBox="0 0 20 20" fill="currentColor" aria-hidden="true">
               <path fill-rule="evenodd" d="M3 10a.75.75 0 01.75-.75h10.638L10.23 5.29a.75.75 0 111.04-1.08l5.5 5.25a.75.75 0 010 1.08l-5.5 5.25a.75.75 0 11-1.04-1.08l4.158-3.96H3.75A.75.75 0 013 10z" clip-rule="evenodd"/>
             </svg>
           }
@@ -173,6 +191,12 @@
       <p class="footer-link">
         ¿Ya tenés cuenta?
         <a routerLink="/login">Iniciar sesión</a>
+      </p>
+
+      <p class="legal-links">
+        <a routerLink="/terminos">Términos y Condiciones</a>
+        <span aria-hidden="true">·</span>
+        <a routerLink="/contacto">Contáctanos</a>
       </p>
     </div>
 

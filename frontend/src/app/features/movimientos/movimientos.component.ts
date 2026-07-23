@@ -154,6 +154,10 @@ export class MovimientosComponent implements OnInit {
   movementForm = new FormGroup({
     description:     new FormControl('',  { nonNullable: true, validators: [Validators.maxLength(200)] }),
     type:           new FormControl<MovementType>('EXPENSE', { nonNullable: true }),
+    // Sin Validators.required: las transferencias (type === 'TRANSFER') no usan categoría y dejan
+    // este control en null a propósito — la obligatoriedad para INCOME/EXPENSE la da la preselección
+    // automática del default (ver defaultCategoryFor) más la ausencia de la opción "Sin categoría" en
+    // el select, no un validador (que bloquearía el submit de transferencias).
     categoryId:     new FormControl<string | null>(null),
     paymentSource:  new FormControl('',   { nonNullable: true, validators: [MovimientosComponent.paymentSourceValid] }),
     ccy:            new FormControl<MovementCcy>('ARS', { nonNullable: true }),
@@ -257,6 +261,11 @@ export class MovimientosComponent implements OnInit {
     const t = this.formType();
     return this.categories().filter(c => c.type === t || c.type === 'BOTH');
   });
+
+  /** Categoría "Otros ingresos"/"Otros egresos" que se preselecciona cuando no se elige ninguna. */
+  private defaultCategoryFor(type: 'INCOME' | 'EXPENSE'): string | null {
+    return this.categories().find(c => c.isUncategorizedDefault && c.type === type)?.id ?? null;
+  }
 
   /** Categorías disponibles en el filtro, acordes al filtro de tipo. */
   filterCategories = computed(() => {
@@ -388,7 +397,7 @@ export class MovimientosComponent implements OnInit {
   // ── Modal: create / edit ──────────────────────────────────────────────────
   openCreate(): void {
     this.movementForm.reset({
-      description: '', type: 'EXPENSE', categoryId: null, paymentSource: '',
+      description: '', type: 'EXPENSE', categoryId: this.defaultCategoryFor('EXPENSE'), paymentSource: '',
       ccy: 'ARS', amount: 0, transactionDate: this.defaultCreateDate(), installments: 1,
       destAccountId: null, destAmount: null,
     });
@@ -406,7 +415,7 @@ export class MovimientosComponent implements OnInit {
       this.movementForm.reset({
         description: baseDesc,
         type: m.type,
-        categoryId: m.categoryId,
+        categoryId: m.categoryId ?? this.defaultCategoryFor(m.type as 'INCOME' | 'EXPENSE'),
         paymentSource: installmentSource,
         ccy: m.ccy,
         amount: m.amount,
@@ -423,7 +432,7 @@ export class MovimientosComponent implements OnInit {
     this.movementForm.reset({
       description: m.description,
       type: m.type,
-      categoryId: m.categoryId,
+      categoryId: m.categoryId ?? this.defaultCategoryFor(m.type as 'INCOME' | 'EXPENSE'),
       paymentSource,
       ccy: m.ccy,
       amount: m.amount,
@@ -465,7 +474,11 @@ export class MovimientosComponent implements OnInit {
     if (catId) {
       const cat = this.categories().find(c => c.id === catId);
       if (cat && cat.type !== type && cat.type !== 'BOTH') {
-        this.movementForm.patchValue({ categoryId: null });
+        // La categoría ya no aplica al nuevo tipo: reasignar el default en vez de dejarla en null
+        // (INCOME/EXPENSE siempre deben quedar con una categoría). Las transferencias no usan categoría.
+        this.movementForm.patchValue({
+          categoryId: type === 'TRANSFER' ? null : this.defaultCategoryFor(type as 'INCOME' | 'EXPENSE'),
+        });
       }
     }
     this.formError.set(null);
@@ -626,11 +639,17 @@ export class MovimientosComponent implements OnInit {
       .replace('.', '');
   }
 
-  fmtAmount(amount: number, ccy: MovementCcy): string {
-    if (ccy === 'USD') {
-      return `US$ ${amount.toLocaleString('es-AR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
+  fmtAmount(amount: number, ccy: MovementCcy, rateAtTime?: string | null): string {
+    const converted = this.currencyService.convertHistorical(amount, ccy, rateAtTime ?? null);
+    if (converted === null) {
+      if (ccy === 'USD') return `US$ ${amount.toLocaleString('es-AR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
+      return `$ ${Math.round(amount).toLocaleString('es-AR')}`;
     }
-    return `$ ${Math.round(amount).toLocaleString('es-AR')}`;
+    const sel = this.currencyService.selected();
+    if (sel === 'USD') {
+      return `US$ ${converted.toLocaleString('es-AR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
+    }
+    return `$ ${Math.round(converted).toLocaleString('es-AR')}`;
   }
 
   typeBadgeLabel(m: MovementResponse): string {
@@ -640,9 +659,9 @@ export class MovimientosComponent implements OnInit {
   }
 
   signedAmount(m: MovementResponse): string {
-    if (m.transferGroupId) return this.fmtAmount(m.amount, m.ccy);
+    if (m.transferGroupId) return this.fmtAmount(m.amount, m.ccy, m.exchangeRateAtTime);
     const prefix = (m.type === 'EXPENSE' || m.type === 'CARD_PAYMENT') ? '- ' : '+ ';
-    return prefix + this.fmtAmount(m.amount, m.ccy);
+    return prefix + this.fmtAmount(m.amount, m.ccy, m.exchangeRateAtTime);
   }
 }
 

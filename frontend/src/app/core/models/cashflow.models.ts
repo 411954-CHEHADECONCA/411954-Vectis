@@ -64,4 +64,5 @@ export interface CashflowResponse {
   preInvestmentBalance: CashflowSubtotal;
   investments:          CashflowInvestmentSection;
   closingBalance:       CashflowBalanceSection;
+  oficialRateAtPeriod:  string | null;
 }

@@ -1,4 +1,4 @@
-import { Component, ChangeDetectionStrategy, input, computed } from '@angular/core';
+import { Component, ChangeDetectionStrategy, input, computed, inject } from '@angular/core';
 import {
   LucideBuilding2,
   LucideWallet,
@@ -7,6 +7,7 @@ import {
   LucideTrendingDown,
 } from '@lucide/angular';
 import { AccountResponse } from '../../../core/models/account.models';
+import { CurrencyService } from '../../../core/services/currency.service';
 
 @Component({
   selector: 'app-account-balance-card',
@@ -179,15 +180,20 @@ import { AccountResponse } from '../../../core/models/account.models';
   `],
 })
 export class AccountBalanceCardComponent {
+  private readonly currencyService = inject(CurrencyService);
+
   account = input.required<AccountResponse>();
 
   effectiveBalance = computed(() => this.account().computedBalance ?? this.account().balance);
   netMovements     = computed(() => this.effectiveBalance() - this.account().balance);
 
   fmtAmount(value: number, ccy: 'ARS' | 'USD'): string {
-    if (ccy === 'USD') {
-      return `US$ ${value.toLocaleString('es-AR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
+    const converted = this.currencyService.convert(value, ccy);
+    if (converted === null) return '–';
+    const sel = this.currencyService.selected();
+    if (sel === 'USD') {
+      return `US$ ${converted.toLocaleString('es-AR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
     }
-    return `$ ${Math.round(value).toLocaleString('es-AR')}`;
+    return `$ ${Math.round(converted).toLocaleString('es-AR')}`;
   }
 }

@@ -1,0 +1,35 @@
+<main class="legal-page">
+
+  <header class="legal-topbar">
+    <a routerLink="/login" class="brand-row" aria-label="Ir al inicio de sesión">
+      <svg class="brand-icon" viewBox="0 0 32 32" fill="none" aria-hidden="true">
+        <path d="M16 2L4 8v16l12 6 12-6V8L16 2z" stroke="currentColor" stroke-width="1.5" stroke-linejoin="round"/>
+        <path d="M16 2v28M4 8l12 6 12-6" stroke="currentColor" stroke-width="1.5" stroke-linejoin="round"/>
+      </svg>
+      <span class="brand-name">Vectis</span>
+    </a>
+
+    <a routerLink="/login" class="back-link">
+      <svg viewBox="0 0 20 20" fill="currentColor" aria-hidden="true">
+        <path fill-rule="evenodd" d="M17 10a.75.75 0 01-.75.75H6.612l4.158 3.96a.75.75 0 11-1.04 1.08l-5.5-5.25a.75.75 0 010-1.08l5.5-5.25a.75.75 0 111.04 1.08L6.612 9.25H16.25A.75.75 0 0117 10z" clip-rule="evenodd"/>
+      </svg>
+      Volver
+    </a>
+  </header>
+
+  <div class="legal-container">
+
+    <div class="legal-head">
+      <span class="eyebrow">{{ eyebrow() }}</span>
+      <h1>{{ title() }}</h1>
+    </div>
+
+    <ng-content></ng-content>
+
+    <p class="legal-footer-note">
+      <ng-content select="[legalFooter]"></ng-content>
+    </p>
+
+  </div>
+
+</main>

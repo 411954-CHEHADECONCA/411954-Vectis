@@ -43,6 +43,7 @@ export class RegisterComponent {
       email: ['', [Validators.required, Validators.email]],
       password: ['', [Validators.required, Validators.minLength(8)]],
       confirmPassword: ['', Validators.required],
+      acceptTerms: [false, Validators.requiredTrue],
     },
     { validators: passwordMatchValidator }
   );
@@ -53,7 +54,7 @@ export class RegisterComponent {
     this.loading.set(true);
     this.errorMessage.set(null);
 
-    const { confirmPassword, ...request } = this.form.getRawValue();
+    const { confirmPassword, acceptTerms, ...request } = this.form.getRawValue();
 
     this.authService.register(request).subscribe({
       next: () => this.router.navigate(['/dashboard']),

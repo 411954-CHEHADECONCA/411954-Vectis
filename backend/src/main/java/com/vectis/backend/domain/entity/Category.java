@@ -40,6 +40,11 @@ public class Category {
     @Column(name = "is_default", nullable = false)
     private boolean isDefault;
 
+    /** Marca estable (no depende del nombre) para el default de "Otros ingresos"/"Otros egresos" que se
+     *  asigna cuando un movimiento no elige categoría — ver {@code TransactionService#resolveCategory}. */
+    @Column(name = "is_uncategorized_default", nullable = false)
+    private boolean isUncategorizedDefault;
+
     @Column(name = "created_at", nullable = false, updatable = false)
     private OffsetDateTime createdAt;
 

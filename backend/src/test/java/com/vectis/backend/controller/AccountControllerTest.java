@@ -99,7 +99,7 @@ class AccountControllerTest {
     @Test
     @DisplayName("POST /api/accounts con body válido retorna 201")
     void createAccount_validRequest_returns201() throws Exception {
-        AccountRequest request = buildRequest(false, null);
+        AccountRequest request = buildRequest();
         AccountResponse response = buildResponse(UUID.randomUUID());
 
         given(accountService.createAccount(any(AccountRequest.class), any(User.class))).willReturn(response);
@@ -117,20 +117,7 @@ class AccountControllerTest {
     @DisplayName("POST /api/accounts con nombre en blanco retorna 400")
     void createAccount_blankName_returns400() throws Exception {
         AccountRequest request = new AccountRequest("", "Banco", null, "ARS",
-                BigDecimal.ZERO, false, null, true);
-
-        mockMvc.perform(post("/api/accounts")
-                        .header(HttpHeaders.AUTHORIZATION, AUTH_HEADER)
-                        .contentType(MediaType.APPLICATION_JSON)
-                        .content(objectMapper.writeValueAsString(request)))
-                .andExpect(status().isBadRequest());
-    }
-
-    @Test
-    @DisplayName("POST /api/accounts remunerada=true sin TNA retorna 400")
-    void createAccount_remuneradaTrueTnaNull_returns400() throws Exception {
-        AccountRequest request = new AccountRequest("Mi Cuenta", "Banco", null, "ARS",
-                new BigDecimal("100000"), true, null, true);
+                BigDecimal.ZERO, true);
 
         mockMvc.perform(post("/api/accounts")
                         .header(HttpHeaders.AUTHORIZATION, AUTH_HEADER)
@@ -151,7 +138,7 @@ class AccountControllerTest {
         mockMvc.perform(put("/api/accounts/" + id)
                         .header(HttpHeaders.AUTHORIZATION, AUTH_HEADER)
                         .contentType(MediaType.APPLICATION_JSON)
-                        .content(objectMapper.writeValueAsString(buildRequest(false, null))))
+                        .content(objectMapper.writeValueAsString(buildRequest())))
                 .andExpect(status().isForbidden())
                 .andExpect(jsonPath("$.message").exists());
     }
@@ -166,7 +153,7 @@ class AccountControllerTest {
         mockMvc.perform(put("/api/accounts/" + id)
                         .header(HttpHeaders.AUTHORIZATION, AUTH_HEADER)
                         .contentType(MediaType.APPLICATION_JSON)
-                        .content(objectMapper.writeValueAsString(buildRequest(false, null))))
+                        .content(objectMapper.writeValueAsString(buildRequest())))
                 .andExpect(status().isNotFound());
     }
 
@@ -297,9 +284,9 @@ class AccountControllerTest {
 
     // ─── Helpers ──────────────────────────────────────────────────────────────
 
-    private AccountRequest buildRequest(boolean remunerada, BigDecimal tna) {
+    private AccountRequest buildRequest() {
         return new AccountRequest("Cuenta Test", "Banco", "Caja de Ahorro $", "ARS",
-                new BigDecimal("150000.0000"), remunerada, tna, true);
+                new BigDecimal("150000.0000"), true);
     }
 
     private AccountResponse buildResponse(UUID id) {

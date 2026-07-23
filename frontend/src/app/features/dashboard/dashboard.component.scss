@@ -216,6 +216,31 @@
   gap: 8px;
 }
 
+.mep-chip {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  background-color: var(--color-surface-container);
+  border: 1px solid var(--color-outline-variant);
+  border-radius: var(--radius-full);
+  padding: 5px 12px;
+  font-family: var(--font-sans);
+  font-variant-numeric: tabular-nums;
+}
+
+.mep-label {
+  font-size: var(--text-caption);
+  font-weight: 600;
+  color: var(--color-outline);
+  letter-spacing: var(--tracking-wide);
+}
+
+.mep-value {
+  font-size: var(--text-caption);
+  font-weight: 700;
+  color: var(--color-primary);
+}
+
 .currency-toggle {
   display: flex;
   align-items: center;

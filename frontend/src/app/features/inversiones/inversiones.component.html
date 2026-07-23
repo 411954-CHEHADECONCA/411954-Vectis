@@ -1,0 +1,2741 @@
+<div class="page">
+
+  <!-- ── PageHead ──────────────────────────────────────────────────────────── -->
+  <div class="page-head">
+    <div>
+      <h1 class="page-head__title">Inversiones</h1>
+      <p class="page-head__lead">Tu cartera, sus tasas nominales y el rendimiento real frente a la inflación.</p>
+      @if (totalPendingPayments() > 0) {
+        <p class="page-head__notice" role="status">
+          Tenés {{ totalPendingPayments() }} pago{{ totalPendingPayments() === 1 ? '' : 's' }} de renta/amortización por cobrar.
+        </p>
+      }
+      @if (paymentConfirmFeedback(); as feedback) {
+        <p
+          class="market-refresh-feedback"
+          [class.market-refresh-feedback--warning]="feedback.tone === 'warning'"
+          role="status"
+        >
+          {{ feedback.text }}
+        </p>
+      }
+    </div>
+    <div class="page-head__actions">
+      @if (marketRefreshFeedback(); as feedback) {
+        <span class="market-refresh-feedback" [class.market-refresh-feedback--error]="feedback.tone === 'error'">
+          {{ feedback.text }}
+        </span>
+      }
+      <button
+        class="btn-secondary"
+        type="button"
+        [disabled]="refreshingMarket()"
+        (click)="refreshMarketData()"
+        aria-label="Actualizar valuaciones de mercado"
+      >
+        <svg lucideRefreshCw [size]="16" [class.icon-spin]="refreshingMarket()"></svg>
+        {{ refreshingMarket() ? 'Actualizando…' : 'Actualizar valuaciones' }}
+      </button>
+      <button class="btn-primary" (click)="openCreate()" type="button">
+        <svg lucidePlus [size]="16"></svg>
+        Nueva inversión
+      </button>
+    </div>
+  </div>
+
+  <!-- ── Loading ───────────────────────────────────────────────────────────── -->
+  @if (loading()) {
+    <div class="loading-state">
+      <div class="kpi-grid">
+        <div class="skeleton-block" style="height: 120px;"></div>
+        <div class="skeleton-block" style="height: 120px;"></div>
+        <div class="skeleton-block" style="height: 120px;"></div>
+        <div class="skeleton-block" style="height: 120px;"></div>
+      </div>
+      <div class="skeleton-block" style="height: 300px;"></div>
+    </div>
+  }
+
+  <!-- ── Error ─────────────────────────────────────────────────────────────── -->
+  @else if (error()) {
+    <div class="error-state">
+      <svg lucideTrendingDown [size]="36"></svg>
+      <p>{{ error() }}</p>
+    </div>
+  }
+
+  <!-- ── Content ───────────────────────────────────────────────────────────── -->
+  @else {
+
+    <!-- KPI Grid -->
+    <div class="kpi-grid">
+
+      <div class="kpi-card">
+        <div class="kpi-card__header">
+          <span class="kpi-card__label">
+            <span class="kpi-dot kpi-dot--secondary"></span>Capital invertido · {{ currencyService.selected() }}
+          </span>
+          <svg lucideWallet [size]="18" class="kpi-icon"></svg>
+        </div>
+        <div class="kpi-card__value">
+          <span class="kpi-metric">{{ currencyService.selected() === 'USD' ? fmtUSD(capitalMostrado()) : fmtARS(capitalMostrado()) }}</span>
+        </div>
+        @if (capitalARS() > 0 && capitalUSD() > 0) {
+          <span class="kpi-sub">{{ fmtARS(capitalARS()) }} ARS + {{ fmtUSD(capitalUSD()) }} USD</span>
+        } @else {
+          <span class="kpi-sub">{{ assets().length }} instrumento{{ assets().length === 1 ? '' : 's' }}</span>
+        }
+      </div>
+
+      <div class="kpi-card">
+        <div class="kpi-card__header">
+          <span class="kpi-card__label">
+            <span class="kpi-dot kpi-dot--primary"></span>Ganancia del mes
+          </span>
+          <svg lucideTrendingUp [size]="18" class="kpi-icon"></svg>
+        </div>
+        <div class="kpi-card__value">
+          <span class="kpi-metric kpi-metric--primary">{{ currencyService.selected() === 'USD' ? fmtUSD(gananciaMesActual()) : fmtARS(gananciaMesActual()) }}</span>
+        </div>
+      </div>
+
+      <div class="kpi-card">
+        <div class="kpi-card__header">
+          <span class="kpi-card__label">
+            <span class="kpi-dot kpi-dot--quaternary"></span>Estimación del mes
+          </span>
+          <svg lucideChartLine [size]="18" class="kpi-icon"></svg>
+        </div>
+        <div class="kpi-card__value">
+          <span class="kpi-metric">{{ currencyService.selected() === 'USD' ? fmtUSD(gananciaMesEstimada()) : fmtARS(gananciaMesEstimada()) }}</span>
+        </div>
+        @if (variacionEstimadaPct() !== null) {
+          <span class="kpi-badge" [class.kpi-badge--negative]="variacionEstimadaPct()! < 0">
+            {{ variacionEstimadaPct()! >= 0 ? '+' : '−' }}{{ fmtPct(Math.abs(variacionEstimadaPct()!)) }}
+          </span>
+        }
+        <span class="kpi-sub">vs. {{ currencyService.selected() === 'USD' ? fmtUSD(gananciaMesAnterior()) : fmtARS(gananciaMesAnterior()) }} el mes pasado · {{ currencyService.selected() }}</span>
+      </div>
+
+      <div
+        class="kpi-card kpi-card--gradient"
+        [class.kpi-card--positive]="(tasaRealMensual() ?? 0) >= 0"
+        [class.kpi-card--negative]="(tasaRealMensual() ?? 0) < 0"
+      >
+        <div class="kpi-card__header">
+          <span class="kpi-card__label">
+            <span class="kpi-dot kpi-dot--tertiary"></span>Tasa real mensual
+          </span>
+          @if ((tasaRealMensual() ?? 0) >= 0) {
+            <svg lucideChartNoAxesColumn [size]="18" class="kpi-icon"></svg>
+          } @else {
+            <svg lucideChartNoAxesColumn [size]="18" class="kpi-icon kpi-icon--error"></svg>
+          }
+        </div>
+        @if (tasaRealMensual() !== null) {
+          <div class="kpi-card__value">
+            <span
+              class="kpi-metric"
+              [class.kpi-metric--primary]="tasaRealMensual()! >= 0"
+              [class.kpi-metric--error]="tasaRealMensual()! < 0"
+            >
+              {{ tasaRealMensual()! >= 0 ? '+' : '−' }}{{ fmtPct(Math.abs(tasaRealMensual()!)) }}
+            </span>
+            <span class="kpi-realrate-label">real · mensual · {{ currencyService.selected() }}</span>
+          </div>
+          <span class="kpi-sub">Rendimiento {{ fmtPct(tasaEfectivaMensual()) }} − IPC {{ fmtPct(parseFloat(ipc()!.monthlyRate)) }} mens.</span>
+        } @else {
+          <div class="kpi-card__value"><span class="kpi-metric kpi-metric--muted">—</span></div>
+          <span class="kpi-sub">Sin datos de inflación disponibles</span>
+        }
+      </div>
+
+    </div>
+
+    <!-- ── Tabla de activos ─────────────────────────────────────────────────── -->
+    <div class="panel table-panel">
+      <div class="table-header">
+        <div>
+          <h3 class="table-title">
+            Resumen de activos
+            <span class="table-title-sub">(métricas del período)</span>
+          </h3>
+        </div>
+        <span class="table-meta">
+          {{ assets().length }} activo{{ assets().length === 1 ? '' : 's' }} · clic para ver detalle
+        </span>
+      </div>
+
+      @if (assets().length === 0) {
+        <div class="empty-state">
+          <svg lucideChartLine [size]="40" class="empty-icon"></svg>
+          <p>Todavía no cargaste ningún activo financiero.</p>
+          <button class="btn-primary btn-sm" (click)="openCreate()" type="button">
+            <svg lucidePlus [size]="14"></svg>
+            Agregar el primero
+          </button>
+        </div>
+      } @else {
+        <div class="table-scroll">
+          <table class="inv-table">
+            <thead>
+              <tr>
+                <th class="th--left"  style="min-width: 165px">Activo</th>
+                <th class="th--right" style="width: 48px">Días</th>
+                <th class="th--right" style="min-width: 110px">Capital actual</th>
+                <th class="th--right" style="min-width: 120px">Intereses ($)</th>
+                <th class="th--right" style="min-width: 80px">T.E. Per.</th>
+                <th class="th--right" style="min-width: 68px">TNA</th>
+                <th class="th--right" style="min-width: 72px">T.E.A.</th>
+                <th class="th--right" style="min-width: 68px">TIR</th>
+                <th></th>
+              </tr>
+            </thead>
+            <tbody>
+              @for (asset of assets(); track asset.id; let i = $index) {
+
+                <!-- Fila principal -->
+                <tr
+                  class="asset-row"
+                  [class.asset-row--open]="expanded().has(asset.id)"
+                  (click)="toggleExpanded(asset)"
+                  role="button"
+                  [attr.aria-expanded]="expanded().has(asset.id)"
+                >
+                  <td class="asset-cell asset-cell--name">
+                    <span
+                      class="asset-chip"
+                      [style.background]="'color-mix(in srgb, ' + tintFor(i) + ' 14%, transparent)'"
+                      [style.color]="tintFor(i)"
+                    >
+                      @switch (asset.type) {
+                        @case ('FCI')             { <svg lucideTrendingUp [size]="16"></svg> }
+                        @case ('FCI_CUOTAPARTES') { <svg lucideChartLine  [size]="16"></svg> }
+                        @case ('PLAZO_FIJO')      { <svg lucideCoins      [size]="16"></svg> }
+                        @case ('LETRA')           { <svg lucideFileText   [size]="16"></svg> }
+                        @case ('BONO')            { <svg lucideLink       [size]="16"></svg> }
+                        @case ('ON')              { <svg lucidePercent    [size]="16"></svg> }
+                        @default                  { <svg lucideChartLine  [size]="16"></svg> }
+                      }
+                    </span>
+                    <span class="asset-info">
+                      <span class="asset-name" [title]="asset.name">
+                        {{ asset.name }}
+                      </span>
+                      <span class="asset-type">{{ ASSET_TYPE_LABELS[asset.type] }}</span>
+                    </span>
+                    <span
+                      class="row-badge"
+                      [class.row-badge--accent]="asset.currency === 'USD'"
+                      [class.row-badge--neutral]="asset.currency !== 'USD'"
+                    >{{ asset.currency }}</span>
+                    @if (isExpired(asset)) {
+                      <span class="badge-expired">Vencido</span>
+                    }
+                    @if (asset.status === 'COBRADA') {
+                      <span class="badge-cobrada">Cobrada</span>
+                    }
+                    @if ((asset.type === 'BONO' || asset.type === 'ON') && pendingCountForAsset(asset.id) > 0) {
+                      <span class="badge-pending-payments" [attr.aria-label]="pendingCountForAsset(asset.id) + ' pagos por cobrar'">
+                        {{ pendingCountForAsset(asset.id) }} pago{{ pendingCountForAsset(asset.id) === 1 ? '' : 's' }} por cobrar
+                      </span>
+                    }
+                  </td>
+                  <td class="asset-cell asset-cell--num">{{ diasPeriodo(asset) }}</td>
+                  <td class="asset-cell asset-cell--num">
+                    {{ fmtMontoSel(saldoBase(asset), asset.currency) }}
+                  </td>
+                  <td class="asset-cell asset-cell--num asset-cell--highlight">
+                    {{ fmtMontoSel(calcIntereses(asset), asset.currency) }}
+                  </td>
+                  <td class="asset-cell asset-cell--num">{{ fmtPct(calcTEPeriodo(asset)) }}</td>
+                  <td class="asset-cell asset-cell--num">{{ fmtPct(calcTNA(asset)) }}</td>
+                  <td class="asset-cell asset-cell--num asset-cell--highlight">{{ fmtPct(calcTEA(asset)) }}</td>
+                  <td class="asset-cell asset-cell--num asset-cell--highlight">{{ fmtPct(calcTIR(asset)) }}</td>
+                  <td class="asset-cell asset-cell--actions">
+                    <div class="actions-inner">
+                      <span class="action-icons">
+                        @if (asset.type !== 'PLAZO_FIJO') {
+                          <button
+                            class="icon-btn icon-btn--add"
+                            (click)="$event.stopPropagation(); openAddMovementModal(asset)"
+                            type="button"
+                            [disabled]="asset.status === 'COBRADA'"
+                            title="Agregar movimiento"
+                            aria-label="Agregar movimiento"
+                          >
+                            <svg lucidePlus [size]="15"></svg>
+                          </button>
+                        }
+                        <button
+                          class="icon-btn"
+                          (click)="$event.stopPropagation(); openEdit(asset)"
+                          type="button"
+                          [disabled]="asset.status === 'COBRADA'"
+                          aria-label="Editar activo"
+                        >
+                          <svg lucidePen [size]="15"></svg>
+                        </button>
+                        <button
+                          class="icon-btn icon-btn--accent"
+                          (click)="$event.stopPropagation(); openCollect(asset)"
+                          type="button"
+                          [disabled]="asset.status === 'COBRADA'"
+                          title="Cobrar"
+                          aria-label="Cobrar activo"
+                        >
+                          <svg lucideWallet [size]="15"></svg>
+                        </button>
+                        <button
+                          class="icon-btn icon-btn--danger"
+                          (click)="$event.stopPropagation(); openDelete(asset)"
+                          type="button"
+                          aria-label="Eliminar activo"
+                        >
+                          <svg lucideTrash2 [size]="15"></svg>
+                        </button>
+                        <svg
+                          lucideChevronDown
+                          [size]="15"
+                          class="chevron-icon"
+                          [class.chevron-icon--open]="expanded().has(asset.id)"
+                        ></svg>
+                      </span>
+                    </div>
+                  </td>
+                </tr>
+
+                <!-- Fila expandida -->
+                @if (expanded().has(asset.id)) {
+                  <tr class="asset-detail-row">
+                    <td colspan="10">
+                      <div class="asset-detail" [style.border-left-color]="tintFor(i)">
+
+                        @if (asset.type === 'FCI') {
+                          <!-- Detalle FCI: tabla de tramos -->
+                          <div class="tramos-section">
+                            <div class="tramos-header">
+                              <span class="detail-label">Tramos del fondo</span>
+                              @if (asset.accountName) {
+                                <span class="detail-account">Cuenta: {{ asset.accountName }}</span>
+                              }
+                            </div>
+                            <div class="tramos-scroll">
+                              <table class="tramos-table">
+                                <thead>
+                                  <tr>
+                                    <th>Fecha evento</th>
+                                    <th>Tipo</th>
+                                    <th class="th--right">Monto</th>
+                                    <th class="th--right">Días tramo</th>
+                                    <th class="th--right">Saldo tramo</th>
+                                    <th class="th--right">Intereses tramo</th>
+                                    <th class="th--right">TIR tramo</th>
+                                    <th></th>
+                                  </tr>
+                                </thead>
+                                <tbody>
+                                  @for (tramo of calcTramosFCI(asset); track $index) {
+                                    <tr [class.tramo-row--current]="tramo.enCurso">
+                                      <td class="tramo-cell">
+                                        @if (tramo.mov) {
+                                          {{ fmtDate(tramo.mov.movementDate) }}
+                                        } @else if (tramo.enCurso) {
+                                          <span class="tramo-current-label">Hoy</span>
+                                        } @else {
+                                          —
+                                        }
+                                      </td>
+                                      <td class="tramo-cell">
+                                        @if (tramo.mov) {
+                                          <span
+                                            class="mov-badge"
+                                            [class.mov-badge--suscripcion]="tramo.mov.type === 'SUSCRIPCION'"
+                                            [class.mov-badge--rescate]="tramo.mov.type === 'RESCATE'"
+                                            [class.mov-badge--revaluo]="tramo.mov.type === 'REVALUO'"
+                                          >
+                                            {{ tramo.mov.type === 'SUSCRIPCION' ? 'Suscripción'
+                                               : tramo.mov.type === 'REVALUO' ? 'Revalúo'
+                                               : 'Rescate' }}
+                                          </span>
+                                        } @else if (tramo.enCurso) {
+                                          <span class="mov-badge mov-badge--encurso">En curso</span>
+                                        } @else {
+                                          —
+                                        }
+                                      </td>
+                                      <td class="tramo-cell tramo-cell--num">
+                                        @if (tramo.mov) {
+                                          {{ fmtMontoSel(tramo.mov.amount, asset.currency) }}
+                                        } @else { — }
+                                      </td>
+                                      <td class="tramo-cell tramo-cell--num">{{ tramo.dias }}</td>
+                                      <td class="tramo-cell tramo-cell--num">
+                                        {{ fmtMontoSel(tramo.saldo, asset.currency) }}
+                                      </td>
+                                      <td class="tramo-cell tramo-cell--num tramo-cell--highlight">
+                                        {{ fmtMontoSel(tramo.intereses, asset.currency) }}
+                                      </td>
+                                      <td class="tramo-cell tramo-cell--num">
+                                        @if (tramo.dias > 0 && tramo.saldo > 0) {
+                                          {{ fmtPct((tramo.intereses / tramo.saldo) * (365 / tramo.dias) * 100) }}
+                                        } @else { — }
+                                      </td>
+                                      <td class="tramo-cell tramo-cell--actions">
+                                        @if (tramo.mov) {
+                                          <button
+                                            type="button"
+                                            class="icon-btn"
+                                            (click)="openEditTramoModal(asset, tramo)"
+                                            [disabled]="asset.status === 'COBRADA'"
+                                            title="Editar interés del tramo"
+                                            aria-label="Editar interés del tramo"
+                                          >
+                                            <svg lucidePen [size]="14"></svg>
+                                          </button>
+                                        }
+                                      </td>
+                                    </tr>
+                                  }
+                                </tbody>
+                                <tfoot>
+                                  <tr class="tramos-summary">
+                                    <td colspan="3" class="tramo-cell tramos-summary__label">Resumen total</td>
+                                    <td class="tramo-cell tramo-cell--num">{{ diasPeriodo(asset) }}</td>
+                                    <td class="tramo-cell tramo-cell--num">
+                                      {{ fmtMontoSel(calcSaldoFCI(asset), asset.currency) }}
+                                    </td>
+                                    <td class="tramo-cell tramo-cell--num tramo-cell--highlight">
+                                      {{ fmtMontoSel(calcIntereses(asset), asset.currency) }}
+                                    </td>
+                                    <td class="tramo-cell tramo-cell--num tramo-cell--highlight">{{ fmtPct(calcTIR(asset)) }}</td>
+                                    <td class="tramo-cell"></td>
+                                  </tr>
+                                </tfoot>
+                              </table>
+                            </div>
+                            <div class="cp-summary">
+                              <div class="cp-summary__item">
+                                <span class="detail-label">T.N.A.</span>
+                                <span class="detail-value">{{ fmtPct(asset.tna) }}</span>
+                              </div>
+                              <div class="cp-summary__item">
+                                <span class="detail-label">T.E. Mens.</span>
+                                <span class="detail-value">{{ fmtPct(asset.tna / 12) }}</span>
+                              </div>
+                              <div class="cp-summary__item">
+                                <span class="detail-label">Total (saldo + interés en curso)</span>
+                                <span class="detail-value detail-value--primary">
+                                  {{ fmtMontoSel(calcMontoTotal(asset), asset.currency) }}
+                                </span>
+                              </div>
+                            </div>
+                          </div>
+
+                        } @else if (asset.type === 'FCI_CUOTAPARTES') {
+                          <!-- Detalle FCI Cuotapartes: tabla de tramos por mes -->
+                          <div class="tramos-section">
+                            <div class="tramos-header">
+                              <span class="detail-label">Tramos del fondo (por mes)</span>
+                              @if (asset.accountName) {
+                                <span class="detail-account">Cuenta: {{ asset.accountName }}</span>
+                              }
+                            </div>
+
+                            @if (!asset.valuations.length) {
+                              <p class="movements-empty">
+                                Sin valuaciones registradas. Editá el fondo para agregar cortes de precio.
+                              </p>
+                              <div class="cp-summary">
+                                <div class="cp-summary__item">
+                                  <span class="detail-label">Cuotapartes poseídas</span>
+                                  <span class="detail-value">{{ calcCuotapartesHeld(asset) | number:'1.4-6':'es-AR' }}</span>
+                                </div>
+                                <div class="cp-summary__item">
+                                  <span class="detail-label">Costo base</span>
+                                  <span class="detail-value">{{ fmtMontoSel(asset.principal, asset.currency) }}</span>
+                                </div>
+                              </div>
+                            } @else {
+                              <div class="tramos-scroll">
+                                <table class="tramos-table">
+                                  <thead>
+                                    <tr>
+                                      <th>Período</th>
+                                      <th class="th--right">Cuotapartes</th>
+                                      <th class="th--right">Precio</th>
+                                      <th class="th--right">Días</th>
+                                      <th class="th--right">Ganancia tramo</th>
+                                      <th class="th--right">Rend. período</th>
+                                      <th class="th--right">TNA tramo</th>
+                                      <th class="th--right">TEA tramo</th>
+                                      <th class="th--right">TIR acum.</th>
+                                      <th></th>
+                                    </tr>
+                                  </thead>
+                                  <tbody>
+                                    @for (tramo of calcTramosCP(asset); track $index) {
+                                      <tr [class.tramo-row--current]="tramo.enCurso">
+                                        <td class="tramo-cell">
+                                          <div class="tramo-hasta">
+                                            <span class="tramo-hasta__date">{{ fmtDate(tramo.startDate) }}</span>
+                                            <span class="tramo-hasta__arrow">→</span>
+                                            <span class="tramo-hasta__date">{{ fmtDate(tramo.endDate) }}</span>
+                                            @if (tramo.enCurso) {
+                                              <span class="mov-badge mov-badge--encurso">En curso</span>
+                                            } @else {
+                                              @switch (tramo.endEvent) {
+                                                @case ('SUSCRIPCION') { <span class="mov-badge mov-badge--suscripcion">Suscripción</span> }
+                                                @case ('RESCATE')     { <span class="mov-badge mov-badge--rescate">Rescate</span> }
+                                                @case ('REVALUO')     { <span class="mov-badge mov-badge--revaluo">Revalúo</span> }
+                                                @case ('VALUACION')   { <span class="mov-badge mov-badge--valuacion">Valuación</span> }
+                                                @case ('AMORTIZATION') {
+                                                  <span class="mov-badge mov-badge--amortizacion">Amortización</span>
+                                                  @if (tramo.amortizacionSinNeutralizar) {
+                                                    <span
+                                                      class="amort-warning"
+                                                      title="Sin dato de residual o de precio de mercado a la fecha de cobro: la devolución de capital no se pudo neutralizar en este tramo"
+                                                      aria-label="Devolución de capital no neutralizada por falta de datos"
+                                                    >!</span>
+                                                  }
+                                                }
+                                              }
+                                            }
+                                          </div>
+                                        </td>
+                                        <td class="tramo-cell tramo-cell--num">{{ tramo.units | number:'1.4-6':'es-AR' }}</td>
+                                        <td class="tramo-cell tramo-cell--num">
+                                          <span class="price-range">
+                                            <span>{{ asset.currency === 'ARS' ? fmtARSPrecio(tramo.startPrice) : fmtUSDPrecio(tramo.startPrice) }}</span>
+                                            <span class="price-range__arrow">→</span>
+                                            <span>{{ asset.currency === 'ARS' ? fmtARSPrecio(tramo.endPrice) : fmtUSDPrecio(tramo.endPrice) }}</span>
+                                          </span>
+                                        </td>
+                                        <td class="tramo-cell tramo-cell--num">{{ tramo.dias }}</td>
+                                        <td class="tramo-cell tramo-cell--num tramo-cell--highlight">
+                                          {{ fmtMontoSel(tramo.ganancia, asset.currency) }}
+                                        </td>
+                                        <td class="tramo-cell tramo-cell--num">
+                                          @if (tramo.dias === 0) { — }
+                                          @else { {{ fmtPct(tramo.tasaEfectiva) }} }
+                                        </td>
+                                        <td class="tramo-cell tramo-cell--num">
+                                          @if (tramo.dias === 0) { — }
+                                          @else { {{ fmtPct(tramo.tna) }} }
+                                        </td>
+                                        <td class="tramo-cell tramo-cell--num tramo-cell--highlight">
+                                          @if (tramo.dias === 0) { — }
+                                          @else { {{ fmtPct(tramo.tea) }} }
+                                        </td>
+                                        <td class="tramo-cell tramo-cell--num tramo-cell--highlight">
+                                          @if (tramo.dias === 0) { — }
+                                          @else { {{ fmtPct(tramo.tirAcumulada) }} }
+                                        </td>
+                                        <td class="tramo-cell tramo-cell--actions">
+                                          @if (tramo.revaluoMovId && modal()?.id) {
+                                            <button
+                                              type="button"
+                                              class="icon-btn icon-btn--danger"
+                                              title="Eliminar revalúo"
+                                              (click)="deleteFCIMovement(asset, tramo.revaluoMovId!)"
+                                              aria-label="Eliminar revalúo"
+                                            >✕</button>
+                                          }
+                                        </td>
+                                      </tr>
+                                    }
+                                  </tbody>
+                                  <tfoot>
+                                    <tr class="tramos-summary">
+                                      <td colspan="2" class="tramo-cell tramos-summary__label">Resumen total</td>
+                                      <td class="tramo-cell"></td>
+                                      <td class="tramo-cell tramo-cell--num">{{ diasPeriodo(asset) }}</td>
+                                      <td class="tramo-cell tramo-cell--num tramo-cell--highlight">
+                                        {{ fmtMontoSel(calcGananciaCP(asset), asset.currency) }}
+                                      </td>
+                                      <td class="tramo-cell"></td>
+                                      <td class="tramo-cell"></td>
+                                      <td class="tramo-cell tramo-cell--num tramo-cell--highlight">{{ fmtPct(calcTEA(asset)) }}</td>
+                                      <td class="tramo-cell tramo-cell--num tramo-cell--highlight">{{ fmtPct(calcTIR(asset)) }}</td>
+                                      <td class="tramo-cell"></td>
+                                    </tr>
+                                  </tfoot>
+                                </table>
+                              </div>
+
+                              <!-- Resumen CP bajo la tabla -->
+                              <div class="cp-summary">
+                                <div class="cp-summary__item">
+                                  <span class="detail-label">Cuotapartes poseídas</span>
+                                  <span class="detail-value">{{ calcCuotapartesHeld(asset) | number:'1.4-6':'es-AR' }}</span>
+                                </div>
+                                <div class="cp-summary__item">
+                                  <span class="detail-label">Valor de mercado</span>
+                                  <span class="detail-value detail-value--primary">
+                                    {{ fmtMontoSel(calcValorActualCP(asset), asset.currency) }}
+                                  </span>
+                                </div>
+                                <div class="cp-summary__item">
+                                  <span class="detail-label">Costo base</span>
+                                  <span class="detail-value">{{ fmtMontoSel(asset.principal, asset.currency) }}</span>
+                                </div>
+                                <div class="cp-summary__item">
+                                  <span class="detail-label">Ganancia total</span>
+                                  <span class="detail-value detail-value--primary">
+                                    {{ fmtMontoSel(calcGananciaCP(asset), asset.currency) }}
+                                  </span>
+                                </div>
+                              </div>
+                            }
+                          </div>
+
+                        } @else if (asset.type === 'LETRA' || asset.type === 'BONO' || asset.type === 'ON') {
+                          <!-- Detalle Letra/Bono/ON: igual a FCI Cuotapartes con Nominales -->
+                          <div class="tramos-section">
+                            <div class="tramos-header">
+                              <span class="detail-label">Tramos del instrumento (por mes)</span>
+                              @if (asset.accountName) {
+                                <span class="detail-account">Cuenta: {{ asset.accountName }}</span>
+                              }
+                            </div>
+
+                            @if (!asset.valuations.length) {
+                              <p class="movements-empty">
+                                Sin valuaciones registradas. Editá el instrumento para agregar cortes de precio.
+                              </p>
+                              <div class="cp-summary">
+                                <div class="cp-summary__item">
+                                  <span class="detail-label">Nominales en cartera</span>
+                                  <span class="detail-value">{{ calcCuotapartesHeld(asset) | number:'1.4-6':'es-AR' }}</span>
+                                </div>
+                                <div class="cp-summary__item">
+                                  <span class="detail-label">Vencimiento</span>
+                                  <span class="detail-value">{{ asset.maturityDate ? fmtDate(asset.maturityDate) : '—' }}</span>
+                                </div>
+                                <div class="cp-summary__item">
+                                  <span class="detail-label">Costo base</span>
+                                  <span class="detail-value">{{ fmtMontoSel(asset.principal, asset.currency) }}</span>
+                                </div>
+                              </div>
+                            } @else {
+                              <div class="tramos-scroll">
+                                <table class="tramos-table">
+                                  <thead>
+                                    <tr>
+                                      <th>Período</th>
+                                      <th class="th--right">Nominales</th>
+                                      <th class="th--right">Precio</th>
+                                      <th class="th--right">Días</th>
+                                      <th class="th--right">Ganancia tramo</th>
+                                      <th class="th--right">Rend. período</th>
+                                      <th class="th--right">TNA tramo</th>
+                                      <th class="th--right">TEA tramo</th>
+                                      <th class="th--right">TIR acum.</th>
+                                    </tr>
+                                  </thead>
+                                  <tbody>
+                                    @for (tramo of calcTramosCP(asset); track $index) {
+                                      <tr [class.tramo-row--current]="tramo.enCurso">
+                                        <td class="tramo-cell">
+                                          <div class="tramo-hasta">
+                                            <span class="tramo-hasta__date">{{ fmtDate(tramo.startDate) }}</span>
+                                            <span class="tramo-hasta__arrow">→</span>
+                                            <span class="tramo-hasta__date">{{ fmtDate(tramo.endDate) }}</span>
+                                            @if (tramo.enCurso) {
+                                              <span class="mov-badge mov-badge--encurso">En curso</span>
+                                            } @else {
+                                              @switch (tramo.endEvent) {
+                                                @case ('SUSCRIPCION') { <span class="mov-badge mov-badge--suscripcion">Suscripción</span> }
+                                                @case ('RESCATE')     { <span class="mov-badge mov-badge--rescate">Rescate</span> }
+                                                @case ('REVALUO')     { <span class="mov-badge mov-badge--revaluo">Revalúo</span> }
+                                                @case ('VALUACION')   { <span class="mov-badge mov-badge--valuacion">Valuación</span> }
+                                                @case ('AMORTIZATION') {
+                                                  <span class="mov-badge mov-badge--amortizacion">Amortización</span>
+                                                  @if (tramo.amortizacionSinNeutralizar) {
+                                                    <span
+                                                      class="amort-warning"
+                                                      title="Sin dato de residual o de precio de mercado a la fecha de cobro: la devolución de capital no se pudo neutralizar en este tramo"
+                                                      aria-label="Devolución de capital no neutralizada por falta de datos"
+                                                    >!</span>
+                                                  }
+                                                }
+                                              }
+                                            }
+                                          </div>
+                                        </td>
+                                        <td class="tramo-cell tramo-cell--num">{{ tramo.units | number:'1.4-6':'es-AR' }}</td>
+                                        <td class="tramo-cell tramo-cell--num">
+                                          <span class="price-range">
+                                            <span>{{ asset.currency === 'ARS' ? fmtARSPrecio(tramo.startPrice) : fmtUSDPrecio(tramo.startPrice) }}</span>
+                                            <span class="price-range__arrow">→</span>
+                                            <span>{{ asset.currency === 'ARS' ? fmtARSPrecio(tramo.endPrice) : fmtUSDPrecio(tramo.endPrice) }}</span>
+                                          </span>
+                                        </td>
+                                        <td class="tramo-cell tramo-cell--num">{{ tramo.dias }}</td>
+                                        <td class="tramo-cell tramo-cell--num tramo-cell--highlight">
+                                          {{ fmtMontoSel(tramo.ganancia, asset.currency) }}
+                                        </td>
+                                        <td class="tramo-cell tramo-cell--num">
+                                          @if (tramo.dias === 0) { — }
+                                          @else { {{ fmtPct(tramo.tasaEfectiva) }} }
+                                        </td>
+                                        <td class="tramo-cell tramo-cell--num">
+                                          @if (tramo.dias === 0) { — }
+                                          @else { {{ fmtPct(tramo.tna) }} }
+                                        </td>
+                                        <td class="tramo-cell tramo-cell--num tramo-cell--highlight">
+                                          @if (tramo.dias === 0) { — }
+                                          @else { {{ fmtPct(tramo.tea) }} }
+                                        </td>
+                                        <td class="tramo-cell tramo-cell--num tramo-cell--highlight">
+                                          @if (tramo.dias === 0) { — }
+                                          @else { {{ fmtPct(tramo.tirAcumulada) }} }
+                                        </td>
+                                      </tr>
+                                    }
+                                  </tbody>
+                                  <tfoot>
+                                    <tr class="tramos-summary">
+                                      <td colspan="2" class="tramo-cell tramos-summary__label">Resumen total</td>
+                                      <td class="tramo-cell"></td>
+                                      <td class="tramo-cell tramo-cell--num">{{ diasPeriodo(asset) }}</td>
+                                      <td class="tramo-cell tramo-cell--num tramo-cell--highlight">
+                                        {{ fmtMontoSel(calcGananciaCP(asset), asset.currency) }}
+                                      </td>
+                                      <td class="tramo-cell"></td>
+                                      <td class="tramo-cell"></td>
+                                      <td class="tramo-cell tramo-cell--num tramo-cell--highlight">{{ fmtPct(calcTEA(asset)) }}</td>
+                                      <td class="tramo-cell tramo-cell--num tramo-cell--highlight">{{ fmtPct(calcTIR(asset)) }}</td>
+                                    </tr>
+                                  </tfoot>
+                                </table>
+                              </div>
+
+                              <div class="cp-summary">
+                                <div class="cp-summary__item">
+                                  <span class="detail-label">Nominales en cartera</span>
+                                  <span class="detail-value">{{ calcCuotapartesHeld(asset) | number:'1.4-6':'es-AR' }}</span>
+                                </div>
+                                @if (asset.maturityDate) {
+                                  <div class="cp-summary__item">
+                                    <span class="detail-label">Vencimiento</span>
+                                    <span class="detail-value">{{ fmtDate(asset.maturityDate) }}</span>
+                                  </div>
+                                }
+                                <div class="cp-summary__item">
+                                  <span class="detail-label">Valor de mercado</span>
+                                  <span class="detail-value detail-value--primary">
+                                    {{ fmtMontoSel(calcValorActualCP(asset), asset.currency) }}
+                                  </span>
+                                </div>
+                                <div class="cp-summary__item">
+                                  <span class="detail-label">Costo base</span>
+                                  <span class="detail-value">{{ fmtMontoSel(asset.principal, asset.currency) }}</span>
+                                </div>
+                                <div class="cp-summary__item">
+                                  <span class="detail-label">Ganancia total</span>
+                                  <span class="detail-value detail-value--primary">
+                                    {{ fmtMontoSel(calcGananciaCP(asset), asset.currency) }}
+                                  </span>
+                                </div>
+                              </div>
+                            }
+                          </div>
+
+                          @if (asset.type === 'BONO' || asset.type === 'ON') {
+                            <!-- Calendario de pagos: renta y amortización de cupones -->
+                            <div class="tramos-section payments-section">
+                              <button
+                                type="button" class="payments-toggle"
+                                (click)="togglePaymentsCalendar(asset)"
+                                [attr.aria-expanded]="isPaymentsCalendarOpen(asset.id)"
+                              >
+                                <svg
+                                  lucideChevronDown [size]="14" class="chevron-icon"
+                                  [class.chevron-icon--open]="isPaymentsCalendarOpen(asset.id)"
+                                ></svg>
+                                <span class="detail-label">Calendario de pagos</span>
+                                @if (scheduledPendingCount(asset.id) > 0) {
+                                  <span class="payments-toggle__count">
+                                    · {{ scheduledPendingCount(asset.id) }}
+                                    pendiente{{ scheduledPendingCount(asset.id) === 1 ? '' : 's' }}
+                                  </span>
+                                }
+                              </button>
+
+                              @if (isPaymentsCalendarOpen(asset.id)) {
+                                <div class="payments-actions">
+                                  <button
+                                    type="button" class="btn-ghost btn-sm"
+                                    [disabled]="syncingPaymentsId() === asset.id"
+                                    (click)="syncAssetPayments(asset)"
+                                  >
+                                    <svg lucideRefreshCw [size]="13" [class.icon-spin]="syncingPaymentsId() === asset.id"></svg>
+                                    {{ syncingPaymentsId() === asset.id ? 'Actualizando…' : 'Actualizar desde PPI' }}
+                                  </button>
+                                  <button type="button" class="btn-add-mov" (click)="openAddPaymentModal(asset)">
+                                    <svg lucidePlus [size]="13"></svg>
+                                    Agregar pago manual
+                                  </button>
+                                </div>
+
+                              @if (paymentsLoadingIds().has(asset.id)) {
+                                <p class="movements-empty">Cargando calendario de pagos…</p>
+                              } @else if (paymentsFor(asset.id).length === 0) {
+                                <p class="movements-empty">Sin pagos registrados. Sincronizá desde PPI o agregá uno manual.</p>
+                              } @else {
+                                <div class="tramos-scroll">
+                                  <table class="tramos-table">
+                                    <thead>
+                                      <tr>
+                                        <th>Fecha de corte</th>
+                                        <th class="th--right">Renta est.</th>
+                                        <th class="th--right">Amortización est.</th>
+                                        <th>Moneda</th>
+                                        <th>Estado</th>
+                                        <th></th>
+                                      </tr>
+                                    </thead>
+                                    <tbody>
+                                      @for (payment of paymentsFor(asset.id); track payment.id) {
+                                        <tr>
+                                          <td class="tramo-cell">{{ fmtDate(payment.cuttingDate) }}</td>
+                                          <td class="tramo-cell tramo-cell--num">
+                                            {{ payment.currency === 'ARS' ? fmtARS(payment.estimatedRentAmount) : fmtUSD(payment.estimatedRentAmount) }}
+                                          </td>
+                                          <td class="tramo-cell tramo-cell--num">
+                                            {{ payment.currency === 'ARS' ? fmtARS(payment.estimatedAmortizationAmount) : fmtUSD(payment.estimatedAmortizationAmount) }}
+                                          </td>
+                                          <td class="tramo-cell">{{ payment.currency }}</td>
+                                          <td class="tramo-cell">
+                                            @if (payment.status === 'PENDIENTE' && paymentIsVencido(payment)) {
+                                              <span class="payment-badge payment-badge--vencido">Pendiente · vencido</span>
+                                            } @else if (payment.status === 'PENDIENTE') {
+                                              <span class="payment-badge payment-badge--pendiente">Pendiente</span>
+                                            } @else if (payment.status === 'COBRADO') {
+                                              <span class="payment-badge payment-badge--cobrado">Cobrado</span>
+                                            } @else {
+                                              <span class="payment-badge payment-badge--omitido">Omitido</span>
+                                            }
+                                          </td>
+                                          <td class="tramo-cell">
+                                            <div class="actions-inner">
+                                              <span class="action-icons">
+                                                @if (payment.status === 'PENDIENTE') {
+                                                  <button
+                                                    type="button" class="icon-btn icon-btn--accent"
+                                                    (click)="openConfirmPaymentModal(asset, payment)"
+                                                    title="Confirmar cobro" aria-label="Confirmar cobro"
+                                                  >
+                                                    <svg lucideWallet [size]="14"></svg>
+                                                  </button>
+                                                  <button
+                                                    type="button" class="icon-btn"
+                                                    (click)="openEditPaymentModal(asset, payment)"
+                                                    title="Editar pago" aria-label="Editar pago"
+                                                  >
+                                                    <svg lucidePen [size]="14"></svg>
+                                                  </button>
+                                                  <button
+                                                    type="button" class="icon-btn"
+                                                    (click)="omitPayment(asset, payment)"
+                                                    title="Omitir pago" aria-label="Omitir pago"
+                                                  >
+                                                    <svg lucideX [size]="14"></svg>
+                                                  </button>
+                                                  @if (payment.source === 'MANUAL') {
+                                                    <button
+                                                      type="button" class="icon-btn icon-btn--danger"
+                                                      (click)="deletePayment(asset, payment)"
+                                                      title="Eliminar pago" aria-label="Eliminar pago"
+                                                    >
+                                                      <svg lucideTrash2 [size]="14"></svg>
+                                                    </button>
+                                                  }
+                                                }
+                                              </span>
+                                            </div>
+                                          </td>
+                                        </tr>
+                                      }
+                                    </tbody>
+                                  </table>
+                                </div>
+                              }
+                              }
+                            </div>
+                          }
+
+                        } @else {
+                          <!-- Detalle PF -->
+                          <div class="asset-detail__grid">
+                            <div>
+                              <span class="detail-label">F. Compra</span>
+                              <span class="detail-value">{{ fmtDate(asset.purchaseDate) }}</span>
+                            </div>
+                            <div>
+                              <span class="detail-label">Vencimiento</span>
+                              <span class="detail-value">
+                                {{ asset.maturityDate ? fmtDate(asset.maturityDate) : '—' }}
+                              </span>
+                            </div>
+                            @if (asset.accountName) {
+                              <div>
+                                <span class="detail-label">Cuenta</span>
+                                <span class="detail-value">{{ asset.accountName }}</span>
+                              </div>
+                            }
+                            <div>
+                              <span class="detail-label">T.N.A.</span>
+                              <span class="detail-value">{{ fmtPct(asset.tna) }}</span>
+                            </div>
+                            <div>
+                              <span class="detail-label">T.E. Mens.</span>
+                              <span class="detail-value">{{ fmtPct(asset.tna / 12) }}</span>
+                            </div>
+                            <div>
+                              <span class="detail-label">Intereses al venc.</span>
+                              <span class="detail-value">
+                                {{ fmtMontoSel(calcInteresesVencimiento(asset), asset.currency) }}
+                              </span>
+                            </div>
+                            <div>
+                              <span class="detail-label">Monto al venc.</span>
+                              <span class="detail-value detail-value--primary">
+                                {{ fmtMontoSel(calcMontoTotal(asset), asset.currency) }}
+                              </span>
+                            </div>
+                          </div>
+                        }
+
+                      </div>
+                    </td>
+                  </tr>
+                }
+
+              }
+            </tbody>
+          </table>
+        </div>
+      }
+    </div>
+
+  }
+
+  <!-- ── Modal: selector de tipo ───────────────────────────────────────────── -->
+  @if (modal()?.kind === 'type-select') {
+    <div class="backdrop" (click)="closeModal()" role="dialog" aria-modal="true">
+      <div class="modal modal--type-select" (click)="$event.stopPropagation()">
+
+        <div class="modal-head">
+          <div>
+            <h3>Nueva inversión</h3>
+            <p class="modal-sub">Elegí el tipo de instrumento a registrar.</p>
+          </div>
+          <button class="close-btn" (click)="closeModal()" type="button" aria-label="Cerrar">
+            <svg lucideX [size]="18"></svg>
+          </button>
+        </div>
+
+        <div class="modal-body">
+          <div class="type-grid">
+            @for (card of typeCards; track card.value) {
+              <button
+                class="type-card"
+                [class.type-card--coming-soon]="card.comingSoon"
+                [disabled]="card.comingSoon"
+                (click)="selectType(card.value)"
+                type="button"
+              >
+                <span class="type-card__icon" [style.color]="card.color">
+                  @switch (card.value) {
+                    @case ('PLAZO_FIJO')      { <svg lucideCoins      [size]="28"></svg> }
+                    @case ('FCI')             { <svg lucideTrendingUp [size]="28"></svg> }
+                    @case ('FCI_CUOTAPARTES') { <svg lucideChartLine  [size]="28"></svg> }
+                    @case ('LETRA')           { <svg lucideFileText   [size]="28"></svg> }
+                    @case ('BONO')            { <svg lucideLink       [size]="28"></svg> }
+                    @case ('ON')              { <svg lucidePercent    [size]="28"></svg> }
+                  }
+                </span>
+                <span class="type-card__label">{{ card.label }}</span>
+                @if (card.comingSoon) {
+                  <span class="type-card__soon">Próximamente</span>
+                }
+              </button>
+            }
+          </div>
+        </div>
+
+        <div class="modal-footer">
+          <button type="button" class="btn-ghost" (click)="closeModal()">Cancelar</button>
+        </div>
+      </div>
+    </div>
+  }
+
+  <!-- ── Modal: Plazo Fijo (create / edit) ────────────────────────────────── -->
+  @if ((modal()?.kind === 'form-create' || modal()?.kind === 'form-edit') && modal()?.assetType === 'PLAZO_FIJO') {
+    <div class="backdrop" (click)="closeModal()" role="dialog" aria-modal="true">
+      <div class="modal" (click)="$event.stopPropagation()">
+
+        <div class="modal-head">
+          <div>
+            <h3>{{ modal()?.kind === 'form-edit' ? 'Editar plazo fijo' : 'Nuevo plazo fijo' }}</h3>
+            <p class="modal-sub">
+              {{ modal()?.kind === 'form-edit' ? 'Modificá los datos del plazo fijo.' : 'Completá los datos del plazo fijo.' }}
+            </p>
+          </div>
+          <button class="close-btn" (click)="closeModal()" type="button" aria-label="Cerrar modal">
+            <svg lucideX [size]="18"></svg>
+          </button>
+        </div>
+
+        <form [formGroup]="plazoFijoForm" (ngSubmit)="submit()" novalidate>
+          <div class="modal-body">
+
+            <!-- Nombre -->
+            <div class="cfg-field">
+              <label class="cfg-label" for="pf-name">
+                Nombre <span class="field-required">*</span>
+              </label>
+              <input
+                id="pf-name"
+                class="text-input"
+                formControlName="name"
+                type="text"
+                placeholder="Ej. Plazo Fijo Banco Nación"
+                autocomplete="off"
+              />
+              @if (plazoFijoForm.controls.name.invalid && plazoFijoForm.controls.name.touched) {
+                <span class="field-error" role="alert">
+                  @if (plazoFijoForm.controls.name.errors?.['required'])  { El nombre es obligatorio. }
+                  @else if (plazoFijoForm.controls.name.errors?.['maxlength']) { Máximo 255 caracteres. }
+                </span>
+              }
+            </div>
+
+            <!-- Moneda -->
+            <div class="cfg-field">
+              <label class="cfg-label">Moneda</label>
+              <div class="segmented">
+                <button
+                  type="button" class="segmented-btn"
+                  [class.segmented-btn--active]="plazoFijoForm.controls.currency.value === 'ARS'"
+                  (click)="plazoFijoForm.controls.currency.setValue('ARS')"
+                >ARS</button>
+                <button
+                  type="button" class="segmented-btn"
+                  [class.segmented-btn--active]="plazoFijoForm.controls.currency.value === 'USD'"
+                  (click)="plazoFijoForm.controls.currency.setValue('USD')"
+                >USD</button>
+              </div>
+            </div>
+
+            <!-- Capital / TNA -->
+            <div class="form-grid-2">
+              <div class="cfg-field">
+                <label class="cfg-label" for="pf-principal">
+                  Capital inicial <span class="field-required">*</span>
+                </label>
+                <input
+                  id="pf-principal"
+                  class="text-input text-input--mono"
+                  formControlName="principal"
+                  type="number"
+                  min="0.01"
+                  step="0.01"
+                  placeholder="0"
+                />
+                @if (plazoFijoForm.controls.principal.invalid && plazoFijoForm.controls.principal.touched) {
+                  <span class="field-error" role="alert">
+                    @if (plazoFijoForm.controls.principal.errors?.['required']) { El capital es obligatorio. }
+                    @else if (plazoFijoForm.controls.principal.errors?.['min']) { Debe ser mayor a 0. }
+                  </span>
+                }
+              </div>
+              <div class="cfg-field">
+                <label class="cfg-label" for="pf-tna">
+                  T.N.A. (%) <span class="field-required">*</span>
+                </label>
+                <input
+                  id="pf-tna"
+                  class="text-input text-input--mono"
+                  formControlName="tna"
+                  type="number"
+                  min="0"
+                  step="0.01"
+                  placeholder="0.00"
+                />
+                @if (plazoFijoForm.controls.tna.invalid && plazoFijoForm.controls.tna.touched) {
+                  <span class="field-error" role="alert">La TNA es obligatoria.</span>
+                }
+              </div>
+            </div>
+
+            <!-- Fecha apertura / Días -->
+            <div class="form-grid-2">
+              <div class="cfg-field">
+                <label class="cfg-label" for="pf-date">
+                  Fecha de apertura <span class="field-required">*</span>
+                </label>
+                <input
+                  id="pf-date"
+                  class="text-input"
+                  formControlName="purchaseDate"
+                  type="date"
+                />
+                @if (plazoFijoForm.controls.purchaseDate.invalid && plazoFijoForm.controls.purchaseDate.touched) {
+                  <span class="field-error" role="alert">La fecha es obligatoria.</span>
+                }
+              </div>
+              <div class="cfg-field">
+                <label class="cfg-label" for="pf-dias">
+                  Días de duración <span class="field-required">*</span>
+                </label>
+                <input
+                  id="pf-dias"
+                  class="text-input text-input--mono"
+                  formControlName="dias"
+                  type="number"
+                  min="1"
+                  step="1"
+                  placeholder="30"
+                />
+                @if (vencimientoPreview()) {
+                  <span class="field-hint">Vence: {{ fmtDate(vencimientoPreview()!) }}</span>
+                }
+                @if (plazoFijoForm.controls.dias.invalid && plazoFijoForm.controls.dias.touched) {
+                  <span class="field-error" role="alert">Los días son obligatorios (mín. 1).</span>
+                }
+              </div>
+            </div>
+
+            <!-- Preview calculado -->
+            @if (plazoFijoForm.controls.principal.value && plazoFijoForm.controls.tna.value && plazoFijoForm.controls.dias.value) {
+              <div class="pf-preview">
+                <div class="pf-preview__item">
+                  <span class="pf-preview__label">Intereses estimados</span>
+                  <span class="pf-preview__value">
+                    {{ fmtMontoSel(interesesCalculados(), plazoFijoForm.controls.currency.value) }}
+                  </span>
+                </div>
+                <div class="pf-preview__sep"></div>
+                <div class="pf-preview__item">
+                  <span class="pf-preview__label">Monto al vencimiento</span>
+                  <span class="pf-preview__value pf-preview__value--primary">
+                    {{ fmtMontoSel(montoTotalPreview(), plazoFijoForm.controls.currency.value) }}
+                  </span>
+                </div>
+              </div>
+            }
+
+            <!-- Cuenta asociada (opcional) -->
+            <div class="cfg-field">
+              <label class="cfg-label" for="pf-account">Cuenta asociada (opcional)</label>
+              <select id="pf-account" class="text-input" formControlName="accountId">
+                <option value="">— Sin cuenta —</option>
+                @for (acc of accounts(); track acc.id) {
+                  <option [value]="acc.id">{{ acc.name }} ({{ acc.ccy }})</option>
+                }
+              </select>
+            </div>
+
+            <label class="cfg-checkbox-field" for="pf-include-cashflow">
+              <input id="pf-include-cashflow" type="checkbox" class="cfg-checkbox" formControlName="includeInCashflow" />
+              <span>Incluir en cashflow</span>
+            </label>
+
+            @if (formError()) {
+              <p class="form-error" role="alert">{{ formError() }}</p>
+            }
+
+          </div>
+
+          <div class="modal-footer">
+            @if (modal()?.kind === 'form-create') {
+              <button type="button" class="btn-ghost" (click)="modal.set({ kind: 'type-select' })">
+                Volver
+              </button>
+            } @else {
+              <button type="button" class="btn-ghost" (click)="closeModal()">Cancelar</button>
+            }
+            <button
+              type="submit"
+              class="btn-confirm"
+              [disabled]="plazoFijoForm.invalid || submitting()"
+            >
+              @if (submitting())                       { Guardando...    }
+              @else if (modal()?.kind === 'form-edit') { Guardar cambios }
+              @else                                    { Crear plazo fijo }
+            </button>
+          </div>
+        </form>
+
+      </div>
+    </div>
+  }
+
+  <!-- ── Modal: FCI (create / edit) ───────────────────────────────────────── -->
+  @if ((modal()?.kind === 'form-create' || modal()?.kind === 'form-edit') && modal()?.assetType === 'FCI') {
+    <div class="backdrop" (click)="closeModal()" role="dialog" aria-modal="true">
+      <div class="modal modal--fci" (click)="$event.stopPropagation()">
+
+        <div class="modal-head">
+          <div>
+            <h3>{{ modal()?.kind === 'form-edit' ? 'Editar Cuenta Remunerada' : 'Nueva Cuenta Remunerada' }}</h3>
+            <p class="modal-sub">
+              {{ modal()?.kind === 'form-edit'
+                ? 'Modificá los datos de la cuenta y gestioná sus movimientos.'
+                : 'Completá los datos de la cuenta.' }}
+            </p>
+          </div>
+          <button class="close-btn" (click)="closeModal()" type="button" aria-label="Cerrar modal">
+            <svg lucideX [size]="18"></svg>
+          </button>
+        </div>
+
+        <form [formGroup]="fciForm" (ngSubmit)="submit()" novalidate>
+          <div class="modal-body">
+
+            <!-- Nombre -->
+            <div class="cfg-field">
+              <label class="cfg-label" for="fci-name">
+                Nombre <span class="field-required">*</span>
+              </label>
+              <input
+                id="fci-name"
+                class="text-input"
+                formControlName="name"
+                type="text"
+                placeholder="Ej. FCI Mercado Pago Ahorro"
+                autocomplete="off"
+              />
+              @if (fciForm.controls.name.invalid && fciForm.controls.name.touched) {
+                <span class="field-error" role="alert">
+                  @if (fciForm.controls.name.errors?.['required']) { El nombre es obligatorio. }
+                  @else if (fciForm.controls.name.errors?.['maxlength']) { Máximo 255 caracteres. }
+                </span>
+              }
+            </div>
+
+            <!-- Moneda / TNA -->
+            <div class="form-grid-2">
+              <div class="cfg-field">
+                <label class="cfg-label">Moneda</label>
+                <div class="segmented">
+                  <button
+                    type="button" class="segmented-btn"
+                    [class.segmented-btn--active]="fciForm.controls.currency.value === 'ARS'"
+                    (click)="fciForm.controls.currency.setValue('ARS')"
+                  >ARS</button>
+                  <button
+                    type="button" class="segmented-btn"
+                    [class.segmented-btn--active]="fciForm.controls.currency.value === 'USD'"
+                    (click)="fciForm.controls.currency.setValue('USD')"
+                  >USD</button>
+                </div>
+              </div>
+              <div class="cfg-field">
+                <label class="cfg-label" for="fci-tna">
+                  T.N.A. (%) <span class="field-required">*</span>
+                </label>
+                <input
+                  id="fci-tna"
+                  class="text-input text-input--mono"
+                  formControlName="tna"
+                  type="number"
+                  min="0"
+                  step="0.01"
+                  placeholder="0.00"
+                />
+                @if (fciForm.controls.tna.invalid && fciForm.controls.tna.touched) {
+                  <span class="field-error" role="alert">La TNA es obligatoria.</span>
+                }
+              </div>
+            </div>
+
+            <!-- Fecha de apertura -->
+            <div class="cfg-field">
+              <label class="cfg-label" for="fci-purchase-date">
+                Fecha de apertura <span class="field-required">*</span>
+              </label>
+              <input
+                id="fci-purchase-date"
+                class="text-input"
+                formControlName="purchaseDate"
+                type="date"
+                [max]="todayIso()"
+              />
+              @if (fciForm.controls.purchaseDate.invalid && fciForm.controls.purchaseDate.touched) {
+                <span class="field-error" role="alert">La fecha de apertura es obligatoria.</span>
+              }
+            </div>
+
+            <!-- Cuenta asociada -->
+            <div class="cfg-field">
+              <label class="cfg-label" for="fci-account">Cuenta asociada (opcional)</label>
+              <select id="fci-account" class="text-input" formControlName="accountId">
+                <option value="">— Sin cuenta —</option>
+                @for (acc of accounts(); track acc.id) {
+                  <option [value]="acc.id">{{ acc.name }} ({{ acc.ccy }})</option>
+                }
+              </select>
+            </div>
+
+            <label class="cfg-checkbox-field" for="fci-include-cashflow">
+              <input id="fci-include-cashflow" type="checkbox" class="cfg-checkbox" formControlName="includeInCashflow" />
+              <span>Incluir en cashflow</span>
+            </label>
+
+            <!-- Apertura inicial (solo en creación) -->
+            @if (modal()?.kind === 'form-create') {
+              <div class="movements-section">
+                <div class="movements-header">
+                  <span class="cfg-label">Apertura inicial (opcional)</span>
+                </div>
+                <div class="cfg-field">
+                  <label class="cfg-label" for="fci-initial-amount">Monto ($)</label>
+                  <input
+                    id="fci-initial-amount"
+                    class="text-input text-input--mono"
+                    formControlName="initialAmount"
+                    type="number"
+                    min="0.01"
+                    step="0.01"
+                    placeholder="0"
+                  />
+                  <span class="field-hint">Si lo cargás, se registra la suscripción en la fecha de apertura.</span>
+                </div>
+              </div>
+            }
+
+            <!-- Movimientos (solo en modo edición) -->
+            @if (modal()?.kind === 'form-edit') {
+              <div class="movements-section">
+                <div class="movements-header">
+                  <span class="cfg-label">Movimientos</span>
+                  <button
+                    type="button"
+                    class="btn-add-mov"
+                    (click)="openAddMovementModal(modal()!.asset!)"
+                  >
+                    <svg lucidePlus [size]="13"></svg>
+                    Agregar movimiento
+                  </button>
+                </div>
+                @if (modal()?.asset?.movements?.length) {
+                  <div class="movements-list">
+                    @for (mov of modal()!.asset!.movements; track mov.id) {
+                      <div class="movements-list__row">
+                        <span class="movements-list__date">{{ fmtDate(mov.movementDate) }}</span>
+                        <span
+                          class="mov-badge"
+                          [class.mov-badge--suscripcion]="mov.type === 'SUSCRIPCION'"
+                          [class.mov-badge--rescate]="mov.type === 'RESCATE'"
+                          [class.mov-badge--revaluo]="mov.type === 'REVALUO'"
+                        >
+                          {{ mov.type === 'SUSCRIPCION' ? 'Suscripción'
+                             : mov.type === 'REVALUO' ? 'Revalúo'
+                             : 'Rescate' }}
+                        </span>
+                        <span class="movements-list__amount">
+                          {{ fmtMontoSel(mov.amount, fciForm.controls.currency.value) }}
+                        </span>
+                        <button
+                          type="button"
+                          class="icon-btn icon-btn--danger"
+                          (click)="deleteFCIMovement(modal()!.asset!, mov.id)"
+                          aria-label="Eliminar movimiento"
+                        >
+                          <svg lucideTrash2 [size]="13"></svg>
+                        </button>
+                      </div>
+                    }
+                  </div>
+                  <div class="fci-balance">
+                    <span class="fci-balance__label">Saldo actual</span>
+                    <span class="fci-balance__value">
+                      {{ fmtMontoSel(calcSaldoFCI(modal()!.asset!), fciForm.controls.currency.value) }}
+                    </span>
+                  </div>
+                } @else {
+                  <p class="movements-empty">Sin movimientos registrados.</p>
+                }
+              </div>
+            }
+
+            @if (formError()) {
+              <p class="form-error" role="alert">{{ formError() }}</p>
+            }
+
+          </div>
+
+          <div class="modal-footer">
+            @if (modal()?.kind === 'form-create') {
+              <button type="button" class="btn-ghost" (click)="modal.set({ kind: 'type-select' })">
+                Volver
+              </button>
+            } @else {
+              <button type="button" class="btn-ghost" (click)="closeModal()">Cancelar</button>
+            }
+            <button
+              type="submit"
+              class="btn-confirm"
+              [disabled]="fciForm.invalid || submitting()"
+            >
+              @if (submitting())                       { Guardando...    }
+              @else if (modal()?.kind === 'form-edit') { Guardar cambios }
+              @else                                    { Crear fondo     }
+            </button>
+          </div>
+        </form>
+
+      </div>
+    </div>
+  }
+
+  <!-- ── Modal: FCI Cuotapartes (create / edit) ────────────────────────────── -->
+  @if ((modal()?.kind === 'form-create' || modal()?.kind === 'form-edit') && modal()?.assetType === 'FCI_CUOTAPARTES') {
+    <div class="backdrop" (click)="closeModal()" role="dialog" aria-modal="true">
+      <div class="modal modal--fci" (click)="$event.stopPropagation()">
+
+        <div class="modal-head">
+          <div>
+            <h3>{{ modal()?.kind === 'form-edit' ? 'Editar fondo cuotapartes' : 'Nuevo fondo cuotapartes' }}</h3>
+            <p class="modal-sub">
+              {{ modal()?.kind === 'form-edit'
+                ? 'Modificá datos, movimientos y valuaciones del fondo.'
+                : 'Completá los datos del fondo.' }}
+            </p>
+          </div>
+          <button class="close-btn" (click)="closeModal()" type="button" aria-label="Cerrar modal">
+            <svg lucideX [size]="18"></svg>
+          </button>
+        </div>
+
+        <form [formGroup]="fciCPForm" (ngSubmit)="submit()" novalidate>
+          <div class="modal-body">
+
+            <!-- Toggle de seguimiento -->
+            <div class="cfg-field">
+              <label class="cfg-label">Seguimiento de precios</label>
+              <div class="tracking-toggle">
+                <button
+                  type="button"
+                  class="tracking-toggle__btn"
+                  [class.tracking-toggle__btn--active]="trackingMode() === 'auto'"
+                  (click)="setTrackingMode('auto')"
+                >
+                  <svg lucideLink [size]="13"></svg>
+                  Con seguimiento automático
+                </button>
+                <button
+                  type="button"
+                  class="tracking-toggle__btn"
+                  [class.tracking-toggle__btn--active]="trackingMode() === 'manual'"
+                  (click)="setTrackingMode('manual')"
+                >
+                  Sin seguimiento (manual)
+                </button>
+              </div>
+            </div>
+
+            <!-- Tipo de fondo (sólo con seguimiento automático) -->
+            @if (trackingMode() === 'auto') {
+              <div class="cfg-field">
+                <label class="cfg-label">Tipo de fondo</label>
+                <div class="tracking-toggle tracking-toggle--grid">
+                  @for (cat of fciCategories; track cat.value) {
+                    <button
+                      type="button"
+                      class="tracking-toggle__btn"
+                      [class.tracking-toggle__btn--active]="selectedFciCategory() === cat.value"
+                      (click)="setFciCategory(cat.value)"
+                    >
+                      {{ cat.label }}
+                    </button>
+                  }
+                </div>
+              </div>
+            }
+
+            <!-- Nombre / Combobox -->
+            <div class="cfg-field">
+              <label class="cfg-label" for="cp-name">
+                @if (trackingMode() === 'auto') { Fondo } @else { Nombre }
+                <span class="field-required">*</span>
+              </label>
+
+              @if (trackingMode() === 'auto') {
+                <div class="combobox-wrapper">
+                  <input
+                    id="cp-name"
+                    class="text-input"
+                    type="text"
+                    placeholder="Buscá el fondo..."
+                    [value]="fundSearchQuery()"
+                    (input)="fundSearchQuery.set($any($event.target).value); showFundDropdown.set(true)"
+                    (focus)="showFundDropdown.set(true)"
+                    (blur)="$event.relatedTarget === null && showFundDropdown.set(false)"
+                    autocomplete="off"
+                  />
+                  @if (showFundDropdown() && filteredFunds().length > 0) {
+                    <div class="combobox-dropdown">
+                      @for (fund of filteredFunds(); track fund.fondo) {
+                        <button
+                          type="button"
+                          class="combobox-option"
+                          (mousedown)="selectFund(fund)"
+                        >
+                          <span class="combobox-option__name">{{ fund.fondo }}</span>
+                          <span class="combobox-option__meta">{{ fund.categoria }} · VCP {{ fund.vcp | number:'1.4-4':'es-AR' }}</span>
+                        </button>
+                      }
+                    </div>
+                  }
+                  @if (showFundDropdown() && filteredFunds().length === 0 && fundSearchQuery().length >= 2) {
+                    <div class="combobox-dropdown">
+                      <span class="combobox-empty">Sin resultados para "{{ fundSearchQuery() }}"</span>
+                    </div>
+                  }
+                </div>
+                @if (!fciCPForm.controls.externalId.value && fciCPForm.touched) {
+                  <span class="field-error" role="alert">Seleccioná un fondo de la lista.</span>
+                }
+                <span class="field-hint">Valuaciones actualizadas automáticamente cada día hábil</span>
+              } @else {
+                <input
+                  id="cp-name"
+                  class="text-input"
+                  formControlName="name"
+                  type="text"
+                  placeholder="Ej. FCI Galileo Growth"
+                  autocomplete="off"
+                />
+                @if (fciCPForm.controls.name.invalid && fciCPForm.controls.name.touched) {
+                  <span class="field-error" role="alert">
+                    @if (fciCPForm.controls.name.errors?.['required']) { El nombre es obligatorio. }
+                    @else if (fciCPForm.controls.name.errors?.['maxlength']) { Máximo 255 caracteres. }
+                  </span>
+                }
+              }
+            </div>
+
+            <!-- Moneda -->
+            <div class="cfg-field">
+              <label class="cfg-label">Moneda</label>
+              <div class="segmented">
+                <button
+                  type="button" class="segmented-btn"
+                  [class.segmented-btn--active]="fciCPForm.controls.currency.value === 'ARS'"
+                  (click)="fciCPForm.controls.currency.setValue('ARS')"
+                >ARS</button>
+                <button
+                  type="button" class="segmented-btn"
+                  [class.segmented-btn--active]="fciCPForm.controls.currency.value === 'USD'"
+                  (click)="fciCPForm.controls.currency.setValue('USD')"
+                >USD</button>
+              </div>
+            </div>
+
+            <!-- Fecha de compra -->
+            <div class="cfg-field">
+              <label class="cfg-label" for="cp-purchase-date">
+                Fecha de compra <span class="field-required">*</span>
+              </label>
+              <input
+                id="cp-purchase-date"
+                class="text-input"
+                formControlName="purchaseDate"
+                type="date"
+                [max]="todayIso()"
+              />
+              @if (fciCPForm.controls.purchaseDate.invalid && fciCPForm.controls.purchaseDate.touched) {
+                <span class="field-error" role="alert">La fecha de compra es obligatoria.</span>
+              }
+              @if (trackingMode() === 'auto') {
+                <span class="field-hint">Podés elegir una fecha pasada: se usa el VCP de ese día.</span>
+              }
+            </div>
+
+            <!-- Cuenta asociada -->
+            <div class="cfg-field">
+              <label class="cfg-label" for="cp-account">Cuenta asociada (opcional)</label>
+              <select id="cp-account" class="text-input" formControlName="accountId">
+                <option value="">— Sin cuenta —</option>
+                @for (acc of accounts(); track acc.id) {
+                  <option [value]="acc.id">{{ acc.name }} ({{ acc.ccy }})</option>
+                }
+              </select>
+            </div>
+
+            <label class="cfg-checkbox-field" for="cp-include-cashflow">
+              <input id="cp-include-cashflow" type="checkbox" class="cfg-checkbox" formControlName="includeInCashflow" />
+              <span>Incluir en cashflow</span>
+            </label>
+
+            <!-- Suscripción inicial (solo en creación) -->
+            @if (modal()?.kind === 'form-create') {
+              <div class="movements-section">
+                <div class="movements-header">
+                  <span class="cfg-label">Suscripción inicial <span class="field-required">*</span></span>
+                </div>
+                <div class="add-mov-form__grid add-mov-form__grid--4col" [formGroup]="addMovementCPForm">
+                  <div class="cfg-field">
+                    <label class="cfg-label" for="cp-create-amount">Monto ($)</label>
+                    <input
+                      id="cp-create-amount"
+                      class="text-input text-input--mono"
+                      formControlName="amount"
+                      type="number"
+                      min="0.01"
+                      step="0.01"
+                      placeholder="0"
+                      (input)="onAmountInput(addMovementCPForm)"
+                    />
+                  </div>
+                  <div class="cfg-field">
+                    <label class="cfg-label" for="cp-create-units">Cuotapartes</label>
+                    <input
+                      id="cp-create-units"
+                      class="text-input text-input--mono"
+                      formControlName="units"
+                      type="number"
+                      min="0.000001"
+                      step="0.000001"
+                      placeholder="0.000000"
+                      (input)="onUnitsInput(addMovementCPForm)"
+                    />
+                  </div>
+                  <div class="cfg-field">
+                    <label class="cfg-label" for="cp-create-price">Precio / CP</label>
+                    <input
+                      id="cp-create-price"
+                      class="text-input text-input--mono"
+                      formControlName="pricePerUnit"
+                      type="number"
+                      min="0.000001"
+                      step="0.000001"
+                      placeholder="0.000000"
+                      (input)="onPricePerUnitInput(addMovementCPForm)"
+                    />
+                    @if ((priceAtCreation() ?? 0) > 0 && trackingMode() === 'auto') {
+                      <span class="field-hint field-hint--auto">
+                        @if (priceSource() === 'fci') { VCP – Argentinadatos }
+                        @else if (priceSource() === 'ppi') { Precio de mercado – PPI }
+                      </span>
+                    }
+                  </div>
+                </div>
+              </div>
+            }
+
+            <!-- Movimientos y Valuaciones (solo en modo edición) -->
+            @if (modal()?.kind === 'form-edit') {
+
+              <!-- Sección Movimientos -->
+              <div class="movements-section">
+                <div class="movements-header">
+                  <span class="cfg-label">Movimientos</span>
+                  <button type="button" class="btn-add-mov" (click)="openAddMovementModal(modal()!.asset!)">
+                    <svg lucidePlus [size]="13"></svg>
+                    Agregar movimiento
+                  </button>
+                </div>
+                @if (modal()?.asset?.movements?.length) {
+                  <div class="movements-list">
+                    @for (mov of modal()!.asset!.movements; track mov.id) {
+                      <div class="movements-list__row movements-list__row--cp">
+                        <span class="movements-list__date">{{ fmtDate(mov.movementDate) }}</span>
+                        <span class="mov-badge" [class.mov-badge--suscripcion]="mov.type === 'SUSCRIPCION'" [class.mov-badge--rescate]="mov.type === 'RESCATE'" [class.mov-badge--revaluo]="mov.type === 'REVALUO'">
+                          {{ mov.type === 'SUSCRIPCION' ? 'Suscripción' : mov.type === 'REVALUO' ? 'Revalúo' : 'Rescate' }}
+                        </span>
+                        <span class="movements-list__amount">
+                          {{ fmtMontoSel(mov.amount, fciCPForm.controls.currency.value) }}
+                        </span>
+                        @if (mov.units != null) {
+                          <span class="movements-list__units">{{ mov.units | number:'1.4-6':'es-AR' }} CP</span>
+                        }
+                        <button type="button" class="icon-btn icon-btn--danger" (click)="deleteFCIMovement(modal()!.asset!, mov.id)" aria-label="Eliminar movimiento">
+                          <svg lucideTrash2 [size]="13"></svg>
+                        </button>
+                      </div>
+                    }
+                  </div>
+                } @else {
+                  <p class="movements-empty">Sin movimientos registrados.</p>
+                }
+              </div>
+
+              <!-- Sección Valuaciones -->
+              <div class="movements-section">
+                <div class="movements-header">
+                  <span class="cfg-label">Valuaciones</span>
+                  <button type="button" class="btn-add-mov" (click)="openAddValuationModal(modal()!.asset!)">
+                    <svg lucidePlus [size]="13"></svg>
+                    Agregar valuación
+                  </button>
+                </div>
+                @if (modal()?.asset?.valuations?.length) {
+                  <div class="movements-list">
+                    @for (val of displayValuations(modal()!.asset!); track val.id) {
+                      @if (editingValuationId() === val.id) {
+                        <!-- Inline edit -->
+                        <div class="add-mov-form val-edit-form" [formGroup]="addValuationForm">
+                          <div class="add-mov-form__grid">
+                            <div class="cfg-field">
+                              <label class="cfg-label" for="val-edit-date">Fecha</label>
+                              <input id="val-edit-date" class="text-input" formControlName="valuationDate" type="date" />
+                            </div>
+                            <div class="cfg-field" style="grid-column: span 2">
+                              <label class="cfg-label" for="val-edit-price">Precio / CP</label>
+                              <input id="val-edit-price" class="text-input text-input--mono" formControlName="pricePerUnit" type="number" min="0.01" step="0.0001" />
+                            </div>
+                          </div>
+                          <div class="add-mov-form__actions">
+                            <button type="button" class="btn-ghost" (click)="cancelEditValuacion()">Cancelar</button>
+                            <button type="button" class="btn-confirm" [disabled]="addValuationForm.invalid" (click)="confirmEditValuacion(modal()!.asset!)">
+                              Guardar
+                            </button>
+                          </div>
+                        </div>
+                      } @else {
+                        <div class="movements-list__row">
+                          <span class="movements-list__date">
+                            {{ fmtDate(val.valuationDate) }}
+                            @if (val.source && val.source !== 'MANUAL') {
+                              <span class="valuation-source-badge">Auto</span>
+                            }
+                          </span>
+                          <span class="mov-badge mov-badge--valuacion">Valuación</span>
+                          <span class="movements-list__amount">
+                            {{ fciCPForm.controls.currency.value === 'ARS' ? fmtARS(val.pricePerUnit) : fmtUSD(val.pricePerUnit) }} / CP
+                          </span>
+                          <div style="display: flex; gap: 4px; margin-left: auto;">
+                            <button type="button" class="icon-btn" (click)="startEditValuacion(val)" aria-label="Editar valuación">
+                              <svg lucidePen [size]="13"></svg>
+                            </button>
+                            <button type="button" class="icon-btn icon-btn--danger" (click)="deleteValuacion(modal()!.asset!, val.id)" aria-label="Eliminar valuación">
+                              <svg lucideTrash2 [size]="13"></svg>
+                            </button>
+                          </div>
+                        </div>
+                      }
+                    }
+                  </div>
+                } @else {
+                  <p class="movements-empty">Sin valuaciones registradas.</p>
+                }
+              </div>
+
+            }
+
+            @if (formError()) {
+              <p class="form-error" role="alert">{{ formError() }}</p>
+            }
+
+          </div>
+
+          <div class="modal-footer">
+            @if (modal()?.kind === 'form-create') {
+              <button type="button" class="btn-ghost" (click)="modal.set({ kind: 'type-select' })">
+                Volver
+              </button>
+            } @else {
+              <button type="button" class="btn-ghost" (click)="closeModal()">Cancelar</button>
+            }
+            <button type="submit" class="btn-confirm" [disabled]="fciCPForm.invalid || submitting()">
+              @if (submitting())                       { Guardando...            }
+              @else if (modal()?.kind === 'form-edit') { Guardar cambios         }
+              @else                                    { Crear fondo cuotapartes }
+            </button>
+          </div>
+        </form>
+
+      </div>
+    </div>
+  }
+
+  <!-- ── Modal: Letra / Bono / ON ─────────────────────────────────────────── -->
+  @if ((modal()?.kind === 'form-create' || modal()?.kind === 'form-edit') && (modal()?.assetType === 'LETRA' || modal()?.assetType === 'BONO' || modal()?.assetType === 'ON')) {
+    <div class="backdrop" (click)="closeModal()" role="dialog" aria-modal="true">
+      <div class="modal modal--fci" (click)="$event.stopPropagation()">
+
+        <div class="modal-head">
+          <div>
+            <h3>{{ modal()?.kind === 'form-edit' ? 'Editar ' + ASSET_TYPE_LABELS[modal()!.assetType!] : (modal()?.assetType === 'LETRA' ? 'Nueva' : 'Nuevo') + ' ' + ASSET_TYPE_LABELS[modal()!.assetType!] }}</h3>
+            <p class="modal-sub">
+              {{ modal()?.kind === 'form-edit'
+                ? 'Modificá datos, movimientos y valuaciones del instrumento.'
+                : 'Completá los datos del instrumento.' }}
+            </p>
+          </div>
+          <button class="close-btn" (click)="closeModal()" type="button" aria-label="Cerrar modal">
+            <svg lucideX [size]="18"></svg>
+          </button>
+        </div>
+
+        <form [formGroup]="letraForm" (ngSubmit)="submit()" novalidate>
+          <div class="modal-body">
+
+            <!-- Toggle de seguimiento -->
+            <div class="cfg-field">
+              <label class="cfg-label">Seguimiento de precios</label>
+              <div class="tracking-toggle">
+                <button
+                  type="button"
+                  class="tracking-toggle__btn"
+                  [class.tracking-toggle__btn--active]="trackingMode() === 'auto'"
+                  (click)="setTrackingMode('auto')"
+                >
+                  <svg lucideLink [size]="13"></svg>
+                  Con seguimiento automático
+                </button>
+                <button
+                  type="button"
+                  class="tracking-toggle__btn"
+                  [class.tracking-toggle__btn--active]="trackingMode() === 'manual'"
+                  (click)="setTrackingMode('manual')"
+                >
+                  Sin seguimiento (manual)
+                </button>
+              </div>
+            </div>
+
+            <!-- Nombre / Combobox -->
+            <div class="cfg-field">
+              <label class="cfg-label" for="letra-name">
+                @if (trackingMode() === 'auto') { Instrumento } @else { Nombre }
+                <span class="field-required">*</span>
+              </label>
+
+              @if (trackingMode() === 'auto') {
+                <div class="combobox-wrapper">
+                  <input
+                    id="letra-name"
+                    class="text-input"
+                    type="text"
+                    placeholder="Buscá el instrumento (ticker o nombre)..."
+                    [value]="instrSearchQuery()"
+                    (input)="instrSearchQuery.set($any($event.target).value); showInstrDropdown.set(true)"
+                    (focus)="showInstrDropdown.set(true)"
+                    (blur)="$event.relatedTarget === null && showInstrDropdown.set(false)"
+                    autocomplete="off"
+                  />
+                  @if (showInstrDropdown() && filteredInstruments().length > 0) {
+                    <div class="combobox-dropdown">
+                      @for (instr of filteredInstruments(); track instr.ticker) {
+                        <button
+                          type="button"
+                          class="combobox-option"
+                          (mousedown)="selectInstrument(instr)"
+                        >
+                          <span class="combobox-option__name">{{ instr.ticker }} — {{ instr.nombre }}</span>
+                          <span class="combobox-option__meta">
+                            {{ instr.tipo }}
+                            @if (instr.lastPrice !== null) {
+                              · Último: {{ instr.lastPrice | number:'1.2-4':'es-AR' }}
+                            }
+                          </span>
+                        </button>
+                      }
+                    </div>
+                  }
+                  @if (showInstrDropdown() && instruments().length === 0) {
+                    <div class="combobox-dropdown">
+                      <span class="combobox-empty">No hay instrumentos en el catálogo. Usá el modo manual e ingresá el ticker.</span>
+                    </div>
+                  } @else if (showInstrDropdown() && filteredInstruments().length === 0 && instrSearchQuery().length >= 2) {
+                    <div class="combobox-dropdown">
+                      <span class="combobox-empty">Sin resultados para "{{ instrSearchQuery() }}"</span>
+                    </div>
+                  }
+                </div>
+                @if (!letraForm.controls.externalId.value && letraForm.touched) {
+                  <span class="field-error" role="alert">Seleccioná un instrumento de la lista.</span>
+                }
+                <span class="field-hint">Valuaciones actualizadas automáticamente cada día hábil</span>
+              } @else {
+                <input
+                  id="letra-name"
+                  class="text-input"
+                  formControlName="name"
+                  type="text"
+                  [attr.placeholder]="modal()?.assetType === 'LETRA' ? 'Ej. LECAP S31G5' : modal()?.assetType === 'BONO' ? 'Ej. AL30' : 'Ej. YCA6'"
+                  autocomplete="off"
+                />
+                @if (letraForm.controls.name.invalid && letraForm.controls.name.touched) {
+                  <span class="field-error" role="alert">
+                    @if (letraForm.controls.name.errors?.['required']) { El nombre es obligatorio. }
+                    @else if (letraForm.controls.name.errors?.['maxlength']) { Máximo 255 caracteres. }
+                  </span>
+                }
+              }
+            </div>
+
+            <!-- Moneda -->
+            <div class="cfg-field">
+              <label class="cfg-label">Moneda</label>
+              <div class="segmented">
+                <button
+                  type="button" class="segmented-btn"
+                  [class.segmented-btn--active]="letraForm.controls.currency.value === 'ARS'"
+                  (click)="letraForm.controls.currency.setValue('ARS')"
+                >ARS</button>
+                <button
+                  type="button" class="segmented-btn"
+                  [class.segmented-btn--active]="letraForm.controls.currency.value === 'USD'"
+                  (click)="letraForm.controls.currency.setValue('USD')"
+                >USD</button>
+              </div>
+            </div>
+
+            <!-- Fecha de compra -->
+            <div class="cfg-field">
+              <label class="cfg-label" for="letra-purchase">
+                Fecha de compra <span class="field-required">*</span>
+              </label>
+              <input
+                id="letra-purchase"
+                class="text-input"
+                formControlName="purchaseDate"
+                type="date"
+              />
+              @if (letraForm.controls.purchaseDate.invalid && letraForm.controls.purchaseDate.touched) {
+                <span class="field-error" role="alert">La fecha de compra es obligatoria.</span>
+              }
+            </div>
+
+            <!-- Vencimiento -->
+            <div class="cfg-field">
+              <label class="cfg-label" for="letra-maturity">
+                Fecha de vencimiento <span class="field-required">*</span>
+              </label>
+              <input
+                id="letra-maturity"
+                class="text-input"
+                formControlName="maturityDate"
+                type="date"
+              />
+              @if (letraForm.controls.maturityDate.invalid && letraForm.controls.maturityDate.touched) {
+                <span class="field-error" role="alert">La fecha de vencimiento es obligatoria.</span>
+              } @else if (letraForm.errors?.['maturityBeforePurchase'] && letraForm.controls.maturityDate.touched) {
+                <span class="field-error" role="alert">La fecha de vencimiento debe ser posterior a la fecha de compra.</span>
+              }
+            </div>
+
+            <!-- Cuenta asociada -->
+            <div class="cfg-field">
+              <label class="cfg-label" for="letra-account">Cuenta asociada (opcional)</label>
+              <select id="letra-account" class="text-input" formControlName="accountId">
+                <option value="">— Sin cuenta —</option>
+                @for (acc of accounts(); track acc.id) {
+                  <option [value]="acc.id">{{ acc.name }} ({{ acc.ccy }})</option>
+                }
+              </select>
+            </div>
+
+            <!-- Cobro de cupones: sólo BONO/ON, cuando la moneda de pago difiere de la de compra -->
+            @if (modal()?.assetType === 'BONO' || modal()?.assetType === 'ON') {
+              <div class="cfg-field">
+                <label class="cfg-label">Moneda de pago (renta/amortización)</label>
+                <div class="segmented">
+                  <button
+                    type="button" class="segmented-btn"
+                    [class.segmented-btn--active]="letraForm.controls.paymentCurrency.value === 'ARS'"
+                    (click)="letraForm.controls.paymentCurrency.setValue('ARS')"
+                  >ARS</button>
+                  <button
+                    type="button" class="segmented-btn"
+                    [class.segmented-btn--active]="letraForm.controls.paymentCurrency.value === 'USD'"
+                    (click)="letraForm.controls.paymentCurrency.setValue('USD')"
+                  >USD</button>
+                </div>
+                <span class="field-hint">
+                  @if (showPaymentAccountBlock()) {
+                    Los cupones se cobran en una moneda distinta a la de compra del instrumento.
+                  } @else {
+                    Coincide con la moneda de compra: se va a usar la misma cuenta asociada.
+                  }
+                </span>
+              </div>
+
+              @if (showPaymentAccountBlock()) {
+                <div class="cfg-field">
+                  <label class="cfg-label" for="letra-payment-account">Cuenta de cobro</label>
+                  <select id="letra-payment-account" class="text-input" formControlName="paymentAccountId">
+                    <option value="">— Sin cuenta —</option>
+                    @for (acc of paymentAccountsFiltered(); track acc.id) {
+                      <option [value]="acc.id">{{ acc.name }} ({{ acc.ccy }})</option>
+                    }
+                  </select>
+                  @if (paymentAccountsFiltered().length === 0) {
+                    <span class="field-hint field-hint--warning">
+                      No tenés cuentas en {{ letraForm.controls.paymentCurrency.value }}. Creá una cuenta en esa
+                      moneda antes de guardar: es obligatoria para poder cobrar los cupones.
+                    </span>
+                  }
+                </div>
+              }
+            }
+
+            <label class="cfg-checkbox-field" for="letra-include-cashflow">
+              <input id="letra-include-cashflow" type="checkbox" class="cfg-checkbox" formControlName="includeInCashflow" />
+              <span>Incluir en cashflow</span>
+            </label>
+
+            <!-- Compra inicial (solo en modo crear) -->
+            @if (modal()?.kind === 'form-create') {
+              <div class="movements-section" [formGroup]="addMovementCPForm">
+                <p class="cfg-label" style="margin-bottom: 8px">Compra inicial <span class="field-required">*</span></p>
+                <div class="add-mov-form__grid">
+                  <div class="cfg-field">
+                    <label class="cfg-label" for="letra-create-amount">Monto</label>
+                    <input
+                      id="letra-create-amount"
+                      class="text-input text-input--mono"
+                      formControlName="amount"
+                      type="number"
+                      min="0.01"
+                      step="0.01"
+                      placeholder="0,00"
+                      (input)="onAmountInput(addMovementCPForm)"
+                    />
+                  </div>
+                  <div class="cfg-field">
+                    <label class="cfg-label" for="letra-create-units">Nominales</label>
+                    <input
+                      id="letra-create-units"
+                      class="text-input text-input--mono"
+                      formControlName="units"
+                      type="number"
+                      min="1"
+                      step="1"
+                      placeholder="0"
+                      (input)="onUnitsInput(addMovementCPForm)"
+                    />
+                  </div>
+                  <div class="cfg-field">
+                    <label class="cfg-label" for="letra-create-price">Precio / nom.</label>
+                    <input
+                      id="letra-create-price"
+                      class="text-input text-input--mono"
+                      formControlName="pricePerUnit"
+                      type="number"
+                      min="0.000001"
+                      step="0.0001"
+                      placeholder="0,0000"
+                      (input)="onPricePerUnitInput(addMovementCPForm)"
+                    />
+                  </div>
+                </div>
+              </div>
+            }
+
+            <!-- Movimientos y Valuaciones (solo en modo edición) -->
+            @if (modal()?.kind === 'form-edit') {
+
+              <!-- Sección Movimientos (con nominales) -->
+              <div class="movements-section">
+                <div class="movements-header">
+                  <span class="cfg-label">Movimientos</span>
+                  <button type="button" class="btn-add-mov" (click)="openAddMovementModal(modal()!.asset!)">
+                    <svg lucidePlus [size]="13"></svg>
+                    Agregar movimiento
+                  </button>
+                </div>
+                @if (modal()?.asset?.movements?.length) {
+                  <div class="movements-list">
+                    @for (mov of modal()!.asset!.movements; track mov.id) {
+                      <div class="movements-list__row movements-list__row--cp">
+                        <span class="movements-list__date">{{ fmtDate(mov.movementDate) }}</span>
+                        <span
+                          class="mov-badge"
+                          [class.mov-badge--suscripcion]="mov.type === 'SUSCRIPCION'"
+                          [class.mov-badge--rescate]="mov.type === 'RESCATE'"
+                          [class.mov-badge--revaluo]="mov.type === 'REVALUO'"
+                        >
+                          {{ mov.type === 'SUSCRIPCION' ? 'Suscripción' : mov.type === 'REVALUO' ? 'Revalúo' : 'Rescate' }}
+                        </span>
+                        <span class="movements-list__amount">
+                          {{ fmtMontoSel(mov.amount, letraForm.controls.currency.value) }}
+                        </span>
+                        @if (mov.units != null) {
+                          <span class="movements-list__units">{{ mov.units | number:'1.4-6':'es-AR' }} nom.</span>
+                        }
+                        <button type="button" class="icon-btn icon-btn--danger" (click)="deleteFCIMovement(modal()!.asset!, mov.id)" aria-label="Eliminar movimiento">
+                          <svg lucideTrash2 [size]="13"></svg>
+                        </button>
+                      </div>
+                    }
+                  </div>
+                } @else {
+                  <p class="movements-empty">Sin movimientos registrados.</p>
+                }
+              </div>
+
+              <!-- Sección Valuaciones -->
+              <div class="movements-section">
+                <div class="movements-header">
+                  <span class="cfg-label">Valuaciones</span>
+                  <button type="button" class="btn-add-mov" (click)="openAddValuationModal(modal()!.asset!)">
+                    <svg lucidePlus [size]="13"></svg>
+                    Agregar valuación
+                  </button>
+                </div>
+                @if (modal()?.asset?.valuations?.length) {
+                  <div class="movements-list">
+                    @for (val of displayValuations(modal()!.asset!); track val.id) {
+                      @if (editingValuationId() === val.id) {
+                        <div class="add-mov-form val-edit-form" [formGroup]="addValuationForm">
+                          <div class="add-mov-form__grid">
+                            <div class="cfg-field">
+                              <label class="cfg-label" for="letra-val-edit-date">Fecha</label>
+                              <input id="letra-val-edit-date" class="text-input" formControlName="valuationDate" type="date" />
+                            </div>
+                            <div class="cfg-field" style="grid-column: span 2">
+                              <label class="cfg-label" for="letra-val-edit-price">Precio / nominal</label>
+                              <input id="letra-val-edit-price" class="text-input text-input--mono" formControlName="pricePerUnit" type="number" min="0.01" step="0.0001" />
+                            </div>
+                          </div>
+                          <div class="add-mov-form__actions">
+                            <button type="button" class="btn-ghost" (click)="cancelEditValuacion()">Cancelar</button>
+                            <button type="button" class="btn-confirm" [disabled]="addValuationForm.invalid" (click)="confirmEditValuacion(modal()!.asset!)">
+                              Guardar
+                            </button>
+                          </div>
+                        </div>
+                      } @else {
+                        <div class="movements-list__row">
+                          <span class="movements-list__date">{{ fmtDate(val.valuationDate) }}</span>
+                          <span class="mov-badge mov-badge--valuacion">Valuación</span>
+                          <span class="movements-list__amount">
+                            {{ letraForm.controls.currency.value === 'ARS' ? fmtARS(val.pricePerUnit) : fmtUSD(val.pricePerUnit) }} / nom.
+                          </span>
+                          <div style="display: flex; gap: 4px; margin-left: auto;">
+                            <button type="button" class="icon-btn" (click)="startEditValuacion(val)" aria-label="Editar valuación">
+                              <svg lucidePen [size]="13"></svg>
+                            </button>
+                            <button type="button" class="icon-btn icon-btn--danger" (click)="deleteValuacion(modal()!.asset!, val.id)" aria-label="Eliminar valuación">
+                              <svg lucideTrash2 [size]="13"></svg>
+                            </button>
+                          </div>
+                        </div>
+                      }
+                    }
+                  </div>
+                } @else {
+                  <p class="movements-empty">Sin valuaciones registradas.</p>
+                }
+              </div>
+
+            }
+
+            @if (formError()) {
+              <p class="form-error" role="alert">{{ formError() }}</p>
+            }
+
+          </div>
+
+          <div class="modal-footer">
+            @if (modal()?.kind === 'form-create') {
+              <button type="button" class="btn-ghost" (click)="modal.set({ kind: 'type-select' })">
+                Volver
+              </button>
+            } @else {
+              <button type="button" class="btn-ghost" (click)="closeModal()">Cancelar</button>
+            }
+            <button type="submit" class="btn-confirm" [disabled]="letraForm.invalid || submitting()">
+              @if (submitting())                       { Guardando...      }
+              @else if (modal()?.kind === 'form-edit') { Guardar cambios   }
+              @else                                    { Crear instrumento }
+            </button>
+          </div>
+        </form>
+
+      </div>
+    </div>
+  }
+
+  <!-- ── Modal: collect ────────────────────────────────────────────────────── -->
+  @if (modal()?.kind === 'collect' && modal()?.asset; as collectAsset) {
+    <div class="backdrop" (click)="closeModal()" role="dialog" aria-modal="true">
+      <div class="modal modal--sm" (click)="$event.stopPropagation()">
+        <form [formGroup]="collectForm" (ngSubmit)="confirmCollect()" novalidate>
+
+          <div class="modal-body" style="padding-top: 24px;">
+            <div class="delete-icon delete-icon--accent">
+              <svg lucideWallet [size]="22"></svg>
+            </div>
+            <p class="delete-title">Cobrar activo</p>
+            <p class="delete-body">
+              Vas a cobrar <strong>{{ modal()?.label }}</strong>. El activo va a quedar marcado
+              como "Cobrada": vas a poder seguir viéndolo, pero ya no vas a poder editarlo,
+              agregarle movimientos ni volver a cobrarlo.
+            </p>
+
+            <div class="cfg-field">
+              <label class="cfg-label" for="collect-date">
+                Fecha de cobro <span class="field-required">*</span>
+              </label>
+              <input
+                id="collect-date"
+                class="text-input"
+                type="date"
+                formControlName="collectDate"
+                [min]="collectMinDate()"
+                [max]="collectMaxDate()"
+              />
+              @if (collectForm.controls.collectDate.invalid && collectForm.controls.collectDate.touched) {
+                <span class="field-error" role="alert">La fecha de cobro es obligatoria.</span>
+              }
+              <span class="field-hint">Acotada al mes en curso; el backend valida que el mes siga abierto.</span>
+            </div>
+
+            <div class="asset-detail__grid" style="margin-top: 4px;">
+              <div class="cfg-field">
+                <span class="detail-label">Capital</span>
+                <span class="detail-value">
+                  {{ collectPreview() ? fmtMontoSel(collectPreview()!.capital, collectAsset.currency) : (collectPreviewLoading() ? 'Calculando…' : '—') }}
+                </span>
+              </div>
+              <div class="cfg-field">
+                <span class="detail-label">Rendimiento</span>
+                @if (collectPreview()?.editableRendimiento) {
+                  <input
+                    class="text-input text-input--mono"
+                    type="number"
+                    step="0.01"
+                    min="0"
+                    formControlName="rendimiento"
+                    aria-label="Rendimiento (editable)"
+                  />
+                  @if (collectForm.controls.rendimiento.invalid && collectForm.controls.rendimiento.touched) {
+                    <span class="field-error" role="alert">El rendimiento no puede ser negativo.</span>
+                  }
+                } @else {
+                  <span class="detail-value">
+                    {{ collectPreview() ? fmtMontoSel(collectPreview()!.rendimiento, collectAsset.currency) : (collectPreviewLoading() ? 'Calculando…' : '—') }}
+                  </span>
+                }
+              </div>
+              <div class="cfg-field">
+                <span class="detail-label">Total a acreditar</span>
+                <span class="detail-value detail-value--primary">
+                  {{ fmtMontoSel(collectTotalPreview(), collectAsset.currency) }}
+                </span>
+              </div>
+            </div>
+
+            @if (collectWillCreateMovement(modal()!.asset!)) {
+              <p class="delete-body" style="margin-top: 12px;">
+                Se va a generar un ingreso en la cuenta <strong>{{ collectAccountName(modal()!.asset!) }}</strong>.
+              </p>
+            } @else {
+              <p class="delete-body delete-body--muted" style="margin-top: 12px;">
+                Esta inversión no tiene cuenta vinculada o está excluida del cashflow: no se va a generar ningún movimiento de cuenta.
+              </p>
+            }
+            @if (formError()) {
+              <p class="form-error" role="alert">{{ formError() }}</p>
+            }
+          </div>
+
+          <div class="modal-footer modal-footer--center">
+            <button type="button" class="btn-ghost" (click)="closeModal()">Cancelar</button>
+            <button
+              type="submit"
+              class="btn-confirm"
+              [disabled]="submitting() || collectForm.invalid"
+            >
+              <svg lucideWallet [size]="16"></svg>
+              {{ submitting() ? 'Cobrando...' : 'Cobrar' }}
+            </button>
+          </div>
+
+        </form>
+      </div>
+    </div>
+  }
+
+  <!-- ── Modal: delete ─────────────────────────────────────────────────────── -->
+  @if (modal()?.kind === 'delete') {
+    <div class="backdrop" (click)="closeModal()" role="dialog" aria-modal="true">
+      <div class="modal modal--sm" (click)="$event.stopPropagation()">
+
+        <div class="modal-body" style="padding-top: 24px;">
+          <div class="delete-icon">
+            <svg lucideTrash2 [size]="22"></svg>
+          </div>
+          <p class="delete-title">Eliminar activo</p>
+          <p class="delete-body">
+            ¿Estás seguro que querés eliminar
+            <strong>{{ modal()?.label }}</strong>?
+            Esta acción no se puede deshacer.
+          </p>
+          @if (formError()) {
+            <p class="form-error" role="alert">{{ formError() }}</p>
+          }
+        </div>
+
+        <div class="modal-footer modal-footer--center">
+          <button type="button" class="btn-ghost" (click)="closeModal()">Cancelar</button>
+          <button
+            type="button"
+            class="btn-danger"
+            (click)="confirmDelete()"
+            [disabled]="submitting()"
+          >
+            <svg lucideTrash2 [size]="16"></svg>
+            {{ submitting() ? 'Eliminando...' : 'Eliminar' }}
+          </button>
+        </div>
+
+      </div>
+    </div>
+  }
+
+  <!-- ── subModal apilado: Agregar movimiento / valuación ──────────────────── -->
+  @if (subModal()) {
+    <div class="backdrop backdrop--stacked" (click)="closeSubModal()" role="dialog" aria-modal="true" [attr.aria-label]="subModalTitle()">
+      <div class="modal modal--sub" (click)="$event.stopPropagation()">
+
+        @if (subModal()?.kind === 'add-movement') {
+          @let subAsset = subModal()!.asset;
+
+          <div class="modal-head">
+            <div>
+              <h3>Agregar movimiento</h3>
+              <p class="modal-sub">{{ subAsset.name }}</p>
+            </div>
+            <button class="close-btn" (click)="closeSubModal()" type="button" aria-label="Cerrar">
+              <svg lucideX [size]="18"></svg>
+            </button>
+          </div>
+
+          <div class="modal-body">
+
+            @if (subAsset.type === 'FCI') {
+              <!-- FCI movement form -->
+              <div [formGroup]="addMovementForm">
+                <div class="add-mov-form__grid">
+                  <div class="cfg-field">
+                    <label class="cfg-label" for="sub-mov-date">Fecha</label>
+                    <input
+                      id="sub-mov-date"
+                      class="text-input"
+                      formControlName="movementDate"
+                      type="date"
+                    />
+                  </div>
+                  <div class="cfg-field">
+                    <label class="cfg-label" for="sub-mov-type">Tipo</label>
+                    <select
+                      id="sub-mov-type"
+                      class="text-input"
+                      formControlName="type"
+                      [attr.disabled]="isFirstMovement() ? true : null"
+                    >
+                      <option value="SUSCRIPCION">Suscripción</option>
+                      <option value="RESCATE">Rescate</option>
+                      <option value="REVALUO">Revalúo</option>
+                    </select>
+                  </div>
+                  <div class="cfg-field">
+                    <label class="cfg-label" for="sub-mov-amount">
+                      {{ addMovementForm.controls.type.value === 'REVALUO' ? 'Intereses ganados' : 'Monto' }}
+                    </label>
+                    <input
+                      id="sub-mov-amount"
+                      class="text-input text-input--mono"
+                      formControlName="amount"
+                      type="number"
+                      min="0.01"
+                      step="0.01"
+                      placeholder="0"
+                    />
+                    @if (addMovementForm.controls.type.value === 'RESCATE' && currentBalanceForMovement() > 0) {
+                      <span class="field-hint">
+                        Saldo disponible:
+                        {{ fmtMontoSel(currentBalanceForMovement(), subAsset.currency) }}
+                      </span>
+                    }
+                    @if (addMovementForm.controls.type.value === 'REVALUO') {
+                      <span class="field-hint">
+                        Precargado con el interés por T.N.A. hasta la fecha elegida. Podés ajustarlo.
+                      </span>
+                    }
+                  </div>
+                </div>
+              </div>
+            } @else {
+              <!-- FCI_CUOTAPARTES / LETRA / BONO / ON movement form -->
+              <div [formGroup]="addMovementCPForm">
+                <div class="add-mov-form__grid add-mov-form__grid--4col">
+                  <div class="cfg-field">
+                    <label class="cfg-label" for="sub-cp-mov-date">Fecha</label>
+                    <input
+                      id="sub-cp-mov-date"
+                      class="text-input"
+                      formControlName="movementDate"
+                      type="date"
+                    />
+                  </div>
+                  <div class="cfg-field">
+                    <label class="cfg-label" for="sub-cp-mov-type">Tipo</label>
+                    <select
+                      id="sub-cp-mov-type"
+                      class="text-input"
+                      formControlName="type"
+                      [attr.disabled]="isFirstMovement() ? true : null"
+                    >
+                      @for (t of movementTypesFor(subAsset); track t.value) {
+                        <option [value]="t.value">{{ t.label }}</option>
+                      }
+                    </select>
+                  </div>
+                  @if (addMovementCPForm.controls.type.value === 'REVALUO') {
+                    <div class="cfg-field">
+                      <label class="cfg-label" for="sub-cp-mov-price">Precio por cuotaparte</label>
+                      <input
+                        id="sub-cp-mov-price"
+                        class="text-input text-input--mono"
+                        formControlName="pricePerUnit"
+                        type="number"
+                        min="0.000001"
+                        step="0.000001"
+                        placeholder="0.000000"
+                      />
+                    </div>
+                  } @else {
+                    <div class="cfg-field">
+                      <label class="cfg-label" for="sub-cp-mov-amount">Monto ($)</label>
+                      <input
+                        id="sub-cp-mov-amount"
+                        class="text-input text-input--mono"
+                        formControlName="amount"
+                        type="number"
+                        min="0.01"
+                        step="0.01"
+                        placeholder="0"
+                        (input)="onAmountInput(addMovementCPForm)"
+                      />
+                      @if (addMovementCPForm.controls.type.value === 'RESCATE' && currentBalanceForMovement() > 0) {
+                        <span class="field-hint">
+                          Saldo disponible:
+                          {{ fmtMontoSel(currentBalanceForMovement(), subAsset.currency) }}
+                        </span>
+                      }
+                    </div>
+                    <div class="cfg-field">
+                      <label class="cfg-label" for="sub-cp-mov-units">
+                        {{ subAsset.type === 'FCI_CUOTAPARTES' ? 'Cuotapartes' : 'Nominales' }}
+                      </label>
+                      <input
+                        id="sub-cp-mov-units"
+                        class="text-input text-input--mono"
+                        formControlName="units"
+                        type="number"
+                        min="0.000001"
+                        step="0.000001"
+                        placeholder="0.000000"
+                        (input)="onUnitsInput(addMovementCPForm)"
+                      />
+                    </div>
+                    <div class="cfg-field">
+                      <label class="cfg-label" for="sub-cp-mov-ppu">
+                        Precio / {{ subAsset.type === 'FCI_CUOTAPARTES' ? 'CP' : 'nom.' }}
+                      </label>
+                      <input
+                        id="sub-cp-mov-ppu"
+                        class="text-input text-input--mono"
+                        formControlName="pricePerUnit"
+                        type="number"
+                        min="0.000001"
+                        step="0.000001"
+                        placeholder="0.000000"
+                        (input)="onPricePerUnitInput(addMovementCPForm)"
+                      />
+                      @if (priceForMovement() !== null && subAsset.autoTrack) {
+                        <span class="field-hint field-hint--auto">
+                          @if (priceSource() === 'fci') {
+                            VCP al {{ addMovementCPForm.controls.movementDate.value || 'hoy' }} – Argentinadatos
+                          } @else if (priceSource() === 'ppi') {
+                            Precio al {{ addMovementCPForm.controls.movementDate.value || 'hoy' }} – PPI
+                          }
+                        </span>
+                      }
+                    </div>
+                  }
+                </div>
+              </div>
+            }
+
+            @if (movFormError()) {
+              <p class="form-error" role="alert">{{ movFormError() }}</p>
+            }
+
+          </div>
+
+          <div class="modal-footer">
+            <button type="button" class="btn-ghost" (click)="closeSubModal()">Cancelar</button>
+            <button
+              type="button"
+              class="btn-confirm"
+              (click)="subAsset.type === 'FCI' ? addPendingMovement() : addPendingMovementCP()"
+            >
+              Confirmar
+            </button>
+          </div>
+        }
+
+        @if (subModal()?.kind === 'add-valuation') {
+          @let subValAsset = subModal()!.asset;
+
+          <div class="modal-head">
+            <div>
+              <h3>Agregar valuación</h3>
+              <p class="modal-sub">{{ subValAsset.name }}</p>
+            </div>
+            <button class="close-btn" (click)="closeSubModal()" type="button" aria-label="Cerrar">
+              <svg lucideX [size]="18"></svg>
+            </button>
+          </div>
+
+          <div class="modal-body">
+            <div [formGroup]="addValuationForm">
+              <div class="add-mov-form__grid">
+                <div class="cfg-field">
+                  <label class="cfg-label" for="sub-val-date">Fecha</label>
+                  <input id="sub-val-date" class="text-input" formControlName="valuationDate" type="date" />
+                </div>
+                <div class="cfg-field" style="grid-column: span 2">
+                  <label class="cfg-label" for="sub-val-price">
+                    {{ subValAsset.type === 'FCI_CUOTAPARTES' ? 'Precio por cuotaparte' : 'Precio ($/nominal)' }}
+                  </label>
+                  <input
+                    id="sub-val-price"
+                    class="text-input text-input--mono"
+                    formControlName="pricePerUnit"
+                    type="number"
+                    min="0.01"
+                    step="0.0001"
+                    placeholder="0.0000"
+                  />
+                </div>
+              </div>
+            </div>
+            @if (movFormError()) {
+              <p class="form-error" role="alert">{{ movFormError() }}</p>
+            }
+          </div>
+
+          <div class="modal-footer">
+            <button type="button" class="btn-ghost" (click)="closeSubModal()">Cancelar</button>
+            <button type="button" class="btn-confirm" [disabled]="addValuationForm.invalid" (click)="addPendingValuacion()">
+              Confirmar
+            </button>
+          </div>
+        }
+
+        @if (subModal()?.kind === 'edit-tramo-interest') {
+          @let subEditAsset = subModal()!.asset;
+          @let editMov = subModal()!.mov!;
+
+          <div class="modal-head">
+            <div>
+              <h3>Editar interés del tramo</h3>
+              <p class="modal-sub">{{ subEditAsset.name }} · {{ fmtDate(editMov.movementDate) }}</p>
+            </div>
+            <button class="close-btn" (click)="closeSubModal()" type="button" aria-label="Cerrar">
+              <svg lucideX [size]="18"></svg>
+            </button>
+          </div>
+
+          <div class="modal-body">
+            <p class="modal-hint">
+              @if (subModal()!.editField === 'amount') {
+                Ajustá el interés realizado de este tramo (se capitaliza al saldo).
+              } @else {
+                Ajustá el interés efectivamente generado en este tramo. No afecta a los demás tramos
+                ni a la T.N.A. de la cuenta.
+              }
+            </p>
+            <div [formGroup]="editTramoForm">
+              <div class="cfg-field">
+                <label class="cfg-label" for="sub-edit-interes">Intereses del tramo</label>
+                <input
+                  id="sub-edit-interes"
+                  class="text-input text-input--mono"
+                  formControlName="intereses"
+                  type="number"
+                  min="0"
+                  step="0.01"
+                  placeholder="0,00"
+                />
+              </div>
+            </div>
+            @if (movFormError()) {
+              <p class="form-error" role="alert">{{ movFormError() }}</p>
+            }
+          </div>
+
+          <div class="modal-footer">
+            @if (subModal()!.editField === 'override' && editMov.interestOverride != null) {
+              <button type="button" class="btn-ghost" (click)="restoreTramoTNA()">Restaurar T.N.A.</button>
+            }
+            <button type="button" class="btn-ghost" (click)="closeSubModal()">Cancelar</button>
+            <button type="button" class="btn-confirm" [disabled]="editTramoForm.invalid" (click)="submitEditTramo()">
+              Guardar
+            </button>
+          </div>
+        }
+
+        @if (subModal()?.kind === 'confirm-payment') {
+          @let payAsset = subModal()!.asset;
+          @let payment = subModal()!.payment!;
+
+          <div class="modal-head">
+            <div>
+              <h3>Confirmar cobro</h3>
+              <p class="modal-sub">{{ payAsset.name }} · corte {{ fmtDate(payment.cuttingDate) }}</p>
+            </div>
+            <button class="close-btn" (click)="closeSubModal()" type="button" aria-label="Cerrar">
+              <svg lucideX [size]="18"></svg>
+            </button>
+          </div>
+
+          <form [formGroup]="paymentConfirmForm" (ngSubmit)="submitConfirmPayment()">
+            <div class="modal-body">
+              <p class="modal-hint">
+                Confirmá la fecha y los montos efectivamente cobrados. Se generan movimientos de
+                ingreso por renta y/o amortización según corresponda.
+              </p>
+
+              <div class="cfg-field">
+                <label class="cfg-label" for="pay-confirm-date">Fecha de cobro</label>
+                <input id="pay-confirm-date" class="text-input" formControlName="collectedDate" type="date" [max]="collectMaxDate()" />
+              </div>
+
+              <div class="add-mov-form__grid">
+                <div class="cfg-field">
+                  <label class="cfg-label" for="pay-confirm-rent">Renta</label>
+                  <input
+                    id="pay-confirm-rent" class="text-input text-input--mono"
+                    formControlName="rentAmount" type="number" min="0" step="0.01"
+                  />
+                </div>
+                <div class="cfg-field">
+                  <label class="cfg-label" for="pay-confirm-amort">Amortización</label>
+                  <input
+                    id="pay-confirm-amort" class="text-input text-input--mono"
+                    formControlName="amortizationAmount" type="number" min="0" step="0.01"
+                  />
+                </div>
+              </div>
+
+              <div class="cfg-field">
+                <span class="detail-label">Cuenta de acreditación</span>
+                <span class="detail-value">{{ payAsset.paymentAccountName ?? payAsset.accountName ?? '— Sin cuenta —' }}</span>
+              </div>
+
+              @if (!payAsset.paymentAccountName && !payAsset.accountName) {
+                <p class="modal-hint modal-hint--warning" role="status">
+                  Sin cuenta de cobro asociada: al confirmar, el pago se marcará como cobrado pero
+                  no se generará ningún movimiento.
+                </p>
+              } @else if (confirmCurrencyMismatch()) {
+                <p class="modal-hint modal-hint--warning" role="status">
+                  La moneda de la cuenta de acreditación no coincide con la del pago ({{ payment.currency }}):
+                  el cobro va a fallar hasta que corrijas la cuenta de cobro del activo.
+                </p>
+              }
+
+              @if (paymentFormError()) {
+                <p class="form-error" role="alert">{{ paymentFormError() }}</p>
+              }
+            </div>
+
+            <div class="modal-footer">
+              <button type="button" class="btn-ghost" (click)="closeSubModal()">Cancelar</button>
+              <button type="submit" class="btn-confirm" [disabled]="paymentConfirmForm.invalid || submitting()">
+                {{ submitting() ? 'Confirmando…' : 'Confirmar cobro' }}
+              </button>
+            </div>
+          </form>
+        }
+
+        @if (subModal()?.kind === 'add-payment' || subModal()?.kind === 'edit-payment') {
+          @let payFormAsset = subModal()!.asset;
+
+          <div class="modal-head">
+            <div>
+              <h3>{{ subModal()?.kind === 'edit-payment' ? 'Editar pago' : 'Agregar pago manual' }}</h3>
+              <p class="modal-sub">{{ payFormAsset.name }}</p>
+            </div>
+            <button class="close-btn" (click)="closeSubModal()" type="button" aria-label="Cerrar">
+              <svg lucideX [size]="18"></svg>
+            </button>
+          </div>
+
+          <form [formGroup]="paymentForm" (ngSubmit)="submitPaymentForm()">
+            <div class="modal-body">
+              <div class="cfg-field">
+                <label class="cfg-label" for="pay-form-date">Fecha de corte</label>
+                <input id="pay-form-date" class="text-input" formControlName="cuttingDate" type="date" />
+              </div>
+
+              @if (subModal()?.kind === 'add-payment') {
+                <div class="cfg-field">
+                  <label class="cfg-label">Moneda</label>
+                  <div class="segmented">
+                    <button
+                      type="button" class="segmented-btn"
+                      [class.segmented-btn--active]="paymentForm.controls.currency.value === 'ARS'"
+                      (click)="paymentForm.controls.currency.setValue('ARS')"
+                    >ARS</button>
+                    <button
+                      type="button" class="segmented-btn"
+                      [class.segmented-btn--active]="paymentForm.controls.currency.value === 'USD'"
+                      (click)="paymentForm.controls.currency.setValue('USD')"
+                    >USD</button>
+                  </div>
+                </div>
+              }
+
+              <div class="add-mov-form__grid">
+                <div class="cfg-field">
+                  <label class="cfg-label" for="pay-form-rent">Renta</label>
+                  <input
+                    id="pay-form-rent" class="text-input text-input--mono"
+                    formControlName="rentAmount" type="number" min="0" step="0.01" placeholder="0,00"
+                  />
+                </div>
+                <div class="cfg-field">
+                  <label class="cfg-label" for="pay-form-amort">Amortización</label>
+                  <input
+                    id="pay-form-amort" class="text-input text-input--mono"
+                    formControlName="amortizationAmount" type="number" min="0" step="0.01" placeholder="0,00"
+                  />
+                </div>
+              </div>
+
+              @if (paymentFormError()) {
+                <p class="form-error" role="alert">{{ paymentFormError() }}</p>
+              }
+            </div>
+
+            <div class="modal-footer">
+              <button type="button" class="btn-ghost" (click)="closeSubModal()">Cancelar</button>
+              <button type="submit" class="btn-confirm" [disabled]="paymentForm.invalid || submitting()">
+                {{ submitting() ? 'Guardando…' : 'Guardar' }}
+              </button>
+            </div>
+          </form>
+        }
+
+      </div>
+    </div>
+  }
+
+</div>

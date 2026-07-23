@@ -1,0 +1,31 @@
+<app-legal-layout eyebrow="Legal" title="Términos y Condiciones">
+
+  <p class="page-meta">Última actualización: {{ lastUpdated }}</p>
+
+  <nav class="legal-index" aria-label="Índice de secciones">
+    <span class="index-title">Índice</span>
+    <ol>
+      @for (section of sections; track section.id) {
+        <li><a [href]="'#' + section.id">{{ section.title }}</a></li>
+      }
+    </ol>
+  </nav>
+
+  <article class="legal-body">
+    @for (section of sections; track section.id) {
+      <section [id]="section.id" class="legal-section" tabindex="-1">
+        <h2>{{ section.title }}</h2>
+        @for (paragraph of section.paragraphs; track paragraph) {
+          <p>{{ paragraph }}</p>
+        }
+      </section>
+    }
+  </article>
+
+  <span legalFooter>
+    Ante cualquier duda sobre estos Términos, escribinos a
+    <a href="mailto:chehadesantiago@gmail.com">chehadesantiago&#64;gmail.com</a>
+    o visitá la sección <a routerLink="/contacto">Contáctanos</a>.
+  </span>
+
+</app-legal-layout>

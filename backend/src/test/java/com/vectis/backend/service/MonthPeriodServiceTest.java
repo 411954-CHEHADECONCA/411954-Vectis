@@ -40,11 +40,12 @@ class MonthPeriodServiceTest {
     @InjectMocks
     private MonthPeriodService monthPeriodService;
 
-    @Mock private MonthPeriodRepository       monthPeriodRepository;
-    @Mock private RecurringMovementRepository recurringMovementRepository;
-    @Mock private TransactionRepository       transactionRepository;
-    @Mock private UserRepository              userRepository;
-    @Mock private CategoryBudgetRepository    categoryBudgetRepository;
+    @Mock private MonthPeriodRepository        monthPeriodRepository;
+    @Mock private RecurringMovementRepository  recurringMovementRepository;
+    @Mock private TransactionRepository        transactionRepository;
+    @Mock private UserRepository               userRepository;
+    @Mock private CategoryBudgetRepository     categoryBudgetRepository;
+    @Mock private InvestmentMonthCloseService  investmentMonthCloseService;
 
     private User user;
     private UUID userId;
@@ -324,8 +325,8 @@ class MonthPeriodServiceTest {
     // ─── autoCloseExpiredPeriods ─────────────────────────────────────────────
 
     @Test
-    @DisplayName("autoCloseExpiredPeriods cierra períodos expirados sin tocar el mes actual")
-    void autoCloseExpiredPeriods_cierraExpiredNoTocaActual() {
+    @DisplayName("autoCloseExpiredPeriods cierra períodos expirados y materializa sus tramos de inversión")
+    void autoCloseExpiredPeriods_cierraExpiredYMaterializaInversiones() {
         LocalDate today = LocalDate.now();
         LocalDate past  = today.minusMonths(1);
 
@@ -334,17 +335,81 @@ class MonthPeriodServiceTest {
 
         given(monthPeriodRepository.findAllExpiredOpen(today.getYear(), today.getMonthValue()))
                 .willReturn(List.of(expiredMp));
-        given(monthPeriodRepository.saveAll(anyList())).willReturn(List.of(expiredMp));
+        given(monthPeriodRepository.save(any(MonthPeriod.class))).willReturn(expiredMp);
 
         monthPeriodService.autoCloseExpiredPeriods();
 
-        ArgumentCaptor<List<MonthPeriod>> captor = ArgumentCaptor.forClass(List.class);
-        verify(monthPeriodRepository).saveAll(captor.capture());
+        ArgumentCaptor<MonthPeriod> captor = ArgumentCaptor.forClass(MonthPeriod.class);
+        verify(monthPeriodRepository).save(captor.capture());
+        assertThat(captor.getValue().getStatus()).isEqualTo("CLOSED");
+        assertThat(captor.getValue().getClosedAt()).isNotNull();
+        // los tramos de inversión se materializan para el período cerrado
+        verify(investmentMonthCloseService).materializeForMonth(
+                eq(user), eq(past.getYear()), eq(past.getMonthValue()));
+        assertThat(expiredMp.getInvestmentTramosMaterializedAt()).isNotNull();
+    }
 
-        List<MonthPeriod> saved = captor.getValue();
-        assertThat(saved).hasSize(1);
-        assertThat(saved.get(0).getStatus()).isEqualTo("CLOSED");
-        assertThat(saved.get(0).getClosedAt()).isNotNull();
+    // ─── closePeriod ─────────────────────────────────────────────────────────
+
+    @Test
+    @DisplayName("closePeriod cierra y materializa los tramos de inversión una sola vez")
+    void closePeriod_cierraYMaterializaUnaVez() {
+        LocalDate today = LocalDate.now();
+        int year  = today.getYear();
+        int month = today.getMonthValue();
+
+        MonthPeriod mp = buildOpenPeriod(year, month);
+        mp.setInvestmentTramosMaterializedAt(null);
+
+        given(monthPeriodRepository.findByUser_IdAndYearAndMonth(userId, year, month))
+                .willReturn(Optional.of(mp));
+        given(monthPeriodRepository.save(any(MonthPeriod.class))).willReturn(mp);
+
+        monthPeriodService.closePeriod(user, year, month);
+
+        assertThat(mp.getStatus()).isEqualTo("CLOSED");
+        assertThat(mp.getInvestmentTramosMaterializedAt()).isNotNull();
+        verify(investmentMonthCloseService).materializeForMonth(eq(user), eq(year), eq(month));
+    }
+
+    @Test
+    @DisplayName("closePeriod sobre un mes ya cerrado es no-op (no re-materializa)")
+    void closePeriod_yaCerrado_noReMaterializa() {
+        LocalDate today = LocalDate.now();
+        int year  = today.getYear();
+        int month = today.getMonthValue();
+
+        MonthPeriod mp = buildClosedPeriod(year, month);
+        mp.setInvestmentTramosMaterializedAt(OffsetDateTime.now());
+
+        given(monthPeriodRepository.findByUser_IdAndYearAndMonth(userId, year, month))
+                .willReturn(Optional.of(mp));
+
+        monthPeriodService.closePeriod(user, year, month);
+
+        verify(investmentMonthCloseService, never()).materializeForMonth(any(), anyInt(), anyInt());
+        verify(monthPeriodRepository, never()).save(any(MonthPeriod.class));
+    }
+
+    @Test
+    @DisplayName("openPeriod (reapertura) revierte los tramos de inversión y limpia el marcador")
+    void openPeriod_reapertura_revierteTramosInversion() {
+        LocalDate today = LocalDate.now();
+        int year  = today.getYear();
+        int month = today.getMonthValue();
+
+        MonthPeriod mp = buildClosedPeriod(year, month);
+        mp.setRecurringMaterializedAt(OffsetDateTime.now());
+        mp.setInvestmentTramosMaterializedAt(OffsetDateTime.now());
+
+        given(monthPeriodRepository.findByUser_IdAndYearAndMonth(userId, year, month))
+                .willReturn(Optional.of(mp));
+        given(monthPeriodRepository.save(any(MonthPeriod.class))).willReturn(mp);
+
+        monthPeriodService.openPeriod(user, year, month);
+
+        verify(investmentMonthCloseService).removeForMonth(eq(user), eq(year), eq(month));
+        assertThat(mp.getInvestmentTramosMaterializedAt()).isNull();
     }
 
     // ─── helpers ──────────────────────────────────────────────────────────────

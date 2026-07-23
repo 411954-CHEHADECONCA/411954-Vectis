@@ -7,6 +7,7 @@ export interface CategoryResponse {
   color: string;
   type: CategoryType;
   isDefault: boolean;
+  isUncategorizedDefault: boolean;
   estimatedAmount: number | null;
 }
 

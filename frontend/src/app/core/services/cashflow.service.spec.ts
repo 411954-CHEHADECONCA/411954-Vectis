@@ -20,6 +20,7 @@ const MOCK_RESPONSE: CashflowResponse = {
   preInvestmentBalance: { balance: '9054020.0000', operativeResult: '153620.0000', savingRatePct: '8.39' },
   investments: { total: '800000.0000', pctOfPreBalance: '8.84', instruments: [] },
   closingBalance: { total: '8254020.0000', accounts: [] },
+  oficialRateAtPeriod: null,
 };
 
 describe('CashflowService', () => {

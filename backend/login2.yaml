@@ -1,0 +1,40 @@
+- main [ref=e4]:
+  - generic [ref=e6]:
+    - generic [ref=e7]:
+      - img [ref=e8]
+      - generic [ref=e11]: Vectis
+    - heading "El futuro de tu gestión financiera, elevado." [level=1] [ref=e13]
+    - paragraph [ref=e14]: Controlá tus cuentas, tarjetas e inversiones en ARS y USD desde un mismo lugar.
+    - generic [ref=e15]:
+      - generic [ref=e16]:
+        - img [ref=e17]
+        - heading "Cashflow" [level=3] [ref=e19]
+        - paragraph [ref=e20]: Conciliá ingresos y gastos mes a mes.
+      - generic [ref=e21]:
+        - img [ref=e22]
+        - heading "Inversiones" [level=3] [ref=e24]
+        - paragraph [ref=e25]: Tasas reales y rendimientos en tiempo real.
+  - generic [ref=e26]:
+    - generic [ref=e27]:
+      - generic [ref=e28]:
+        - heading "Bienvenido de nuevo" [level=2] [ref=e29]
+        - paragraph [ref=e30]: Ingresá tus credenciales para acceder a tu cuenta.
+      - generic [ref=e31]:
+        - generic [ref=e33]:
+          - img
+          - textbox "Correo electrónico" [ref=e34]:
+            - /placeholder: nombre@ejemplo.com
+          - generic: Correo electrónico
+        - generic [ref=e36]:
+          - img
+          - textbox "Contraseña" [ref=e37]:
+            - /placeholder: ••••••••
+          - generic: Contraseña
+        - link "¿Olvidaste tu contraseña?" [ref=e38] [cursor=pointer]:
+          - /url: /forgot-password
+        - button "Iniciar Sesión" [ref=e39] [cursor=pointer]
+      - paragraph [ref=e40]:
+        - text: ¿No tenés cuenta?
+        - link "Crear una cuenta" [ref=e41] [cursor=pointer]:
+          - /url: /register
+    - generic [ref=e42]: Seguridad de grado financiero
