@@ -54,6 +54,7 @@ describe('RegisterComponent', () => {
       email: 'test@vectis.com',
       password: 'password123',
       confirmPassword: 'different',
+      acceptTerms: true,
     });
     expect(component.form.hasError('passwordMismatch')).toBeTrue();
   });
@@ -64,6 +65,7 @@ describe('RegisterComponent', () => {
       email: 'test@vectis.com',
       password: 'password123',
       confirmPassword: 'password123',
+      acceptTerms: true,
     });
     expect(component.form.hasError('passwordMismatch')).toBeFalse();
   });
@@ -74,14 +76,54 @@ describe('RegisterComponent', () => {
       email: 'test@vectis.com',
       password: 'password123',
       confirmPassword: 'password123',
+      acceptTerms: true,
     });
     expect(component.form.controls.fullName.invalid).toBeTrue();
+  });
+
+  // ─── acceptTerms ─────────────────────────────────────────────────────────────
+
+  it('form inválido si el resto de los campos son válidos pero no se aceptan los términos', () => {
+    component.form.setValue({
+      fullName: 'Test User',
+      email: 'test@vectis.com',
+      password: 'password123',
+      confirmPassword: 'password123',
+      acceptTerms: false,
+    });
+    expect(component.form.invalid).toBeTrue();
+    expect(component.form.controls.acceptTerms.hasError('required')).toBeTrue();
+  });
+
+  it('form válido cuando acceptTerms es true y el resto de los datos son correctos', () => {
+    component.form.setValue({
+      fullName: 'Test User',
+      email: 'test@vectis.com',
+      password: 'password123',
+      confirmPassword: 'password123',
+      acceptTerms: true,
+    });
+    expect(component.form.valid).toBeTrue();
   });
 
   // ─── Submit ──────────────────────────────────────────────────────────────────
 
   it('onSubmit() no llama al servicio si el form es inválido', () => {
     component.onSubmit();
+    expect(authServiceSpy.register).not.toHaveBeenCalled();
+  });
+
+  it('onSubmit() no llama al servicio si no se aceptaron los términos', () => {
+    component.form.setValue({
+      fullName: 'Test User',
+      email: 'test@vectis.com',
+      password: 'password123',
+      confirmPassword: 'password123',
+      acceptTerms: false,
+    });
+
+    component.onSubmit();
+
     expect(authServiceSpy.register).not.toHaveBeenCalled();
   });
 
@@ -93,6 +135,7 @@ describe('RegisterComponent', () => {
       email: 'test@vectis.com',
       password: 'password123',
       confirmPassword: 'password123',
+      acceptTerms: true,
     });
 
     component.onSubmit();
@@ -105,6 +148,26 @@ describe('RegisterComponent', () => {
     expect(navigateSpy).toHaveBeenCalledWith(['/dashboard']);
   });
 
+  it('el payload enviado no contiene acceptTerms ni confirmPassword', () => {
+    authServiceSpy.register.and.returnValue(of(MOCK_AUTH_RESPONSE));
+
+    component.form.setValue({
+      fullName: 'Test User',
+      email: 'test@vectis.com',
+      password: 'password123',
+      confirmPassword: 'password123',
+      acceptTerms: true,
+    });
+
+    component.onSubmit();
+
+    const payload = authServiceSpy.register.calls.mostRecent().args[0];
+    expect(payload).not.toEqual(jasmine.objectContaining({ acceptTerms: jasmine.anything() }));
+    expect(payload).not.toEqual(jasmine.objectContaining({ confirmPassword: jasmine.anything() }));
+    expect(Object.keys(payload)).not.toContain('acceptTerms');
+    expect(Object.keys(payload)).not.toContain('confirmPassword');
+  });
+
   it('error de API establece errorMessage y desactiva loading', () => {
     const apiError = { error: { message: 'Email ya registrado' } };
     authServiceSpy.register.and.returnValue(throwError(() => apiError));
@@ -114,6 +177,7 @@ describe('RegisterComponent', () => {
       email: 'dup@vectis.com',
       password: 'password123',
       confirmPassword: 'password123',
+      acceptTerms: true,
     });
 
     component.onSubmit();
@@ -130,6 +194,7 @@ describe('RegisterComponent', () => {
       email: 'test@vectis.com',
       password: 'password123',
       confirmPassword: 'password123',
+      acceptTerms: true,
     });
 
     component.onSubmit();
@@ -145,6 +210,7 @@ describe('RegisterComponent', () => {
       email: 'test@vectis.com',
       password: 'password123',
       confirmPassword: 'password123',
+      acceptTerms: true,
     });
 
     component.onSubmit();

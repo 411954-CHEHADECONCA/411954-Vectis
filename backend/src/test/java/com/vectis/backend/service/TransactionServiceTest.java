@@ -1,9 +1,14 @@
 package com.vectis.backend.service;
 
+import com.vectis.backend.domain.entity.Account;
+import com.vectis.backend.domain.entity.Category;
+import com.vectis.backend.domain.entity.CategoryType;
 import com.vectis.backend.domain.entity.CreditCard;
+import com.vectis.backend.domain.entity.InvestmentSourceType;
 import com.vectis.backend.domain.entity.Transaction;
 import com.vectis.backend.domain.entity.TransactionType;
 import com.vectis.backend.domain.entity.User;
+import com.vectis.backend.dto.ExchangeRateResponse;
 import com.vectis.backend.dto.GroupMovementUpdateRequest;
 import com.vectis.backend.dto.MovementRequest;
 import com.vectis.backend.dto.MovementResponse;
@@ -16,10 +21,13 @@ import com.vectis.backend.repository.AccountRepository;
 import com.vectis.backend.repository.CategoryRepository;
 import com.vectis.backend.repository.CreditCardRepository;
 import com.vectis.backend.repository.TransactionRepository;
+import com.vectis.backend.service.MacroDataService;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.EnumSource;
 import org.mockito.ArgumentCaptor;
 import org.mockito.ArgumentMatchers;
 import org.mockito.InjectMocks;
@@ -46,6 +54,7 @@ import static org.mockito.ArgumentMatchers.anyList;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.ArgumentMatchers.isNull;
 import static org.mockito.BDDMockito.given;
+import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
 
 @ExtendWith(MockitoExtension.class)
@@ -62,6 +71,8 @@ class TransactionServiceTest {
     @Mock private TransactionMapper transactionMapper;
     @Mock private InstallmentCalculator installmentCalculator;
     @Mock private MonthPeriodService monthPeriodService;
+    @Mock private MacroDataService macroDataService;
+    @Mock private BalanceService balanceService;
 
     private User user;
     private User otherUser;
@@ -78,6 +89,15 @@ class TransactionServiceTest {
                 .build();
         // By default, period is open (allow posting) for all create() tests
         given(monthPeriodService.isOpen(any(UUID.class), anyInt(), anyInt())).willReturn(true);
+        // Default: saldo amplio salvo que un test lo sobreescriba para probar el bloqueo por fondos insuficientes.
+        given(balanceService.currentBalance(any(), any())).willReturn(new BigDecimal("999999999.0000"));
+        // Default de categoría cuando categoryId viene null en el request (ver resolveCategory).
+        given(categoryRepository.findByTypeAndIsUncategorizedDefaultTrue(CategoryType.INCOME))
+                .willReturn(Optional.of(Category.builder().id(UUID.randomUUID()).name("Otros ingresos")
+                        .type(CategoryType.INCOME).isDefault(true).isUncategorizedDefault(true).build()));
+        given(categoryRepository.findByTypeAndIsUncategorizedDefaultTrue(CategoryType.EXPENSE))
+                .willReturn(Optional.of(Category.builder().id(UUID.randomUUID()).name("Otros egresos")
+                        .type(CategoryType.EXPENSE).isDefault(true).isUncategorizedDefault(true).build()));
     }
 
     // ─── create simple ────────────────────────────────────────────────────────
@@ -101,6 +121,45 @@ class TransactionServiceTest {
         assertThat(saved.isInstallment()).isFalse();
         assertThat(saved.getDueDate()).isEqualTo(LocalDate.of(2026, 6, 10));
         assertThat(saved.getUser().getId()).isEqualTo(userId);
+    }
+
+    @Test
+    @DisplayName("create en un mes cerrado lanza CONFLICT y no persiste nada")
+    void create_closedMonth_throwsConflictAndPersistsNothing() {
+        given(monthPeriodService.isOpen(userId, 2026, 6)).willReturn(false);
+
+        MovementRequest req = new MovementRequest(
+                "Sueldo", new BigDecimal("1240000"), "ARS", "INCOME",
+                null, null, null, LocalDate.of(2026, 6, 10), 1);
+
+        assertThatThrownBy(() -> transactionService.create(req, user))
+                .isInstanceOf(VectisException.class)
+                .satisfies(ex -> assertThat(((VectisException) ex).getStatus()).isEqualTo(HttpStatus.CONFLICT));
+
+        verify(transactionRepository, never()).save(any());
+    }
+
+    @Test
+    @DisplayName("create sin categoryId asigna la categoría default \"Otros ingresos\"/\"Otros egresos\" según el tipo")
+    void create_withoutCategoryId_assignsDefaultCategoryByType() {
+        MovementRequest income = new MovementRequest(
+                "Reintegro", new BigDecimal("5000"), "ARS", "INCOME",
+                null, null, null, LocalDate.of(2026, 6, 10), 1);
+        MovementRequest expense = new MovementRequest(
+                "Varios", new BigDecimal("3000"), "ARS", "EXPENSE",
+                null, null, null, LocalDate.of(2026, 6, 10), 1);
+
+        given(transactionRepository.save(any(Transaction.class))).willAnswer(inv -> inv.getArgument(0));
+        given(transactionMapper.toResponse(any(Transaction.class))).willReturn(mock());
+
+        transactionService.create(income, user);
+        transactionService.create(expense, user);
+
+        ArgumentCaptor<Transaction> captor = ArgumentCaptor.forClass(Transaction.class);
+        verify(transactionRepository, org.mockito.Mockito.times(2)).save(captor.capture());
+        List<Transaction> saved = captor.getAllValues();
+        assertThat(saved.get(0).getCategory().getName()).isEqualTo("Otros ingresos");
+        assertThat(saved.get(1).getCategory().getName()).isEqualTo("Otros egresos");
     }
 
     @Test
@@ -217,6 +276,89 @@ class TransactionServiceTest {
                 .satisfies(ex -> assertThat(((VectisException) ex).getStatus()).isEqualTo(HttpStatus.FORBIDDEN));
     }
 
+    // ─── create — bimoneda ───────────────────────────────────────────────────────
+
+    @Test
+    @DisplayName("create captura cotizacion OFICIAL al momento de crear la transaccion")
+    void create_capturesExchangeRateAtTime() {
+        MovementRequest req = new MovementRequest(
+                "Sueldo", new BigDecimal("1240000"), "ARS", "INCOME",
+                null, null, null, LocalDate.of(2026, 6, 10), 1);
+
+        given(macroDataService.getLatestOficialRate())
+                .willReturn(new ExchangeRateResponse("OFICIAL", "1060.0000", "1062.5000", "2026-06-10", "dolarapi.com"));
+        given(transactionRepository.save(any(Transaction.class))).willAnswer(inv -> inv.getArgument(0));
+        given(transactionMapper.toResponse(any(Transaction.class))).willReturn(mock());
+
+        transactionService.create(req, user);
+
+        ArgumentCaptor<Transaction> captor = ArgumentCaptor.forClass(Transaction.class);
+        verify(transactionRepository).save(captor.capture());
+        assertThat(captor.getValue().getExchangeRateAtTime()).isEqualByComparingTo("1062.5000");
+    }
+
+    @Test
+    @DisplayName("create guarda exchangeRateAtTime=null cuando MacroDataService no esta disponible")
+    void create_setsNullRateWhenMacroUnavailable() {
+        MovementRequest req = new MovementRequest(
+                "Sueldo", new BigDecimal("1240000"), "ARS", "INCOME",
+                null, null, null, LocalDate.of(2026, 6, 10), 1);
+
+        given(macroDataService.getLatestOficialRate())
+                .willThrow(new VectisException("Cotizacion no disponible", HttpStatus.NOT_FOUND));
+        given(transactionRepository.save(any(Transaction.class))).willAnswer(inv -> inv.getArgument(0));
+        given(transactionMapper.toResponse(any(Transaction.class))).willReturn(mock());
+
+        transactionService.create(req, user);
+
+        ArgumentCaptor<Transaction> captor = ArgumentCaptor.forClass(Transaction.class);
+        verify(transactionRepository).save(captor.capture());
+        assertThat(captor.getValue().getExchangeRateAtTime()).isNull();
+    }
+
+    // ─── create — fondos suficientes ─────────────────────────────────────────────
+
+    @Test
+    @DisplayName("create EXPENSE con cuenta y fondos insuficientes lanza VectisException 422 y no persiste")
+    void create_expenseWithAccount_insufficientFunds_throws422() {
+        UUID accountId = UUID.randomUUID();
+        Account acc = account(accountId, user, new BigDecimal("100000.0000"));
+        MovementRequest req = new MovementRequest(
+                "Alquiler", new BigDecimal("500000"), "ARS", "EXPENSE",
+                null, accountId, null, LocalDate.of(2026, 6, 10), 1);
+
+        given(accountRepository.findById(accountId)).willReturn(Optional.of(acc));
+        given(balanceService.currentBalance(acc, userId)).willReturn(new BigDecimal("100000.0000"));
+
+        assertThatThrownBy(() -> transactionService.create(req, user))
+                .isInstanceOf(VectisException.class)
+                .satisfies(ex -> assertThat(((VectisException) ex).getStatus())
+                        .isEqualTo(HttpStatus.UNPROCESSABLE_ENTITY));
+
+        verify(transactionRepository, never()).save(any());
+    }
+
+    @Test
+    @DisplayName("create EXPENSE con tarjeta (sin cuenta) permite aunque el saldo de otras cuentas sea insuficiente")
+    void create_expenseWithCard_ignoresAccountFunds() {
+        UUID cardId = UUID.randomUUID();
+        CreditCard card = card(cardId, user);
+        MovementRequest req = new MovementRequest(
+                "Compra", new BigDecimal("500000"), "ARS", "EXPENSE",
+                null, null, cardId, LocalDate.of(2026, 4, 7), 1);
+
+        given(creditCardRepository.findById(cardId)).willReturn(Optional.of(card));
+        given(installmentCalculator.split(any(), any(), anyInt(), anyInt(), anyInt()))
+                .willReturn(List.of(new InstallmentCalculator.Installment(
+                        1, LocalDate.of(2026, 6, 15), new BigDecimal("500000"))));
+        given(transactionRepository.save(any(Transaction.class))).willAnswer(inv -> inv.getArgument(0));
+        given(transactionMapper.toResponse(any(Transaction.class))).willReturn(mock());
+
+        transactionService.create(req, user);
+
+        verify(transactionRepository).save(any(Transaction.class));
+    }
+
     // ─── update ─────────────────────────────────────────────────────────────────
 
     @Test
@@ -262,6 +404,70 @@ class TransactionServiceTest {
                 .isInstanceOf(TransactionNotFoundException.class);
     }
 
+    @Test
+    @DisplayName("update que sube el monto de un EXPENSE por encima del saldo disponible lanza 422")
+    void update_expenseAmountIncrease_insufficientFunds_throws422() {
+        UUID id = UUID.randomUUID();
+        UUID accountId = UUID.randomUUID();
+        Account acc = account(accountId, user, new BigDecimal("100000.0000"));
+
+        Transaction tx = simpleTx(user);
+        tx.setAccount(acc);
+        tx.setAmount(new BigDecimal("50000"));
+        given(transactionRepository.findByIdAndDeletedAtIsNull(id)).willReturn(Optional.of(tx));
+        given(accountRepository.findById(accountId)).willReturn(Optional.of(acc));
+        // Saldo actual ya neto del monto viejo (50.000): 120.000 disponibles antes de liberar el viejo.
+        given(balanceService.currentBalance(acc, userId)).willReturn(new BigDecimal("120000.0000"));
+
+        MovementRequest req = new MovementRequest(
+                "Coto", new BigDecimal("300000"), "ARS", "EXPENSE",
+                null, accountId, null, LocalDate.of(2026, 6, 10), 1);
+
+        assertThatThrownBy(() -> transactionService.update(id, req, user))
+                .isInstanceOf(VectisException.class)
+                .satisfies(ex -> assertThat(((VectisException) ex).getStatus())
+                        .isEqualTo(HttpStatus.UNPROCESSABLE_ENTITY));
+
+        assertThat(tx.getAmount()).isEqualByComparingTo("50000");
+        verify(transactionRepository, never()).save(any());
+    }
+
+    @Test
+    @DisplayName("update de un movimiento que ya pertenece a un mes cerrado lanza CONFLICT, aunque la nueva fecha sea de un mes abierto")
+    void update_existingRecordInClosedMonth_throwsConflict() {
+        UUID id = UUID.randomUUID();
+        Transaction tx = simpleTx(user); // transactionDate = 2026-06-10
+        given(transactionRepository.findByIdAndDeletedAtIsNull(id)).willReturn(Optional.of(tx));
+        given(monthPeriodService.isOpen(userId, 2026, 6)).willReturn(false);
+
+        MovementRequest req = new MovementRequest(
+                "Coto", new BigDecimal("1000"), "ARS", "EXPENSE", null, null, null, LocalDate.of(2026, 7, 10), 1);
+
+        assertThatThrownBy(() -> transactionService.update(id, req, user))
+                .isInstanceOf(VectisException.class)
+                .satisfies(ex -> assertThat(((VectisException) ex).getStatus()).isEqualTo(HttpStatus.CONFLICT));
+
+        verify(transactionRepository, never()).save(any());
+    }
+
+    @Test
+    @DisplayName("update que mueve un movimiento hacia un mes cerrado lanza CONFLICT, aunque el mes actual esté abierto")
+    void update_movingIntoClosedMonth_throwsConflict() {
+        UUID id = UUID.randomUUID();
+        Transaction tx = simpleTx(user); // transactionDate = 2026-06-10 (abierto)
+        given(transactionRepository.findByIdAndDeletedAtIsNull(id)).willReturn(Optional.of(tx));
+        given(monthPeriodService.isOpen(userId, 2026, 7)).willReturn(false);
+
+        MovementRequest req = new MovementRequest(
+                "Coto", new BigDecimal("1000"), "ARS", "EXPENSE", null, null, null, LocalDate.of(2026, 7, 10), 1);
+
+        assertThatThrownBy(() -> transactionService.update(id, req, user))
+                .isInstanceOf(VectisException.class)
+                .satisfies(ex -> assertThat(((VectisException) ex).getStatus()).isEqualTo(HttpStatus.CONFLICT));
+
+        verify(transactionRepository, never()).save(any());
+    }
+
     // ─── delete ─────────────────────────────────────────────────────────────────
 
     @Test
@@ -275,6 +481,22 @@ class TransactionServiceTest {
 
         assertThat(tx.getDeletedAt()).isNotNull();
         verify(transactionRepository).save(tx);
+    }
+
+    @Test
+    @DisplayName("delete de un movimiento que pertenece a un mes cerrado lanza CONFLICT y no lo marca como eliminado")
+    void delete_closedMonth_throwsConflictAndDoesNotDelete() {
+        UUID id = UUID.randomUUID();
+        Transaction tx = simpleTx(user); // transactionDate = 2026-06-10
+        given(transactionRepository.findByIdAndDeletedAtIsNull(id)).willReturn(Optional.of(tx));
+        given(monthPeriodService.isOpen(userId, 2026, 6)).willReturn(false);
+
+        assertThatThrownBy(() -> transactionService.delete(id, user))
+                .isInstanceOf(VectisException.class)
+                .satisfies(ex -> assertThat(((VectisException) ex).getStatus()).isEqualTo(HttpStatus.CONFLICT));
+
+        assertThat(tx.getDeletedAt()).isNull();
+        verify(transactionRepository, never()).save(any());
     }
 
     @Test
@@ -371,6 +593,44 @@ class TransactionServiceTest {
         verify(transactionRepository).saveAll(List.of(tx, other));
     }
 
+    @ParameterizedTest
+    @EnumSource(InvestmentSourceType.class)
+    @DisplayName("delete de una transacción vinculada a una inversión (cualquier origen) lanza CONFLICT y no la borra")
+    void delete_investmentLinked_throwsConflictAndDoesNotDelete(InvestmentSourceType src) {
+        UUID id = UUID.randomUUID();
+        Transaction tx = simpleTx(user);
+        tx.setInvestmentSourceType(src);
+        given(transactionRepository.findByIdAndDeletedAtIsNull(id)).willReturn(Optional.of(tx));
+
+        assertThatThrownBy(() -> transactionService.delete(id, user))
+                .isInstanceOf(VectisException.class)
+                .satisfies(ex -> assertThat(((VectisException) ex).getStatus()).isEqualTo(HttpStatus.CONFLICT));
+
+        assertThat(tx.getDeletedAt()).isNull();
+        verify(transactionRepository, never()).save(any());
+        verify(transactionRepository, never()).saveAll(any());
+    }
+
+    @ParameterizedTest
+    @EnumSource(InvestmentSourceType.class)
+    @DisplayName("update de una transacción vinculada a una inversión (cualquier origen) lanza CONFLICT y no la modifica")
+    void update_investmentLinked_throwsConflict(InvestmentSourceType src) {
+        UUID id = UUID.randomUUID();
+        Transaction tx = simpleTx(user);
+        tx.setInvestmentSourceType(src);
+        given(transactionRepository.findByIdAndDeletedAtIsNull(id)).willReturn(Optional.of(tx));
+
+        MovementRequest req = new MovementRequest(
+                "X", new BigDecimal("1000"), "ARS", "INCOME", null, null, null, LocalDate.of(2026, 6, 10), 1);
+
+        assertThatThrownBy(() -> transactionService.update(id, req, user))
+                .isInstanceOf(VectisException.class)
+                .satisfies(ex -> assertThat(((VectisException) ex).getStatus()).isEqualTo(HttpStatus.CONFLICT));
+
+        assertThat(tx.getDescription()).isEqualTo("Coto");
+        verify(transactionRepository, never()).save(any());
+    }
+
     // ─── search / summary ───────────────────────────────────────────────────────
 
     @Test
@@ -431,7 +691,7 @@ class TransactionServiceTest {
     // ─── updateGroup ─────────────────────────────────────────────────────────
 
     @Test
-    @DisplayName("updateGroup actualiza descripción y categoría de todas las filas del grupo")
+    @DisplayName("updateGroup actualiza descripción y categoría de todas las filas del grupo; categoryId null asigna el default \"Otros egresos\"")
     void updateGroup_updatesAllRows() {
         UUID groupId = UUID.randomUUID();
         Transaction t1 = Transaction.builder()
@@ -459,7 +719,8 @@ class TransactionServiceTest {
         assertThat(result).hasSize(2);
         assertThat(t1.getDescription()).isEqualTo("Laptop — cuota 1/3");
         assertThat(t2.getDescription()).isEqualTo("Laptop — cuota 2/3");
-        assertThat(t1.getCategory()).isNull();
+        assertThat(t1.getCategory()).isNotNull();
+        assertThat(t1.getCategory().getName()).isEqualTo("Otros egresos");
     }
 
     @Test
@@ -506,6 +767,14 @@ class TransactionServiceTest {
                 .amount(new BigDecimal("1000")).ccy("ARS")
                 .transactionDate(LocalDate.of(2026, 6, 10)).dueDate(LocalDate.of(2026, 6, 10))
                 .installment(false).createdAt(OffsetDateTime.now())
+                .build();
+    }
+
+    private Account account(UUID id, User owner, BigDecimal balance) {
+        return Account.builder()
+                .id(id).user(owner).name("Cuenta Galicia").kind("Banco").ccy("ARS")
+                .balance(balance).includeInCashflow(true)
+                .createdAt(OffsetDateTime.now()).updatedAt(OffsetDateTime.now())
                 .build();
     }
 

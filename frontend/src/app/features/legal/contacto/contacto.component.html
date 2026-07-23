@@ -1,0 +1,52 @@
+<app-legal-layout eyebrow="Ayuda" title="Contáctanos">
+
+  <p class="page-lead">Preguntas frecuentes sobre tu cuenta y el funcionamiento de Vectis.</p>
+
+  <ul class="faq-list">
+    @for (faq of faqs; track faq.id) {
+      <li class="faq-item">
+        <button
+          type="button"
+          class="faq-trigger"
+          [attr.aria-expanded]="isOpen(faq.id)"
+          [attr.aria-controls]="'faq-panel-' + faq.id"
+          [id]="'faq-trigger-' + faq.id"
+          (click)="toggle(faq.id)"
+        >
+          <span class="faq-question">{{ faq.question }}</span>
+          <svg class="faq-chevron" [class.faq-chevron--open]="isOpen(faq.id)" viewBox="0 0 20 20" fill="currentColor" aria-hidden="true">
+            <path fill-rule="evenodd" d="M5.23 7.21a.75.75 0 011.06.02L10 11.168l3.71-3.938a.75.75 0 111.08 1.04l-4.25 4.5a.75.75 0 01-1.08 0l-4.25-4.5a.75.75 0 01.02-1.06z" clip-rule="evenodd"/>
+          </svg>
+        </button>
+
+        @if (isOpen(faq.id)) {
+          <div
+            class="faq-panel"
+            role="region"
+            [id]="'faq-panel-' + faq.id"
+            [attr.aria-labelledby]="'faq-trigger-' + faq.id"
+          >
+            <p>{{ faq.answer }}</p>
+          </div>
+        }
+      </li>
+    }
+  </ul>
+
+  <div class="contact-block">
+    <span class="eyebrow">¿No encontraste tu respuesta?</span>
+    <h2>Escribinos directamente</h2>
+    <p>Contanos tu consulta, sugerencia o reclamo y te respondemos a la brevedad.</p>
+    <a class="contact-email" [href]="'mailto:' + contactEmail">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" aria-hidden="true">
+        <path d="M21.75 6.75v10.5a2.25 2.25 0 01-2.25 2.25h-15a2.25 2.25 0 01-2.25-2.25V6.75m19.5 0A2.25 2.25 0 0019.5 4.5h-15a2.25 2.25 0 00-2.25 2.25m19.5 0v.243a2.25 2.25 0 01-1.07 1.916l-7.5 4.615a2.25 2.25 0 01-2.36 0L3.32 8.91a2.25 2.25 0 01-1.07-1.916V6.75" stroke-linecap="round" stroke-linejoin="round"/>
+      </svg>
+      {{ contactEmail }}
+    </a>
+  </div>
+
+  <span legalFooter>
+    Consultá también nuestros <a routerLink="/terminos">Términos y Condiciones</a>.
+  </span>
+
+</app-legal-layout>

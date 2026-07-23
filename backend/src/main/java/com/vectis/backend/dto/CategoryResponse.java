@@ -29,6 +29,9 @@ public record CategoryResponse(
     @Schema(description = "Indica si es una categoría predefinida del sistema", example = "true")
     boolean isDefault,
 
+    @Schema(description = "Indica si es la categoría default asignada cuando un movimiento no elige categoría (\"Otros ingresos\"/\"Otros egresos\")", example = "false")
+    boolean isUncategorizedDefault,
+
     @Schema(description = "Monto estimado mensual para el mes en curso", example = "50000.00", nullable = true)
     BigDecimal estimatedAmount
 ) {}

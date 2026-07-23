@@ -2,6 +2,7 @@ package com.vectis.backend.service;
 
 import com.vectis.backend.domain.entity.Account;
 import com.vectis.backend.domain.entity.Category;
+import com.vectis.backend.domain.entity.CategoryType;
 import com.vectis.backend.domain.entity.CreditCard;
 import com.vectis.backend.domain.entity.RecurringMovement;
 import com.vectis.backend.domain.entity.User;
@@ -49,7 +50,7 @@ public class RecurringMovementService {
     public RecurringMovementResponse createRecurringMovement(RecurringMovementRequest request, User user) {
         validateSinglePaymentMethod(request);
 
-        Category category = resolveCategory(request.categoryId(), user);
+        Category category = resolveCategory(request.categoryId(), request.type(), user);
         Account account   = resolveAccount(request.accountId(), user);
         CreditCard card   = resolveCard(request.cardId(), user);
 
@@ -78,7 +79,7 @@ public class RecurringMovementService {
 
         validateSinglePaymentMethod(request);
 
-        Category category = resolveCategory(request.categoryId(), user);
+        Category category = resolveCategory(request.categoryId(), request.type(), user);
         Account account   = resolveAccount(request.accountId(), user);
         CreditCard card   = resolveCard(request.cardId(), user);
 
@@ -124,8 +125,15 @@ public class RecurringMovementService {
         }
     }
 
-    private Category resolveCategory(UUID categoryId, User user) {
-        if (categoryId == null) return null;
+    /** Ver {@link TransactionService#resolveCategory}: sin categoría elegida, asigna el default de sistema. */
+    private Category resolveCategory(UUID categoryId, String movementType, User user) {
+        if (categoryId == null) {
+            CategoryType type = CategoryType.valueOf(movementType);
+            return categoryRepository.findByTypeAndIsUncategorizedDefaultTrue(type)
+                    .orElseThrow(() -> new VectisException(
+                            "No se encontró la categoría por defecto para " + movementType,
+                            HttpStatus.INTERNAL_SERVER_ERROR));
+        }
         return categoryRepository.findById(categoryId)
                 .orElseThrow(() -> new VectisException("Categoría no encontrada: " + categoryId, HttpStatus.NOT_FOUND));
     }

@@ -331,6 +331,77 @@
   padding-left: 2px;
 }
 
+// ─── Checkbox (accept terms) ───────────────────────────────────────────────────
+
+.checkbox-row {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  cursor: pointer;
+  padding-left: 2px;
+
+  input[type='checkbox'] {
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    overflow: hidden;
+    clip: rect(0, 0, 0, 0);
+    white-space: nowrap;
+  }
+}
+
+.checkbox-box {
+  flex-shrink: 0;
+  width: 18px;
+  height: 18px;
+  margin-top: 1px;
+  border-radius: var(--radius-sm);
+  border: 1.5px solid var(--color-outline-variant);
+  background-color: var(--color-surface-container-low);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: background-color var(--dur-base) var(--ease-standard), border-color var(--dur-base) var(--ease-standard);
+
+  svg {
+    width: 13px;
+    height: 13px;
+    color: var(--color-on-primary-container);
+    opacity: 0;
+    transform: scale(0.6);
+    transition: opacity var(--dur-fast) var(--ease-standard), transform var(--dur-fast) var(--ease-standard);
+  }
+}
+
+.checkbox-row input:checked + .checkbox-box {
+  background-color: var(--color-primary-container);
+  border-color: var(--color-primary-container);
+
+  svg {
+    opacity: 1;
+    transform: scale(1);
+  }
+}
+
+.checkbox-row input:focus-visible + .checkbox-box {
+  outline: 2px solid var(--color-primary);
+  outline-offset: 2px;
+}
+
+.checkbox-label {
+  font-size: var(--text-sm);
+  color: var(--color-on-surface-variant);
+  line-height: var(--leading-normal);
+
+  a {
+    color: var(--color-primary);
+    text-decoration: none;
+    font-weight: var(--weight-semibold);
+
+    &:hover { text-decoration: underline; }
+  }
+}
+
 // ─── Submit button ────────────────────────────────────────────────────────────
 
 .submit-btn {
@@ -366,9 +437,13 @@
   }
 }
 
-.spinner {
+.spinner,
+.submit-icon {
   width: 18px;
   height: 18px;
+}
+
+.spinner {
   animation: spin 0.8s linear infinite;
 }
 
@@ -391,6 +466,27 @@
     margin-left: 4px;
 
     &:hover { text-decoration: underline; }
+  }
+}
+
+.legal-links {
+  margin-top: 12px;
+  text-align: center;
+  font-size: var(--text-caption);
+  color: var(--color-text-muted);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+
+  a {
+    color: var(--color-text-muted);
+    text-decoration: none;
+
+    &:hover {
+      color: var(--color-on-surface-variant);
+      text-decoration: underline;
+    }
   }
 }
 

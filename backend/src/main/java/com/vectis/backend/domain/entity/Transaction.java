@@ -84,6 +84,37 @@ public class Transaction {
     @Column(name = "transfer_group_id")
     private UUID transferGroupId;
 
+    @Column(name = "exchange_rate_at_time", precision = 19, scale = 4)
+    private BigDecimal exchangeRateAtTime;
+
+    /**
+     * Activo de inversión que originó esta transacción (null para transacciones no relacionadas).
+     * ADVERTENCIA: la FK tiene ON DELETE SET NULL (migración V042). Si esta Transaction ya estaba
+     * cargada en el Persistence Context de una transacción @Transactional que luego borra el
+     * InvestmentAsset (ver {@code InvestmentService#collectInvestment}/{@code #deleteInvestment}),
+     * este campo en memoria NO se actualiza automáticamente a null — Hibernate no re-sincroniza
+     * entidades ya cargadas ante un borrado hecho por otra fila. No releer/reutilizar esta
+     * asociación dentro de la misma transacción después de esos borrados.
+     */
+    @ManyToOne(fetch = FetchType.LAZY)
+    @JoinColumn(name = "investment_asset_id")
+    private InvestmentAsset investmentAsset;
+
+    /**
+     * Movimiento puntual (SUSCRIPCION/RESCATE de FCI) que originó esta transacción.
+     * Null para el principal inicial de Plazo Fijo y para el cobro (COLLECTION), que no
+     * tienen fila propia en investment_movements — por eso se necesita {@link #investmentSourceType}.
+     * Misma advertencia de ON DELETE SET NULL que {@link #investmentAsset}.
+     */
+    @ManyToOne(fetch = FetchType.LAZY)
+    @JoinColumn(name = "investment_movement_id")
+    private InvestmentMovement investmentMovement;
+
+    /** Discriminador del origen de inversión (null si no aplica) — ver {@link InvestmentSourceType}. */
+    @Enumerated(EnumType.STRING)
+    @Column(name = "investment_source_type", length = 20)
+    private InvestmentSourceType investmentSourceType;
+
     @Column(name = "deleted_at")
     private OffsetDateTime deletedAt;
 

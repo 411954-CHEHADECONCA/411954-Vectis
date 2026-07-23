@@ -12,9 +12,9 @@ testsprite_tests/
 CLAUDE.md
 DESIGN.md
 ROADMAP.md
-resources/
 skills-lock.json
 .env
+resources_front/
 
 # Maven build output
 backend/target/

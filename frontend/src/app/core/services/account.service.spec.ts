@@ -23,8 +23,6 @@ const MOCK_REQUEST: AccountRequest = {
   detail:     'Caja de Ahorro $',
   ccy:        'ARS',
   balance:    150000,
-  remunerada: false,
-  tna:        null,
 };
 
 describe('AccountService', () => {

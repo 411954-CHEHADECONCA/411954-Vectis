@@ -874,6 +874,7 @@ export class CategoriesComponent implements OnInit {
       color:           (v.color as string)         || '#26CDB2',
       type:            (v.type  as CategoryType)   || 'EXPENSE',
       isDefault:       false,
+      isUncategorizedDefault: false,
       estimatedAmount: null,
     };
   });

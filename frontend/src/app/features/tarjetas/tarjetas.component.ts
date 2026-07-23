@@ -219,10 +219,16 @@ export class TarjetasComponent implements OnInit {
 
   // ── Formatting helpers ────────────────────────────────────────────────────
   fmtAmount(amount: number, ccy: 'ARS' | 'USD' = 'ARS'): string {
-    if (ccy === 'USD') {
-      return `US$ ${amount.toLocaleString('es-AR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
+    const converted = this.currencyService.convert(amount, ccy);
+    if (converted === null) {
+      if (ccy === 'USD') return `US$ ${amount.toLocaleString('es-AR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
+      return `$ ${Math.round(amount).toLocaleString('es-AR')}`;
     }
-    return `$ ${Math.round(amount).toLocaleString('es-AR')}`;
+    const sel = this.currencyService.selected();
+    if (sel === 'USD') {
+      return `US$ ${converted.toLocaleString('es-AR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
+    }
+    return `$ ${Math.round(converted).toLocaleString('es-AR')}`;
   }
 
   /** Celda de la matriz: monto, o guion si está vacía (null o 0; los montos reales son > 0). */

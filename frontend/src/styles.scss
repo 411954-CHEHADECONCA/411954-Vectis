@@ -156,6 +156,8 @@
 // Tailwind v4 genera :root vars solo para color/radius/spacing/shadow.
 // Tipografía, motion, borders y señales financieras requieren :root explícito.
 :root {
+  color-scheme: dark;
+
   // Tipografía
   --text-display:   2.5rem;
   --text-h1:        1.875rem;
@@ -235,3 +237,31 @@ body {
 ::-webkit-scrollbar-track  { background: var(--color-surface-container-low); }
 ::-webkit-scrollbar-thumb  { background: var(--color-outline-variant); border-radius: 3px; }
 ::-webkit-scrollbar-thumb:hover { background: var(--color-outline); }
+
+// ─── Date / time inputs — native picker dark-mode ────────────────────────────
+
+input[type='date'],
+input[type='time'],
+input[type='datetime-local'] {
+  color-scheme: dark;
+}
+
+input[type='date']::-webkit-calendar-picker-indicator,
+input[type='time']::-webkit-calendar-picker-indicator,
+input[type='datetime-local']::-webkit-calendar-picker-indicator {
+  opacity: 0.55;
+  cursor: pointer;
+  transition: opacity 120ms ease;
+}
+
+input[type='date']::-webkit-calendar-picker-indicator:hover,
+input[type='time']::-webkit-calendar-picker-indicator:hover,
+input[type='datetime-local']::-webkit-calendar-picker-indicator:hover {
+  opacity: 1;
+}
+
+input[type='date']:focus::-webkit-calendar-picker-indicator,
+input[type='time']:focus::-webkit-calendar-picker-indicator,
+input[type='datetime-local']:focus::-webkit-calendar-picker-indicator {
+  opacity: 0.85;
+}

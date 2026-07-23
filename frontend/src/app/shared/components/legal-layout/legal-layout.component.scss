@@ -1,0 +1,143 @@
+// ─── Page shell ─────────────────────────────────────────────────────────────
+
+.legal-page {
+  min-height: 100vh;
+  background-color: var(--color-surface);
+  font-family: var(--font-sans);
+  color: var(--color-on-surface);
+}
+
+// ─── Topbar ─────────────────────────────────────────────────────────────────
+
+.legal-topbar {
+  position: sticky;
+  top: 0;
+  z-index: 10;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  padding: 16px 24px;
+  background-color: color-mix(in srgb, var(--color-surface-container-high) 92%, transparent);
+  backdrop-filter: var(--blur-topbar);
+  border-bottom: 1px solid var(--color-outline-variant);
+
+  @media (min-width: 768px) {
+    padding: 16px 48px;
+  }
+}
+
+.brand-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  color: var(--color-primary);
+  text-decoration: none;
+}
+
+.brand-icon {
+  width: 24px;
+  height: 24px;
+  color: var(--color-primary);
+}
+
+.brand-name {
+  font-size: var(--text-h3);
+  font-weight: var(--weight-bold);
+  letter-spacing: var(--tracking-tight);
+  color: var(--color-on-surface);
+}
+
+.back-link {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: var(--text-sm);
+  font-weight: var(--weight-medium);
+  color: var(--color-outline);
+  text-decoration: none;
+  padding: 8px 12px;
+  border-radius: var(--radius);
+  transition: color var(--dur-base) var(--ease-standard), background-color var(--dur-base) var(--ease-standard);
+
+  svg {
+    width: 16px;
+    height: 16px;
+  }
+
+  &:hover {
+    color: var(--color-on-surface);
+    background-color: var(--color-surface-container);
+  }
+
+  &:focus-visible {
+    outline: 2px solid var(--color-primary);
+    outline-offset: 2px;
+  }
+}
+
+// ─── Content container ───────────────────────────────────────────────────────
+
+.legal-container {
+  max-width: 760px;
+  margin: 0 auto;
+  padding: 48px 24px 96px;
+
+  @media (min-width: 768px) {
+    padding: 64px 48px 120px;
+  }
+}
+
+.legal-head {
+  margin-bottom: 32px;
+
+  .eyebrow {
+    display: block;
+    font-size: var(--text-overline);
+    font-weight: var(--weight-semibold);
+    letter-spacing: var(--tracking-overline);
+    text-transform: uppercase;
+    color: var(--color-text-muted);
+    margin-bottom: 8px;
+  }
+
+  h1 {
+    font-size: var(--text-h1);
+    font-weight: var(--weight-bold);
+    letter-spacing: var(--tracking-tight);
+    color: var(--color-on-surface);
+    margin: 0;
+    text-wrap: balance;
+  }
+}
+
+// ─── Footer note ────────────────────────────────────────────────────────────
+// The inner content of .legal-footer-note is projected via <ng-content select>,
+// so it is compiled as part of the *consuming* component's template and does not
+// carry this component's view-encapsulation attribute. `::ng-deep` (scoped under
+// `:host`) is required here to reach the projected anchors from this shared
+// stylesheet without leaking outside this component's own DOM subtree.
+
+.legal-footer-note {
+  margin-top: 48px;
+  padding-top: 24px;
+  border-top: 1px solid var(--color-outline-variant);
+  font-size: var(--text-sm);
+  color: var(--color-text-muted);
+  line-height: var(--leading-normal);
+  max-width: 68ch;
+
+  &:empty {
+    display: none;
+  }
+}
+
+:host ::ng-deep .legal-footer-note a {
+  color: var(--color-primary);
+  text-decoration: none;
+  font-weight: var(--weight-semibold);
+
+  &:hover {
+    text-decoration: underline;
+  }
+}

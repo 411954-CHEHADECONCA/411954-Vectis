@@ -40,12 +40,6 @@ public class Account {
     @Column(nullable = false, precision = 19, scale = 4)
     private BigDecimal balance;
 
-    @Column(nullable = false)
-    private boolean remunerada;
-
-    @Column(precision = 8, scale = 4)
-    private BigDecimal tna;
-
     @Builder.Default
     @Column(name = "include_in_cashflow", nullable = false)
     private boolean includeInCashflow = true;

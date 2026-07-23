@@ -17,6 +17,12 @@ const MOCK_REFRESH_RESPONSE: AuthResponse = {
   user: { id: '1', email: 'a@a.com', fullName: 'User A' },
 };
 
+/** Construye un JWT de juguete con el `exp` (en segundos) indicado, decodificable por atob. */
+const makeJwt = (expSeconds: number): string =>
+  `header.${btoa(JSON.stringify({ exp: expSeconds }))}.signature`;
+
+const nowSeconds = () => Math.floor(Date.now() / 1000);
+
 describe('authInterceptor', () => {
   let http: HttpClient;
   let httpMock: HttpTestingController;
@@ -136,6 +142,53 @@ describe('authInterceptor', () => {
 
     const req = httpMock.expectOne('/api/protected');
     req.flush({}, { status: 401, statusText: 'Unauthorized' });
+  });
+
+  // ─── Refresh proactivo (token vencido, sin 401) ─────────────────────────────
+
+  it('refresca proactivamente cuando el access token está vencido y envía el request con el token nuevo (sin 401)', (done) => {
+    storageSpy.getAccessToken.and.returnValue(makeJwt(nowSeconds() - 60)); // vencido hace 1 min
+    authServiceSpy.refreshToken.and.returnValue(of(MOCK_REFRESH_RESPONSE));
+
+    http.get('/api/protected').subscribe({
+      next: (res: any) => {
+        expect(res.data).toBe('ok');
+        done();
+      },
+      error: done.fail,
+    });
+
+    // No debe haber un primer request con 401: el único request ya lleva el token nuevo.
+    const req = httpMock.expectOne('/api/protected');
+    expect(req.request.headers.get('Authorization')).toBe('Bearer new-access-token');
+    expect(authServiceSpy.refreshToken).toHaveBeenCalledTimes(1);
+    req.flush({ data: 'ok' });
+  });
+
+  it('NO refresca proactivamente cuando el access token sigue vigente', () => {
+    storageSpy.getAccessToken.and.returnValue(makeJwt(nowSeconds() + 3600)); // vence en 1 h
+
+    http.get('/api/protected').subscribe();
+
+    const req = httpMock.expectOne('/api/protected');
+    expect(req.request.headers.get('Authorization')).toContain('Bearer ');
+    expect(authServiceSpy.refreshToken).not.toHaveBeenCalled();
+    req.flush({});
+  });
+
+  it('cierra sesión si el refresh proactivo falla', (done) => {
+    storageSpy.getAccessToken.and.returnValue(makeJwt(nowSeconds() - 60));
+    authServiceSpy.refreshToken.and.returnValue(throwError(() => new Error('Refresh failed')));
+
+    http.get('/api/protected').subscribe({
+      next: () => done.fail('Expected error but received success'),
+      error: () => {
+        expect(authServiceSpy.logout).toHaveBeenCalled();
+        done();
+      },
+    });
+
+    // No se emite ningún request HTTP porque el refresh proactivo falló antes de enviar.
   });
 
   // ─── Errores no-401 se propagan sin retry ───────────────────────────────────

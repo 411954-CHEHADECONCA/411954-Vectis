@@ -2,10 +2,12 @@ package com.vectis.backend.service;
 
 import com.vectis.backend.domain.entity.Account;
 import com.vectis.backend.domain.entity.Category;
+import com.vectis.backend.domain.entity.CategoryType;
 import com.vectis.backend.domain.entity.CreditCard;
 import com.vectis.backend.domain.entity.Transaction;
 import com.vectis.backend.domain.entity.TransactionType;
 import com.vectis.backend.domain.entity.User;
+import com.vectis.backend.dto.ExchangeRateResponse;
 import com.vectis.backend.dto.GroupMovementUpdateRequest;
 import com.vectis.backend.dto.MovementRequest;
 import com.vectis.backend.dto.MovementResponse;
@@ -21,6 +23,7 @@ import com.vectis.backend.repository.CategoryRepository;
 import com.vectis.backend.repository.CreditCardRepository;
 import com.vectis.backend.repository.TransactionRepository;
 import lombok.RequiredArgsConstructor;
+import lombok.extern.slf4j.Slf4j;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.PageRequest;
 import org.springframework.data.domain.Pageable;
@@ -36,8 +39,10 @@ import java.time.format.TextStyle;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Locale;
+import java.util.Objects;
 import java.util.UUID;
 
+@Slf4j
 @Service
 @RequiredArgsConstructor
 @Transactional
@@ -50,6 +55,8 @@ public class TransactionService {
     private final TransactionMapper transactionMapper;
     private final InstallmentCalculator installmentCalculator;
     private final MonthPeriodService monthPeriodService;
+    private final MacroDataService macroDataService;
+    private final BalanceService balanceService;
 
     @Transactional(readOnly = true)
     public PageResponse<MovementResponse> search(UUID userId, LocalDate from, LocalDate to,
@@ -87,15 +94,9 @@ public class TransactionService {
     public List<MovementResponse> create(MovementRequest request, User user) {
         validateSinglePaymentMethod(request.accountId(), request.cardId());
 
-        LocalDate refDate = request.transactionDate();
-        if (!monthPeriodService.isOpen(user.getId(), refDate.getYear(), refDate.getMonthValue())) {
-            String monthName = refDate.getMonth().getDisplayName(TextStyle.FULL, Locale.of("es"));
-            throw new VectisException(
-                    "El mes " + monthName + " " + refDate.getYear() + " está cerrado. Reabrilo para registrar movimientos.",
-                    HttpStatus.CONFLICT);
-        }
+        assertMonthOpen(request.transactionDate(), user.getId(), "registrar movimientos");
 
-        Category category = resolveCategory(request.categoryId(), user);
+        Category category = resolveCategory(request.categoryId(), request.type(), user);
         Account account   = resolveAccount(request.accountId(), user);
         CreditCard card   = resolveCard(request.cardId(), user);
 
@@ -113,9 +114,17 @@ public class TransactionService {
                     .get(0).dueDate()
                 : request.transactionDate();
 
+        TransactionType type = TransactionType.valueOf(request.type());
+        if (account != null && type == TransactionType.EXPENSE) {
+            BigDecimal projected = balanceService.currentBalance(account, user.getId()).subtract(request.amount());
+            assertSufficientFunds(account, projected);
+        }
+
+        BigDecimal rateAtTime = captureCurrentRate();
+
         Transaction tx = Transaction.builder()
                 .user(user)
-                .type(TransactionType.valueOf(request.type()))
+                .type(type)
                 .description(request.description())
                 .amount(request.amount())
                 .ccy(request.ccy())
@@ -125,6 +134,7 @@ public class TransactionService {
                 .transactionDate(request.transactionDate())
                 .dueDate(dueDate)
                 .installment(false)
+                .exchangeRateAtTime(rateAtTime)
                 .build();
 
         return List.of(transactionMapper.toResponse(transactionRepository.save(tx)));
@@ -144,6 +154,8 @@ public class TransactionService {
         List<InstallmentCalculator.Installment> parts = installmentCalculator.split(
                 request.amount(), request.transactionDate(), card.getClosingDay(), card.getDueDay(), n);
 
+        BigDecimal rateAtTime = captureCurrentRate();
+
         List<Transaction> toSave = new ArrayList<>(n);
         for (InstallmentCalculator.Installment part : parts) {
             toSave.add(Transaction.builder()
@@ -161,6 +173,7 @@ public class TransactionService {
                     .installmentNumber(part.number())
                     .totalInstallments(n)
                     .installmentGroupId(groupId)
+                    .exchangeRateAtTime(rateAtTime)
                     .build());
         }
 
@@ -173,6 +186,7 @@ public class TransactionService {
         Transaction tx = transactionRepository.findByIdAndDeletedAtIsNull(id)
                 .orElseThrow(() -> new TransactionNotFoundException(id));
         requireOwnership(tx, user, "modificar");
+        assertNotInvestmentLinked(tx, "modificar");
 
         if (tx.isInstallment()) {
             throw new VectisException("Las cuotas no se editan individualmente; eliminá el grupo y volvé a cargarlo",
@@ -184,11 +198,32 @@ public class TransactionService {
 
         validateSinglePaymentMethod(request.accountId(), request.cardId());
 
-        Category category = resolveCategory(request.categoryId(), user);
+        // El registro ya pertenece a un mes cerrado, o se lo quiere mover a uno: ambos casos bloqueados,
+        // igual que create() — un mes cerrado debe quedar inmutable (ver InvestmentService para el mismo criterio).
+        assertMonthOpen(tx.getTransactionDate(), user.getId(), "modificar movimientos");
+        assertMonthOpen(request.transactionDate(), user.getId(), "modificar movimientos");
+
+        UUID oldAccountId = tx.getAccount() != null ? tx.getAccount().getId() : null;
+        TransactionType oldType = tx.getType();
+        BigDecimal oldAmount = tx.getAmount();
+
+        Category category = resolveCategory(request.categoryId(), request.type(), user);
         Account account   = resolveAccount(request.accountId(), user);
         CreditCard card   = resolveCard(request.cardId(), user);
 
-        tx.setType(TransactionType.valueOf(request.type()));
+        TransactionType newType = TransactionType.valueOf(request.type());
+        if (account != null && newType == TransactionType.EXPENSE) {
+            BigDecimal balance = balanceService.currentBalance(account, user.getId());
+            boolean sameAccount = Objects.equals(oldAccountId, account.getId());
+            if (sameAccount && oldType == TransactionType.EXPENSE) {
+                balance = balance.add(oldAmount);
+            } else if (sameAccount && oldType == TransactionType.INCOME) {
+                balance = balance.subtract(oldAmount);
+            }
+            assertSufficientFunds(account, balance.subtract(request.amount()));
+        }
+
+        tx.setType(newType);
         tx.setDescription(request.description());
         tx.setAmount(request.amount());
         tx.setCcy(request.ccy());
@@ -207,8 +242,13 @@ public class TransactionService {
             throw new VectisException("Grupo de cuotas no encontrado: " + groupId, HttpStatus.NOT_FOUND);
         }
         requireOwnership(group.get(0), user, "modificar");
+        // Defensivo: hoy las transacciones de inversión nunca setean installmentGroupId (sólo las cuotas
+        // de tarjeta lo hacen), así que este grupo no debería contener ninguna. Igual se chequea para no
+        // depender de ese invariante tácito entre módulos si algún flujo futuro lo rompiera.
+        assertNotInvestmentLinked(group.get(0), "modificar");
 
-        Category category = resolveCategory(request.categoryId(), user);
+        // Los planes de cuotas sólo se generan para egresos (ver createInstallmentPlan).
+        Category category = resolveCategory(request.categoryId(), TransactionType.EXPENSE.name(), user);
 
         for (Transaction tx : group) {
             tx.setDescription(request.description() + " — cuota "
@@ -225,6 +265,9 @@ public class TransactionService {
         Transaction tx = transactionRepository.findByIdAndDeletedAtIsNull(id)
                 .orElseThrow(() -> new TransactionNotFoundException(id));
         requireOwnership(tx, user, "eliminar");
+        assertNotInvestmentLinked(tx, "eliminar");
+
+        assertMonthOpen(tx.getTransactionDate(), user.getId(), "eliminar movimientos");
 
         OffsetDateTime now = OffsetDateTime.now(ZoneOffset.UTC);
 
@@ -264,14 +307,59 @@ public class TransactionService {
         }
     }
 
+    /**
+     * Bloquea la edición/borrado de transacciones generadas por el motor de inversiones (suscripción,
+     * rescate, cupón, amortización, cobro). El movimiento de inversión es la fuente de verdad y mantiene
+     * su transacción contable sincronizada; borrarla o editarla suelta desde acá dejaría el movimiento
+     * vivo en Inversiones pero fuera del cashflow (drift). Se gestionan solo desde la sección Inversiones.
+     */
+    private void assertNotInvestmentLinked(Transaction tx, String action) {
+        if (tx.getInvestmentSourceType() != null) {
+            throw new VectisException(
+                    "No se puede " + action + " un movimiento vinculado a una inversión desde acá; "
+                            + "gestionalo desde la sección Inversiones",
+                    HttpStatus.CONFLICT);
+        }
+    }
+
     private void validateSinglePaymentMethod(UUID accountId, UUID cardId) {
         if (accountId != null && cardId != null) {
             throw new VectisException("No podés asociar cuenta y tarjeta al mismo tiempo", HttpStatus.BAD_REQUEST);
         }
     }
 
-    private Category resolveCategory(UUID categoryId, User user) {
-        if (categoryId == null) return null;
+    private void assertMonthOpen(LocalDate date, UUID userId, String action) {
+        if (!monthPeriodService.isOpen(userId, date.getYear(), date.getMonthValue())) {
+            String monthName = date.getMonth().getDisplayName(TextStyle.FULL, Locale.of("es"));
+            throw new VectisException(
+                    "El mes " + monthName + " " + date.getYear() + " está cerrado. Reabrilo para " + action + ".",
+                    HttpStatus.CONFLICT);
+        }
+    }
+
+    private void assertSufficientFunds(Account account, BigDecimal projectedBalance) {
+        if (account != null && projectedBalance.signum() < 0) {
+            throw new VectisException(
+                    "Fondos insuficientes en la cuenta \"" + account.getName() + "\" para este movimiento",
+                    HttpStatus.UNPROCESSABLE_ENTITY);
+        }
+    }
+
+    /**
+     * Resuelve la categoría de un movimiento. Si no se eligió ninguna, asigna el default de sistema
+     * ("Otros ingresos"/"Otros egresos" según {@code movementType}) en vez de dejar {@code category = null}
+     * — un movimiento sin categoría queda oculto del desglose salvo el caso "Sin categoría" ya soportado
+     * por {@link com.vectis.backend.repository.TransactionRepository#groupByCategory}, pero preferimos no
+     * seguir generando movimientos nuevos así.
+     */
+    private Category resolveCategory(UUID categoryId, String movementType, User user) {
+        if (categoryId == null) {
+            CategoryType type = CategoryType.valueOf(movementType);
+            return categoryRepository.findByTypeAndIsUncategorizedDefaultTrue(type)
+                    .orElseThrow(() -> new VectisException(
+                            "No se encontró la categoría por defecto para " + movementType,
+                            HttpStatus.INTERNAL_SERVER_ERROR));
+        }
         Category cat = categoryRepository.findById(categoryId)
                 .orElseThrow(() -> new VectisException("Categoría no encontrada: " + categoryId, HttpStatus.NOT_FOUND));
         if (cat.getUser() != null && !cat.getUser().getId().equals(user.getId())) {
@@ -309,5 +397,18 @@ public class TransactionService {
     /** Convierte un String normalizado a TransactionType, o null si el filtro es vacío. */
     private static TransactionType parseType(String type) {
         return type == null ? null : TransactionType.valueOf(type);
+    }
+
+    private BigDecimal captureCurrentRate() {
+        try {
+            ExchangeRateResponse rate = macroDataService.getLatestOficialRate();
+            if (rate == null || rate.sell() == null) return null;
+            return new BigDecimal(rate.sell());
+        } catch (VectisException e) {
+            // Solo se captura VectisException (cotizacion no disponible en DB).
+            // DataAccessException u otras excepciones de infraestructura deben propagarse.
+            log.warn("No se pudo capturar cotizacion al crear transaccion: {}", e.getMessage());
+            return null;
+        }
     }
 }

@@ -30,7 +30,7 @@ public record MovementRequest(
         @Pattern(regexp = "^(INCOME|EXPENSE)$", message = "El tipo debe ser INCOME o EXPENSE")
         String type,
 
-        @Schema(description = "ID de la categoría asociada (opcional)", example = "3fa85f64-5717-4562-b3fc-2c963f66afa6")
+        @Schema(description = "ID de la categoría asociada. Si se omite, se asigna la categoría default (\"Otros ingresos\"/\"Otros egresos\" según el tipo)", example = "3fa85f64-5717-4562-b3fc-2c963f66afa6")
         UUID categoryId,
 
         @Schema(description = "ID de la cuenta asociada (opcional, excluyente con cardId)", example = "3fa85f64-5717-4562-b3fc-2c963f66afa6")

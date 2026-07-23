@@ -185,7 +185,6 @@
               <div class="cfg-field">
                 <label class="cfg-label" for="mv-cat-g">Categoría</label>
                 <select id="mv-cat-g" class="text-input" formControlName="categoryId">
-                  <option [ngValue]="null">Sin categoría</option>
                   @for (c of formCategories(); track c.id) {
                     <option [ngValue]="c.id">{{ c.name }}</option>
                   }
@@ -270,7 +269,6 @@
                   <div class="cfg-field">
                     <label class="cfg-label" for="mv-cat">Categoría</label>
                     <select id="mv-cat" class="text-input" formControlName="categoryId">
-                      <option [ngValue]="null">Sin categoría</option>
                       @for (c of formCategories(); track c.id) {
                         <option [ngValue]="c.id">{{ c.name }}</option>
                       }

@@ -4,10 +4,12 @@ import com.vectis.backend.domain.entity.Account;
 import com.vectis.backend.dto.AccountResponse;
 import org.springframework.stereotype.Component;
 
+import java.math.BigDecimal;
+
 @Component
 public class AccountMapper {
 
-    public AccountResponse toResponse(Account account) {
+    public AccountResponse toResponse(Account account, BigDecimal derivedTna) {
         return AccountResponse.builder()
                 .id(account.getId())
                 .name(account.getName())
@@ -16,8 +18,8 @@ public class AccountMapper {
                 .ccy(account.getCcy())
                 .balance(account.getBalance())
                 .computedBalance(null)
-                .remunerada(account.isRemunerada())
-                .tna(account.getTna())
+                .remunerada(derivedTna != null)
+                .tna(derivedTna)
                 .includeInCashflow(account.isIncludeInCashflow())
                 .createdAt(account.getCreatedAt())
                 .updatedAt(account.getUpdatedAt())

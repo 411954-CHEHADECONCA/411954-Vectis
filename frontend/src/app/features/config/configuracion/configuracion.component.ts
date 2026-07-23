@@ -16,7 +16,7 @@ import { NgTemplateOutlet } from '@angular/common';
 import { HttpErrorResponse } from '@angular/common/http';
 import { toSignal } from '@angular/core/rxjs-interop';
 import { ActivatedRoute } from '@angular/router';
-import { take } from 'rxjs';
+import { take, catchError, finalize, of } from 'rxjs';
 import {
   LucidePlus,
   LucidePencil,
@@ -44,6 +44,7 @@ import {
   LucideDumbbell,
   LucideCircle,
   LucideDollarSign,
+  LucidePieChart,
 } from '@lucide/angular';
 import { CategoryService } from '../../../core/services/category.service';
 import { AccountService } from '../../../core/services/account.service';
@@ -71,10 +72,14 @@ import {
   RecurringMovementRequest,
   RecurringMovementResponse,
 } from '../../../core/models/recurring-movement.models';
+import { MacroService } from '../../../core/services/macro.service';
+import { InvestmentService } from '../../../core/services/investment.service';
+import { ExchangeRateResponse, InflationResponse } from '../../../core/models/macro.models';
+import { MarketApiStatus } from '../../../core/models/investment.models';
 
 // ── Local types ───────────────────────────────────────────────────────────────
 
-export type Tab = 'cuentas' | 'tarjetas' | 'categorias' | 'recurrentes';
+export type Tab = 'cuentas' | 'tarjetas' | 'categorias' | 'recurrentes' | 'api';
 
 export type ModalKind = 'account' | 'card' | 'category' | 'recurring';
 export type ModalMode = 'create' | 'edit' | 'delete';
@@ -135,7 +140,7 @@ export const CARD_PALETTE = [
     LucideUtensils, LucideCar, LucideZap, LucideRepeat, LucideMusic,
     LucideHeart, LucideBook, LucideShirt, LucideHome, LucideBriefcase,
     LucideMonitor, LucideTrendingUp, LucideArrowRightLeft, LucideDumbbell, LucideCircle,
-    LucideDollarSign,
+    LucideDollarSign, LucidePieChart,
   ],
 })
 export class ConfiguracionComponent implements OnInit {
@@ -144,6 +149,8 @@ export class ConfiguracionComponent implements OnInit {
   private readonly creditCardService        = inject(CreditCardService);
   private readonly recurringMovementService = inject(RecurringMovementService);
   private readonly route                    = inject(ActivatedRoute);
+  private readonly macroService             = inject(MacroService);
+  private readonly investmentService        = inject(InvestmentService);
 
   // ── Exposed constants ─────────────────────────────────────────────────────
   readonly categoryIcons = CATEGORY_ICONS;
@@ -187,12 +194,30 @@ export class ConfiguracionComponent implements OnInit {
   recurringLoading    = signal(false);
   recurringError      = signal<string | null>(null);
 
+  // ── Macro data (API Control tab) ──────────────────────────────────────────
+  // oficialRate / mepRate / apiStatus son señales inscribibles (en vez de toSignal
+  // de un solo disparo) porque el refresh on-demand del mercado necesita poder
+  // recargarlas después de POST /investments/market/refresh.
+  oficialRate = signal<ExchangeRateResponse | null>(null);
+  mepRate     = signal<ExchangeRateResponse | null>(null);
+  apiStatus   = signal<MarketApiStatus | null>(null);
+
+  readonly inflation = toSignal<InflationResponse | null>(
+    this.macroService.getLatestInflation().pipe(catchError(() => of(null))),
+    { initialValue: null },
+  );
+
+  // ── Refresh on-demand de mercado (Dólar Oficial, MEP, FCI, PPI) ─────────────
+  marketRefreshing = signal(false);
+  marketRefreshFeedback = signal<{ tone: 'success' | 'error'; text: string } | null>(null);
+
   // ── Tab defs (for template loop) ──────────────────────────────────────────
   tabDefs = computed(() => [
-    { id: 'cuentas'     as Tab, label: 'Cuentas bancarias',      count: this.accounts().length            },
-    { id: 'tarjetas'    as Tab, label: 'Tarjetas de crédito',    count: this.cards().length               },
-    { id: 'categorias'  as Tab, label: 'Categorías',             count: this.categories().length          },
-    { id: 'recurrentes' as Tab, label: 'Movimientos recurrentes', count: this.recurringMovements().length  },
+    { id: 'cuentas'     as Tab, label: 'Cuentas bancarias',       count: this.accounts().length           as number | null },
+    { id: 'tarjetas'    as Tab, label: 'Tarjetas de crédito',     count: this.cards().length              as number | null },
+    { id: 'categorias'  as Tab, label: 'Categorías',              count: this.categories().length         as number | null },
+    { id: 'recurrentes' as Tab, label: 'Movimientos recurrentes', count: this.recurringMovements().length as number | null },
+    { id: 'api'         as Tab, label: 'API Control',             count: null                             as number | null },
   ]);
 
   // ── Modal ─────────────────────────────────────────────────────────────────
@@ -213,8 +238,6 @@ export class ConfiguracionComponent implements OnInit {
     detail:            new FormControl('',    { nonNullable: true }),
     ccy:               new FormControl<AccountCcy>('ARS', { nonNullable: true }),
     balance:           new FormControl(0,     { nonNullable: true }),
-    remunerada:        new FormControl(false, { nonNullable: true }),
-    tna:               new FormControl<number | null>(null),
     includeInCashflow: new FormControl(true,  { nonNullable: true }),
   });
 
@@ -282,6 +305,7 @@ export class ConfiguracionComponent implements OnInit {
       color:           (v.color as string)         || '#52eacd',
       type:            (v.type  as CategoryType)   || 'EXPENSE',
       isDefault:       false,
+      isUncategorizedDefault: false,
       estimatedAmount: null,
     };
   });
@@ -292,11 +316,58 @@ export class ConfiguracionComponent implements OnInit {
     this.loadCards();
     this.loadCategories();
     this.loadRecurringMovements();
+    this.loadOficialRate();
+    this.loadMepRate();
+    this.loadApiStatus();
     // Navegación desde /tarjetas → "Agregar tarjeta"
     this.route.queryParams.pipe(take(1)).subscribe(params => {
       if (params['tab']) this.setTab(params['tab'] as Tab);
       if (params['modal'] === 'create-card') this.openCreateCard();
     });
+  }
+
+  loadOficialRate(): void {
+    this.macroService.getLatestOficialRate().pipe(catchError(() => of(null)))
+      .subscribe(r => this.oficialRate.set(r));
+  }
+
+  loadMepRate(): void {
+    this.macroService.getLatestMepRate().pipe(catchError(() => of(null)))
+      .subscribe(r => this.mepRate.set(r));
+  }
+
+  loadApiStatus(): void {
+    this.investmentService.getMarketApiStatus().pipe(catchError(() => of(null)))
+      .subscribe(s => this.apiStatus.set(s));
+  }
+
+  /** Refresh on-demand (forzado) disparado desde la sección "Mercado de inversiones". */
+  refreshMarketData(): void {
+    if (this.marketRefreshing()) return;
+    this.marketRefreshing.set(true);
+    this.marketRefreshFeedback.set(null);
+    this.investmentService.refreshMarketData(true)
+      .pipe(
+        catchError((err: HttpErrorResponse) => {
+          this.marketRefreshFeedback.set({
+            tone: 'error',
+            text: err.error?.message ?? 'No se pudo actualizar el mercado',
+          });
+          return of(null);
+        }),
+        finalize(() => this.marketRefreshing.set(false)),
+      )
+      .subscribe(res => {
+        if (!res) return;
+        if (res.sources.every(s => s.status === 'alreadyRunning')) {
+          this.marketRefreshFeedback.set({ tone: 'success', text: 'Ya hay una actualización en curso' });
+          return;
+        }
+        this.marketRefreshFeedback.set({ tone: 'success', text: 'Datos de mercado actualizados' });
+        this.loadApiStatus();
+        this.loadOficialRate();
+        this.loadMepRate();
+      });
   }
 
   loadAccounts(): void {
@@ -344,7 +415,7 @@ export class ConfiguracionComponent implements OnInit {
 
   // ── Account CRUD ──────────────────────────────────────────────────────────
   openCreateAccount(): void {
-    this.accountForm.reset({ name: '', kind: 'Banco', detail: '', ccy: 'ARS', balance: 0, remunerada: false, tna: null, includeInCashflow: true });
+    this.accountForm.reset({ name: '', kind: 'Banco', detail: '', ccy: 'ARS', balance: 0, includeInCashflow: true });
     this.formError.set(null);
     this.modal.set({ kind: 'account', mode: 'create' });
   }
@@ -352,7 +423,7 @@ export class ConfiguracionComponent implements OnInit {
   openEditAccount(a: AccountResponse): void {
     this.accountForm.setValue({
       name: a.name, kind: a.kind, detail: a.detail ?? '',
-      ccy: a.ccy, balance: a.balance, remunerada: a.remunerada, tna: a.tna,
+      ccy: a.ccy, balance: a.balance,
       includeInCashflow: a.includeInCashflow ?? true,
     });
     this.formError.set(null);
@@ -686,6 +757,16 @@ export class ConfiguracionComponent implements OnInit {
 
   fmtARS(value: number): string {
     return `$ ${Math.round(value).toLocaleString('es-AR')}`;
+  }
+
+  fmtRate(s: string): string {
+    const n = parseFloat(s);
+    return isFinite(n) ? n.toLocaleString('es-AR', { minimumFractionDigits: 2, maximumFractionDigits: 2 }) : s;
+  }
+
+  fmtIsoDate(s: string): string {
+    const [y, m, d] = s.split('-');
+    return `${d}/${m}/${y}`;
   }
 
   cardGradient(accent: string): string {

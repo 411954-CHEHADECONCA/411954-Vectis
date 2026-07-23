@@ -1,0 +1,42 @@
+spring:
+  autoconfigure:
+    exclude:
+      - org.springframework.boot.actuate.autoconfigure.mail.MailHealthContributorAutoConfiguration
+
+  datasource:
+    url: jdbc:h2:mem:vectis_test;DB_CLOSE_DELAY=-1;DB_CLOSE_ON_EXIT=FALSE;INIT=CREATE SCHEMA IF NOT EXISTS PUBLIC
+    driver-class-name: org.h2.Driver
+    username: sa
+    password:
+  jpa:
+    hibernate:
+      ddl-auto: create-drop
+    database-platform: org.hibernate.dialect.H2Dialect
+    properties:
+      hibernate:
+        # Pisa explícitamente spring.jpa.properties.hibernate.dialect=PostgreSQLDialect de
+        # application.yml (misma ruta de propiedad) — sin esto, "database-platform" de arriba no
+        # alcanza a sobreescribirlo (Spring solo lo aplica si la propiedad no está ya seteada), y
+        # Hibernate termina generando SQL Postgres-específico (p. ej. "FOR NO KEY UPDATE" en locks
+        # pesimistas) contra el motor H2, que lo rechaza.
+        dialect: org.hibernate.dialect.H2Dialect
+        # NO se activa globally_quoted_identifiers acá: MonthPeriod.year/month ya se citan puntualmente
+        # a nivel de columna (@Column(name = "`year`")) para esquivar los built-ins de H2 (YEAR()/MONTH())
+        # sin forzar el case-folding de identificadores sin comillas en TODO el esquema — eso rompía
+        # queries nativas escritas sin comillas (ver FciVcpSnapshotRepositoryTest, que ya no necesita
+        # su propio contexto aislado gracias a este cambio).
+        default_schema: PUBLIC
+  flyway:
+    enabled: false
+
+jwt:
+  secret: test-secret-key-must-be-at-least-32-chars-long!!
+  expiration: 900000
+  refresh-expiration: 604800000
+
+cors:
+  allowed-origins: http://localhost:4200
+
+app:
+  mail:
+    from: test@vectis.test

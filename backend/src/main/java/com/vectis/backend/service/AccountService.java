@@ -1,6 +1,8 @@
 package com.vectis.backend.service;
 
 import com.vectis.backend.domain.entity.Account;
+import com.vectis.backend.domain.entity.InvestmentAssetStatus;
+import com.vectis.backend.domain.entity.InvestmentAssetType;
 import com.vectis.backend.domain.entity.User;
 import com.vectis.backend.dto.AccountBalanceResponse;
 import com.vectis.backend.dto.AccountRequest;
@@ -9,6 +11,7 @@ import com.vectis.backend.exception.AccountNotFoundException;
 import com.vectis.backend.exception.VectisException;
 import com.vectis.backend.mapper.AccountMapper;
 import com.vectis.backend.repository.AccountRepository;
+import com.vectis.backend.repository.InvestmentRepository;
 import lombok.RequiredArgsConstructor;
 import org.springframework.http.HttpStatus;
 import org.springframework.stereotype.Service;
@@ -16,8 +19,12 @@ import org.springframework.transaction.annotation.Transactional;
 
 import java.math.BigDecimal;
 import java.time.LocalDate;
+import java.util.Comparator;
 import java.util.List;
+import java.util.Map;
 import java.util.UUID;
+import java.util.function.BinaryOperator;
+import java.util.stream.Collectors;
 
 @Service
 @RequiredArgsConstructor
@@ -27,12 +34,22 @@ public class AccountService {
     private final AccountRepository accountRepository;
     private final AccountMapper accountMapper;
     private final BalanceService balanceService;
+    private final InvestmentRepository investmentRepository;
 
     @Transactional(readOnly = true)
     public List<AccountResponse> getAccounts(UUID userId) {
+        Map<UUID, BigDecimal> tnaByAccountId = investmentRepository.findFciLinksByUser(userId).stream()
+                .collect(Collectors.toMap(
+                        InvestmentRepository.FciAccountLinkView::getAccountId,
+                        link -> link,
+                        BinaryOperator.maxBy(Comparator.comparing(InvestmentRepository.FciAccountLinkView::getCreatedAt))
+                ))
+                .entrySet().stream()
+                .collect(Collectors.toMap(Map.Entry::getKey, e -> e.getValue().getTna()));
+
         return accountRepository.findAllByUser_IdOrderByCreatedAtAsc(userId)
                 .stream()
-                .map(a -> withComputedBalance(a, userId))
+                .map(a -> withComputedBalance(a, userId, tnaByAccountId.get(a.getId())))
                 .toList();
     }
 
@@ -64,13 +81,11 @@ public class AccountService {
                 .detail(request.detail())
                 .ccy(request.ccy())
                 .balance(request.balance())
-                .remunerada(Boolean.TRUE.equals(request.remunerada()))
-                .tna(request.tna())
                 .includeInCashflow(request.includeInCashflow())
                 .build();
 
         Account saved = accountRepository.save(account);
-        return withComputedBalance(saved, user.getId());
+        return withComputedBalance(saved, user.getId(), derivedTna(saved.getId()));
     }
 
     public AccountResponse updateAccount(UUID id, AccountRequest request, User user) {
@@ -86,12 +101,17 @@ public class AccountService {
         account.setDetail(request.detail());
         account.setCcy(request.ccy());
         account.setBalance(request.balance());
-        account.setRemunerada(Boolean.TRUE.equals(request.remunerada()));
-        account.setTna(request.tna());
         account.setIncludeInCashflow(request.includeInCashflow());
 
         Account saved = accountRepository.save(account);
-        return withComputedBalance(saved, user.getId());
+        return withComputedBalance(saved, user.getId(), derivedTna(saved.getId()));
+    }
+
+    private BigDecimal derivedTna(UUID accountId) {
+        return investmentRepository.findTopByAccount_IdAndTypeAndStatusOrderByCreatedAtDesc(
+                        accountId, InvestmentAssetType.FCI, InvestmentAssetStatus.ACTIVA)
+                .map(com.vectis.backend.domain.entity.InvestmentAsset::getTna)
+                .orElse(null);
     }
 
     public void deleteAccount(UUID id, User user) {
@@ -105,8 +125,8 @@ public class AccountService {
         accountRepository.delete(account);
     }
 
-    private AccountResponse withComputedBalance(Account account, UUID userId) {
-        AccountResponse base = accountMapper.toResponse(account);
+    private AccountResponse withComputedBalance(Account account, UUID userId, BigDecimal derivedTna) {
+        AccountResponse base = accountMapper.toResponse(account, derivedTna);
         BigDecimal computed = balanceService.currentBalance(account, userId);
         return AccountResponse.builder()
                 .id(base.id())

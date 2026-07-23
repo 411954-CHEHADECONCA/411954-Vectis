@@ -40,19 +40,33 @@ public interface TransactionRepository extends JpaRepository<Transaction, UUID> 
     /**
      * Suma de montos agrupada por categoría para un tipo (INCOME/EXPENSE) y período.
      * Criterio de fecha idéntico al de {@link #search}: tarjeta por dueDate, cuenta por transactionDate.
+     *
+     * <p>Excluye explícitamente las transacciones vinculadas a un activo de inversión
+     * ({@code investmentAsset IS NOT NULL}), aunque tengan una categoría asignada manualmente
+     * (p. ej. editada desde Movimientos): esas ya se contabilizan en la sección de inversiones del
+     * cashflow (SUSCRIPCION) o como ingreso sintético "Rescates de inversión" (RESCATE) — sin este
+     * filtro, asignarles categoría las duplicaría en ambas secciones.
+     *
+     * <p>{@code category} es un {@code @ManyToOne} opcional (el formulario de Movimientos deja
+     * "Sin categoría" como estado válido): un {@code LEFT JOIN} + {@code COALESCE} agrupa esas
+     * transacciones sin categoría en una fila propia en vez de excluirlas — el {@code INNER JOIN}
+     * implícito que generaba navegar {@code t.category.id} directamente en el SELECT las hacía
+     * desaparecer del desglose (aunque sí sumaban al saldo real de la cuenta).
      */
     @Query("""
-        SELECT t.category.id     AS categoryId,
-               t.category.name   AS categoryName,
-               t.category.icon   AS categoryIcon,
-               t.category.color  AS categoryColor,
-               SUM(t.amount)     AS totalAmount
+        SELECT c.id                                AS categoryId,
+               COALESCE(c.name, 'Sin categoría')    AS categoryName,
+               COALESCE(c.icon, 'circle')           AS categoryIcon,
+               COALESCE(c.color, '#9ed1c5')         AS categoryColor,
+               SUM(t.amount)                        AS totalAmount
         FROM Transaction t
+        LEFT JOIN t.category c
         WHERE t.user.id = :userId AND t.deletedAt IS NULL AND t.type = :type
           AND t.transferGroupId IS NULL
+          AND t.investmentAsset IS NULL
           AND ((t.card IS NOT NULL AND t.dueDate         BETWEEN :from AND :to)
             OR (t.card IS NULL    AND t.transactionDate  BETWEEN :from AND :to))
-        GROUP BY t.category.id, t.category.name, t.category.icon, t.category.color
+        GROUP BY c.id, c.name, c.icon, c.color
         ORDER BY SUM(t.amount) DESC
         """)
     List<CategorySummaryProjection> groupByCategory(@Param("userId") UUID userId,
@@ -61,6 +75,46 @@ public interface TransactionRepository extends JpaRepository<Transaction, UUID> 
                                                     @Param("to") LocalDate to);
 
     Optional<Transaction> findByIdAndDeletedAtIsNull(UUID id);
+
+    /** Transacciones vinculadas a un activo de inversión (para bloquear/revertir al eliminar). */
+    List<Transaction> findAllByInvestmentAsset_IdAndDeletedAtIsNull(UUID investmentAssetId);
+
+    /** Transacción vinculada a un movimiento puntual de inversión (para sincronizar/revertir al editar o borrar). */
+    Optional<Transaction> findByInvestmentMovement_IdAndDeletedAtIsNull(UUID investmentMovementId);
+
+    /**
+     * Transacciones de inversión (suscripción/rescate/cobro) del período, con su activo ya cargado
+     * (evita N+1 al agrupar por activo en {@link com.vectis.backend.service.CashflowService}).
+     * Incluye COLLECTION_CAPITAL/COLLECTION_YIELD para que el cobro de una inversión impacte el
+     * cashflow del mes en que se cobró (ver {@link com.vectis.backend.service.InvestmentService#collectInvestment}).
+     *
+     * <p>Un activo borrado deja {@code investmentAsset = NULL} vía {@code ON DELETE SET NULL}, pero
+     * {@code investmentSourceType} sobrevive intacto. Estas huérfanas se incluyen acá <b>solo si nunca
+     * tuvieron categoría asignada</b> ({@code category IS NULL}) — si el usuario ya le puso una
+     * categoría manualmente (p. ej. transacciones viejas de antes de vincular inversión↔cuenta), esa
+     * transacción ya la recupera {@link #groupByCategory} por su categoría, y contarla acá también la
+     * duplicaría en el cashflow. Sin este resguardo, una huérfana categorizada aparecería dos veces:
+     * una vez en "Otros ingresos/egresos" y otra en "Cobro de inversión (…)" o "Destinado a
+     * inversiones" (ver {@link com.vectis.backend.service.CashflowService#buildInvestmentSection}).
+     */
+    @EntityGraph(attributePaths = {"investmentAsset"})
+    @Query("""
+        SELECT t FROM Transaction t
+        WHERE t.user.id = :userId AND t.deletedAt IS NULL
+          AND t.investmentSourceType IN (
+              com.vectis.backend.domain.entity.InvestmentSourceType.SUSCRIPCION,
+              com.vectis.backend.domain.entity.InvestmentSourceType.RESCATE,
+              com.vectis.backend.domain.entity.InvestmentSourceType.COLLECTION_CAPITAL,
+              com.vectis.backend.domain.entity.InvestmentSourceType.COLLECTION_YIELD,
+              com.vectis.backend.domain.entity.InvestmentSourceType.COUPON_RENT,
+              com.vectis.backend.domain.entity.InvestmentSourceType.AMORTIZATION)
+          AND (t.investmentAsset IS NOT NULL OR t.category IS NULL)
+          AND t.transactionDate BETWEEN :from AND :to
+        ORDER BY t.investmentAsset.id
+        """)
+    List<Transaction> findInvestmentTransactionsForCashflow(@Param("userId") UUID userId,
+                                                            @Param("from") LocalDate from,
+                                                            @Param("to") LocalDate to);
 
     /**
      * Deletes all projected transactions for a user within a date range.

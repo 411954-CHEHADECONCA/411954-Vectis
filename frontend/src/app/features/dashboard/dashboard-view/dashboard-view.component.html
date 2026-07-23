@@ -1,158 +1,268 @@
 <div class="dashboard-content">
 
-  <!-- ── Stat cards ──────────────────────────────────────────────────────────── -->
-  <div class="stat-grid">
-
-    <div class="stat-card">
-      <div class="stat-card__header">
-        <span class="stat-card__label">Patrimonio neto</span>
-        <svg class="stat-card__icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" aria-hidden="true">
-          <path d="M21 12a2.25 2.25 0 00-2.25-2.25H15a3 3 0 11-6 0H5.25A2.25 2.25 0 003 12m18 0v6a2.25 2.25 0 01-2.25 2.25H5.25A2.25 2.25 0 013 18v-6m18 0V9M3 12V9m18-3H3m15.75 0a.75.75 0 11-1.5 0 .75.75 0 011.5 0zm-13.5 0a.75.75 0 11-1.5 0 .75.75 0 011.5 0z" stroke-linecap="round" stroke-linejoin="round"/>
-        </svg>
-      </div>
-      <div class="stat-card__value-row">
-        <span class="stat-card__currency">{{ currencyService.symbol() }}</span>
-        <span class="stat-card__value">{{ fmt(totalAssets) }}</span>
-      </div>
-      <div class="stat-card__footer">
-        <span class="stat-card__delta stat-card__delta--up">
-          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" aria-hidden="true"><path d="M12 19V5M5 12l7-7 7 7" stroke-linecap="round" stroke-linejoin="round"/></svg>
-          4,2%
-        </span>
-        <span class="stat-card__caption">vs. mes anterior</span>
-      </div>
+  @if (loading()) {
+    <!-- ── Skeleton de carga ─────────────────────────────────────────────────── -->
+    <div class="stat-grid">
+      @for (i of [1, 2, 3, 4]; track i) { <div class="skeleton skeleton--card"></div> }
     </div>
-
-    <div class="stat-card">
-      <div class="stat-card__header">
-        <span class="stat-card__label">Ingresos del mes</span>
-      </div>
-      <div class="stat-card__value-row">
-        <span class="stat-card__currency">{{ currencyService.symbol() }}</span>
-        <span class="stat-card__value">{{ fmt(monthlyIncome) }}</span>
-      </div>
-      <div class="stat-card__footer">
-        <span class="stat-card__delta stat-card__delta--up">
-          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" aria-hidden="true"><path d="M12 19V5M5 12l7-7 7 7" stroke-linecap="round" stroke-linejoin="round"/></svg>
-          2,1%
-        </span>
-        <span class="stat-card__caption">junio</span>
-      </div>
+    <div class="skeleton skeleton--panel"></div>
+    <div class="skeleton skeleton--panel"></div>
+  } @else if (loadError()) {
+    <!-- ── Error ─────────────────────────────────────────────────────────────── -->
+    <div class="dashboard-empty">
+      <p class="dashboard-empty__title">No pudimos cargar tu resumen</p>
+      <span class="dashboard-empty__hint">Revisá tu conexión y volvé a intentar en unos segundos.</span>
     </div>
+  } @else {
 
-    <div class="stat-card">
-      <div class="stat-card__header">
-        <span class="stat-card__label">Gastos del mes</span>
-      </div>
-      <div class="stat-card__value-row">
-        <span class="stat-card__currency">{{ currencyService.symbol() }}</span>
-        <span class="stat-card__value">{{ fmt(monthlyExpenses) }}</span>
-      </div>
-      <div class="stat-card__footer">
-        <span class="stat-card__delta stat-card__delta--down">
-          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" aria-hidden="true"><path d="M12 5v14M5 12l7 7 7-7" stroke-linecap="round" stroke-linejoin="round"/></svg>
-          1,8%
-        </span>
-        <span class="stat-card__caption">junio</span>
-      </div>
-    </div>
+    <!-- ── Stat cards ──────────────────────────────────────────────────────────── -->
+    <div class="stat-grid">
 
-    <div class="stat-card">
-      <div class="stat-card__header">
-        <span class="stat-card__label">Tasa real cartera</span>
-      </div>
-      <div class="stat-card__value-row">
-        <span class="stat-card__value">12,4</span>
-        <span class="stat-card__unit">% anual</span>
-      </div>
-      <div class="stat-card__footer">
-        <span class="stat-card__delta stat-card__delta--up">
-          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" aria-hidden="true"><path d="M12 19V5M5 12l7-7 7 7" stroke-linecap="round" stroke-linejoin="round"/></svg>
-          0,6%
-        </span>
-        <span class="stat-card__caption">vs. inflación</span>
-      </div>
-    </div>
-
-  </div>
-
-  <!-- ── Middle panels ───────────────────────────────────────────────────────── -->
-  <div class="panels-grid">
-
-    <!-- Accounts -->
-    <div class="panel">
-      <div class="panel__header">
-        <h3 class="panel__title">Cuentas</h3>
-        <span class="badge badge--accent">{{ accounts.length }} cuentas</span>
-      </div>
-      <div class="account-list">
-        @for (account of accounts; track account.name; let i = $index) {
-          <div class="account-row" [class.account-row--bordered]="i > 0">
-            <div class="account-row__icon">
-              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" aria-hidden="true">
-                <path d="M12 21v-8.25M15.75 21v-8.25M8.25 21v-8.25M3 9l9-6 9 6m-1.5 12V10.332A48.36 48.36 0 0012 9.75c-2.551 0-5.056.2-7.5.582V21M3 21h18M12 6.75h.008v.008H12V6.75z" stroke-linecap="round" stroke-linejoin="round"/>
-              </svg>
-            </div>
-            <span class="account-row__name">{{ account.name }}</span>
-            <span class="badge" [class.badge--accent]="account.currency === 'USD'" [class.badge--neutral]="account.currency !== 'USD'">{{ account.currency }}</span>
-            <span class="account-row__amount">{{ currencyService.symbol() }} {{ fmt(account.ars) }}</span>
-          </div>
-        }
-      </div>
-    </div>
-
-    <!-- Investments -->
-    <div class="panel">
-      <div class="panel__header">
-        <h3 class="panel__title">Inversiones · TEA</h3>
-      </div>
-      <div class="investment-list">
-        @for (inv of investments; track inv.name) {
-          <div class="investment-item">
-            <div class="investment-item__header">
-              <span class="investment-item__name">{{ inv.name }}</span>
-              <span class="investment-item__rate">{{ inv.tea.toLocaleString('es-AR') }}%</span>
-            </div>
-            <div class="progress-track">
-              <div class="progress-fill" [style.width.%]="inv.tea"></div>
-            </div>
-          </div>
-        }
-      </div>
-    </div>
-
-  </div>
-
-  <!-- ── Cash Flow ─────────────────────────────────────────────────────────────── -->
-  <div class="panel">
-    <div class="panel__header">
-      <h3 class="panel__title">Cash Flow reciente</h3>
-      <button class="secondary-btn">
-        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" aria-hidden="true" style="width:16px;height:16px">
-          <path d="M12 4.5v15m7.5-7.5h-15" stroke-linecap="round" stroke-linejoin="round"/>
-        </svg>
-        Registrar movimiento
-      </button>
-    </div>
-    <div class="flow-list">
-      @for (flow of flows; track flow.description; let i = $index) {
-        <div class="flow-row" [class.flow-row--bordered]="i > 0">
-          <span class="flow-row__date">{{ flow.date }}</span>
-          <span class="flow-row__desc">{{ flow.description }}</span>
-          <span class="badge"
-            [class.badge--positive]="flow.type === 'Ingreso'"
-            [class.badge--accent]="flow.type === 'Rendimiento'"
-            [class.badge--neutral]="flow.type === 'Egreso'">
-            {{ flow.type }}
-          </span>
-          <span class="flow-row__amount"
-            [class.flow-row__amount--positive]="flow.ars > 0"
-            [class.flow-row__amount--negative]="flow.ars < 0">
-            {{ flow.ars > 0 ? '+' : '−' }} {{ currencyService.symbol() }} {{ fmt(flow.ars < 0 ? -flow.ars : flow.ars) }}
-          </span>
+      <!-- Patrimonio neto -->
+      <div class="stat-card">
+        <div class="stat-card__header">
+          <span class="stat-card__label">Patrimonio neto</span>
+          <svg class="stat-card__icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" aria-hidden="true">
+            <path d="M21 12a2.25 2.25 0 00-2.25-2.25H15a3 3 0 11-6 0H5.25A2.25 2.25 0 003 12m18 0v6a2.25 2.25 0 01-2.25 2.25H5.25A2.25 2.25 0 013 18v-6m18 0V9M3 12V9m18-3H3m15.75 0a.75.75 0 11-1.5 0 .75.75 0 011.5 0zm-13.5 0a.75.75 0 11-1.5 0 .75.75 0 011.5 0z" stroke-linecap="round" stroke-linejoin="round"/>
+          </svg>
         </div>
+        <div class="stat-card__value-row">
+          <span class="stat-card__currency">{{ currencyService.symbol() }}</span>
+          <span class="stat-card__value">{{ fmt(patrimonioNeto()) }}</span>
+        </div>
+        <div class="stat-card__footer">
+          @if (fmtPct(patrimonioDeltaPct()); as delta) {
+            <span class="stat-card__delta" [class.stat-card__delta--good]="deltaTone(patrimonioDeltaPct()) === 'good'" [class.stat-card__delta--bad]="deltaTone(patrimonioDeltaPct()) === 'bad'">
+              @if (deltaUp(patrimonioDeltaPct())) {
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" aria-hidden="true"><path d="M12 19V5M5 12l7-7 7 7" stroke-linecap="round" stroke-linejoin="round"/></svg>
+              } @else {
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" aria-hidden="true"><path d="M12 5v14M5 12l7 7 7-7" stroke-linecap="round" stroke-linejoin="round"/></svg>
+              }
+              {{ delta }}
+            </span>
+          }
+          <span class="stat-card__caption">resultado del mes</span>
+        </div>
+      </div>
+
+      <!-- Ratio de Cobertura Inmediata -->
+      <div class="stat-card">
+        <div class="stat-card__header">
+          <span class="stat-card__label">Cobertura inmediata</span>
+        </div>
+        <div class="stat-card__value-row">
+          @if (ratioCobertura() !== null) {
+            <span class="stat-card__value" [class.stat-card__value--good]="ratioCoberturaTone() === 'good'" [class.stat-card__value--bad]="ratioCoberturaTone() === 'bad'">{{ fmtPctPlano(ratioCobertura()) }}</span>
+          } @else {
+            <span class="stat-card__value stat-card__value--muted">—</span>
+          }
+        </div>
+        <div class="stat-card__footer">
+          @if (ratioCobertura() !== null) {
+            @if (ratioCoberturaTone() === 'good') {
+              <span class="stat-card__caption">Liquidez cubre el próximo vencimiento</span>
+            } @else {
+              <span class="stat-card__caption stat-card__caption--alert">Rescatá inversiones o esperá ingresos</span>
+            }
+          } @else {
+            <span class="stat-card__caption">Sin vencimientos próximos</span>
+          }
+        </div>
+      </div>
+
+      <!-- Índice de Ingreso Comprometido Futuro -->
+      <div class="stat-card">
+        <div class="stat-card__header">
+          <span class="stat-card__label">Ingreso comprometido</span>
+          <div class="kpi-toggle" role="group" aria-label="Horizonte en meses">
+            @for (n of horizonteOpciones; track n) {
+              <button type="button" class="kpi-toggle__btn" [class.kpi-toggle__btn--active]="horizonteMeses() === n" (click)="setHorizonte(n)">{{ n }}</button>
+            }
+          </div>
+        </div>
+        <div class="stat-card__value-row">
+          @if (ingresoComprometidoPct() !== null) {
+            <span class="stat-card__value" [class.stat-card__value--good]="ingresoComprometidoTone() === 'good'" [class.stat-card__value--warning]="ingresoComprometidoTone() === 'warning'" [class.stat-card__value--bad]="ingresoComprometidoTone() === 'bad'">{{ fmtPctPlano(ingresoComprometidoPct()) }}</span>
+          } @else {
+            <span class="stat-card__value stat-card__value--muted">—</span>
+          }
+        </div>
+        <div class="stat-card__footer">
+          <span class="stat-card__caption">del ingreso a {{ horizonteMeses() }} meses</span>
+        </div>
+      </div>
+
+      <!-- Deuda de tarjetas -->
+      <div class="stat-card">
+        <div class="stat-card__header">
+          <span class="stat-card__label">Deuda de tarjetas</span>
+        </div>
+        <div class="stat-card__value-row">
+          <span class="stat-card__currency">{{ currencyService.symbol() }}</span>
+          <span class="stat-card__value">{{ fmt(deudaTarjetas()) }}</span>
+        </div>
+        <div class="stat-card__footer">
+          @if (proximoVencimiento(); as prox) {
+            <span class="stat-card__caption">Próx: {{ prox.name }} · {{ fmtFecha(prox.date) }}</span>
+          } @else {
+            <span class="stat-card__caption">Sin vencimientos próximos</span>
+          }
+        </div>
+      </div>
+
+    </div>
+
+    <!-- ── Resultado del mes + Cuentas (media pantalla c/u) ────────────────────────── -->
+    <div class="panels-grid">
+
+      <!-- Resultado del mes -->
+      <div class="panel">
+        <div class="panel__header">
+          <h3 class="panel__title">Resultado del mes</h3>
+          @if (periodoLabel()) { <span class="badge badge--neutral">{{ periodoLabel() }}</span> }
+        </div>
+        @if (hasCashflow()) {
+          <div class="result-grid">
+            <div class="result-line">
+              <div class="result-line__head">
+                <span class="result-line__label">Ingresos</span>
+                <span class="result-line__amount result-line__amount--positive">{{ currencyService.symbol() }} {{ fmt(ingresosMes()) }}</span>
+              </div>
+              <div class="progress-track">
+                @if (ingresosPctPpto(); as pct) { <div class="progress-fill" [style.width.%]="pct > 100 ? 100 : pct"></div> }
+              </div>
+              @if (ingresosPctPpto(); as pct) {
+                <span class="result-line__ppto">{{ pct.toLocaleString('es-AR', { maximumFractionDigits: 0 }) }}% del presupuesto</span>
+              }
+            </div>
+
+            <div class="result-line">
+              <div class="result-line__head">
+                <span class="result-line__label">Egresos</span>
+                <span class="result-line__amount result-line__amount--negative">{{ currencyService.symbol() }} {{ fmt(egresosMes()) }}</span>
+              </div>
+              <div class="progress-track">
+                @if (egresosPctPpto(); as pct) { <div class="progress-fill progress-fill--expense" [style.width.%]="pct > 100 ? 100 : pct"></div> }
+              </div>
+              @if (egresosPctPpto(); as pct) {
+                <span class="result-line__ppto">{{ pct.toLocaleString('es-AR', { maximumFractionDigits: 0 }) }}% del presupuesto</span>
+              }
+            </div>
+
+            <div class="result-summary">
+              <div class="result-summary__block">
+                <span class="result-summary__label">Resultado operativo</span>
+                <span class="result-summary__value" [class.result-summary__value--positive]="resultadoMes() >= 0" [class.result-summary__value--negative]="resultadoMes() < 0">
+                  {{ resultadoMes() < 0 ? '−' : '' }}{{ currencyService.symbol() }} {{ fmt(resultadoMes() < 0 ? -resultadoMes() : resultadoMes()) }}
+                </span>
+              </div>
+              <div class="result-summary__block">
+                <span class="result-summary__label">Tasa de ahorro</span>
+                <span class="result-summary__value">{{ tasaAhorroPct().toLocaleString('es-AR', { maximumFractionDigits: 1 }) }}%</span>
+              </div>
+            </div>
+          </div>
+        } @else {
+          <p class="panel-empty">No hay datos de cashflow para el período actual.</p>
+        }
+      </div>
+
+      <!-- Cuentas -->
+      <div class="panel">
+        <div class="panel__header">
+          <h3 class="panel__title">Cuentas</h3>
+          @if (hasAccounts()) {
+            <div class="panel__header-meta">
+              <span class="liquidez-label">Liquidez</span>
+              <span class="liquidez-value">{{ currencyService.symbol() }} {{ fmt(liquidez()) }}</span>
+            </div>
+          }
+        </div>
+        @if (hasAccounts()) {
+          <div class="account-list">
+            @for (account of accountRows(); track account.id; let i = $index) {
+              <div class="account-row" [class.account-row--bordered]="i > 0">
+                <div class="account-row__icon">
+                  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" aria-hidden="true">
+                    <path d="M12 21v-8.25M15.75 21v-8.25M8.25 21v-8.25M3 9l9-6 9 6m-1.5 12V10.332A48.36 48.36 0 0012 9.75c-2.551 0-5.056.2-7.5.582V21M3 21h18M12 6.75h.008v.008H12V6.75z" stroke-linecap="round" stroke-linejoin="round"/>
+                  </svg>
+                </div>
+                <div class="account-row__meta">
+                  <span class="account-row__name">{{ account.name }}</span>
+                  @if (account.remunerada && account.tna !== null) {
+                    <span class="account-row__sub">Remunerada · {{ account.tna.toLocaleString('es-AR', { maximumFractionDigits: 1 }) }}% TNA</span>
+                  }
+                </div>
+                <span class="badge" [class.badge--accent]="account.ccy === 'USD'" [class.badge--neutral]="account.ccy !== 'USD'">{{ account.ccy }}</span>
+                <span class="account-row__amount">{{ symbolOf(account.ccy) }} {{ fmtNativo(account.computedBalance ?? account.balance, account.ccy) }}</span>
+              </div>
+            }
+          </div>
+        } @else {
+          <p class="panel-empty">Configurá tus cuentas para ver saldos, cashflow e inversiones consolidadas.</p>
+        }
+      </div>
+
+    </div>
+
+    <!-- ── Composición de cartera (tabla con variación diaria) ─────────────────────── -->
+    <div class="panel">
+      <div class="panel__header">
+        <h3 class="panel__title">Composición de cartera</h3>
+        @if (hasCartera()) {
+          <span class="daily-total" [class.daily-total--up]="deltaUp(variacionDiariaTotalPct())" [class.daily-total--down]="!deltaUp(variacionDiariaTotalPct())">
+            @if (deltaUp(variacionDiariaTotalPct())) {
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" aria-hidden="true"><path d="M12 19V5M5 12l7-7 7 7" stroke-linecap="round" stroke-linejoin="round"/></svg>
+            } @else {
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" aria-hidden="true"><path d="M12 5v14M5 12l7 7 7-7" stroke-linecap="round" stroke-linejoin="round"/></svg>
+            }
+            <span>Var. diaria {{ currencyService.symbol() }} {{ fmt(variacionDiariaTotal() < 0 ? -variacionDiariaTotal() : variacionDiariaTotal()) }}</span>
+            @if (fmtPct(variacionDiariaTotalPct()); as p) { <span class="daily-total__pct">{{ p }}</span> }
+          </span>
+        }
+      </div>
+      @if (hasCartera()) {
+        <div class="composition-table-wrap">
+          <table class="composition-table">
+            <thead>
+              <tr>
+                <th class="col-name">Instrumento</th>
+                <th class="col-type">Tipo</th>
+                <th class="col-num">Valuación anterior</th>
+                <th class="col-num">Valor actual</th>
+                <th class="col-num">Peso</th>
+                <th class="col-num">Var. diaria</th>
+              </tr>
+            </thead>
+            <tbody>
+              @for (row of filasCartera(); track row.id) {
+                <tr>
+                  <td class="col-name">{{ row.name }}</td>
+                  <td class="col-type"><span class="badge badge--neutral">{{ row.tipo }}</span></td>
+                  <td class="col-num col-prev">{{ currencyService.symbol() }} {{ fmt(row.valorAnterior) }}</td>
+                  <td class="col-num">{{ currencyService.symbol() }} {{ fmt(row.valor) }}</td>
+                  <td class="col-num col-peso">
+                    <div class="peso-cell">
+                      <div class="peso-bar"><div class="peso-fill" [style.width.%]="row.pesoPct"></div></div>
+                      <span>{{ fmtPctPlano(row.pesoPct, row.pesoPct < 10 ? 1 : 0) }}</span>
+                    </div>
+                  </td>
+                  <td class="col-num">
+                    <span class="daily-change" [class.daily-change--up]="deltaUp(row.varPct)" [class.daily-change--down]="!deltaUp(row.varPct)">
+                      <span>{{ row.varAmount < 0 ? '−' : '+' }}{{ currencyService.symbol() }} {{ fmt(row.varAmount < 0 ? -row.varAmount : row.varAmount) }}</span>
+                      <span class="daily-change__pct">{{ fmtPct(row.varPct) }}</span>
+                    </span>
+                  </td>
+                </tr>
+              }
+            </tbody>
+          </table>
+        </div>
+      } @else {
+        <p class="panel-empty">Todavía no registraste inversiones. Agregá tu primer instrumento para ver la composición de tu cartera.</p>
       }
     </div>
-  </div>
+
+  }
 
 </div>
