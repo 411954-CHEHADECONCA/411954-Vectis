@@ -387,9 +387,9 @@
 
 .daily-change {
   display: inline-flex;
-  align-items: baseline;
-  justify-content: flex-end;
-  gap: 6px;
+  flex-direction: column;
+  align-items: flex-end;
+  gap: 2px;
   font-size: var(--text-caption);
   font-weight: 600;
   font-variant-numeric: tabular-nums;
@@ -397,7 +397,22 @@
   &--up   { color: var(--color-positive); }
   &--down { color: var(--color-negative); }
 
+  &__row {
+    display: inline-flex;
+    align-items: baseline;
+    justify-content: flex-end;
+    gap: 6px;
+  }
+
   &__pct { opacity: 0.85; }
+
+  &__periodo {
+    font-size: var(--text-overline);
+    font-weight: 500;
+    color: var(--color-text-muted);
+    letter-spacing: var(--tracking-wide);
+    opacity: 0.9;
+  }
 }
 
 // ─── Accounts ─────────────────────────────────────────────────────────────────

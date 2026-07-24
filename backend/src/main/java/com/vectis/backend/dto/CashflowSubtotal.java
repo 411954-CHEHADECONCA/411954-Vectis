@@ -7,12 +7,12 @@ import java.math.BigDecimal;
 @Schema(description = "Subtotal previo a inversiones: saldo + resultado operativo")
 public record CashflowSubtotal(
 
-    @Schema(description = "Saldo pre-inversión (apertura + resultado operativo)", example = "460000.0000")
-    BigDecimal balance,
+    @Schema(description = "Saldo pre-inversión (apertura + resultado operativo), desglosado por moneda")
+    MoneyByCcy balance,
 
-    @Schema(description = "Resultado operativo del período (ingresos - egresos)", example = "10000.0000")
-    BigDecimal operativeResult,
+    @Schema(description = "Resultado operativo del período (ingresos - egresos), desglosado por moneda")
+    MoneyByCcy operativeResult,
 
-    @Schema(description = "Tasa de ahorro como porcentaje de los ingresos", example = "7.41")
+    @Schema(description = "Tasa de ahorro como porcentaje de los ingresos, calculada sobre montos normalizados a ARS con la cotización OFICIAL del período", example = "7.41")
     BigDecimal savingRatePct
 ) {}

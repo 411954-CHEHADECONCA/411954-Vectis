@@ -14,13 +14,15 @@ const MOCK_RESPONSE: CashflowResponse = {
   needsConfirmation:     false,
   hasLiquidityDeficit:   false,
   liquidityDeficit:      '0.0000',
-  openingBalance: { total: '8900000.0000', accounts: [] },
-  income:  { total: '1831420.0000', totalBudgeted: '0', byCategory: [] },
-  expenses: { total: '1677400.0000', totalBudgeted: '0', byCategory: [] },
-  preInvestmentBalance: { balance: '9054020.0000', operativeResult: '153620.0000', savingRatePct: '8.39' },
-  investments: { total: '800000.0000', pctOfPreBalance: '8.84', instruments: [] },
-  closingBalance: { total: '8254020.0000', accounts: [] },
+  openingBalance: { total: { ars: 8900000, usd: 0 }, accounts: [] },
+  income:  { total: { ars: 1831420, usd: 0 }, totalBudgeted: { ars: 0, usd: 0 }, byCategory: [] },
+  expenses: { total: { ars: 1677400, usd: 0 }, totalBudgeted: { ars: 0, usd: 0 }, byCategory: [] },
+  preInvestmentBalance: { balance: { ars: 9054020, usd: 0 }, operativeResult: { ars: 153620, usd: 0 }, savingRatePct: '8.39' },
+  investments: { total: { ars: 800000, usd: 0 }, pctOfPreBalance: '8.84', instruments: [] },
+  closingBalance: { total: { ars: 8254020, usd: 0 }, accounts: [] },
   oficialRateAtPeriod: null,
+  earliestNavigableYear:  2026,
+  earliestNavigableMonth: 6,
 };
 
 describe('CashflowService', () => {

@@ -192,10 +192,39 @@ class TransactionRepositoryTest {
         assertThat(result).isEmpty();
     }
 
+    @Test
+    @DisplayName("excluye transacciones de cuentas con includeInCashflow=false")
+    void excludesAccountNotIncludedInCashflow() {
+        InvestmentAsset asset = persistAsset("Letra en cuenta excluida");
+        Account excludedAccount = em.persistFlushFind(Account.builder()
+                .user(user).name("Cuenta excluida").kind("Banco").ccy("ARS")
+                .balance(new BigDecimal("0.0000")).includeInCashflow(false)
+                .createdAt(OffsetDateTime.now(ZoneOffset.UTC)).updatedAt(OffsetDateTime.now(ZoneOffset.UTC))
+                .build());
+        em.persistAndFlush(baseTx().investmentAsset(asset).account(excludedAccount)
+                .investmentSourceType(InvestmentSourceType.SUSCRIPCION).build());
+
+        List<Transaction> result = transactionRepository.findInvestmentTransactionsForCashflow(user.getId(), from, to);
+
+        assertThat(result).isEmpty();
+    }
+
+    @Test
+    @DisplayName("incluye transacciones de inversión sin cuenta (principal de Plazo Fijo, cobros) pese al filtro de includeInCashflow")
+    void includesInvestmentTransactionsWithoutAccount() {
+        InvestmentAsset asset = persistAsset("Letra sin cuenta");
+        em.persistAndFlush(baseTx().investmentAsset(asset).account(null)
+                .investmentSourceType(InvestmentSourceType.SUSCRIPCION).build());
+
+        List<Transaction> result = transactionRepository.findInvestmentTransactionsForCashflow(user.getId(), from, to);
+
+        assertThat(result).hasSize(1);
+    }
+
     // ─── groupByCategory ──────────────────────────────────────────────────────
 
     @Test
-    @DisplayName("groupByCategory: suma y agrupa por categoría, ordenado por monto descendente")
+    @DisplayName("groupByCategory: suma y agrupa por categoría (sin orden garantizado por SQL — el orden pasa al servicio)")
     void groupByCategory_sumsAndGroupsCorrectly() {
         Account account = persistAccount();
         Category otherExpense = em.persistFlushFind(Category.builder()
@@ -212,9 +241,71 @@ class TransactionRepositoryTest {
                 transactionRepository.groupByCategory(user.getId(), TransactionType.EXPENSE, from, to);
 
         assertThat(result).hasSize(2);
-        assertThat(result.get(0).getCategoryName()).isEqualTo("Otros egresos");
-        assertThat(result.get(0).getTotalAmount()).isEqualByComparingTo("300.0000");
-        assertThat(result.get(1).getTotalAmount()).isEqualByComparingTo("50.0000");
+        TransactionRepository.CategorySummaryProjection otrosEgresos = result.stream()
+                .filter(r -> "Otros egresos".equals(r.getCategoryName())).findFirst().orElseThrow();
+        TransactionRepository.CategorySummaryProjection hogar = result.stream()
+                .filter(r -> "Hogar".equals(r.getCategoryName())).findFirst().orElseThrow();
+        assertThat(otrosEgresos.getTotalAmount()).isEqualByComparingTo("300.0000");
+        assertThat(hogar.getTotalAmount()).isEqualByComparingTo("50.0000");
+    }
+
+    @Test
+    @DisplayName("groupByCategory: bimonetario — separa la misma categoría en filas distintas por ccy, sin mezclar ARS y USD")
+    void groupByCategory_separatesByCurrency() {
+        Account account = persistAccount();
+
+        em.persistAndFlush(baseAccountTx(account, TransactionType.INCOME, new BigDecimal("10000.0000"))
+                .category(expenseCategory).ccy("ARS").build());
+        em.persistAndFlush(baseAccountTx(account, TransactionType.INCOME, new BigDecimal("10.0000"))
+                .category(expenseCategory).ccy("USD").build());
+
+        List<TransactionRepository.CategorySummaryProjection> result =
+                transactionRepository.groupByCategory(user.getId(), TransactionType.INCOME, from, to);
+
+        assertThat(result).hasSize(2);
+        TransactionRepository.CategorySummaryProjection arsRow = result.stream()
+                .filter(r -> "ARS".equals(r.getCcy())).findFirst().orElseThrow();
+        TransactionRepository.CategorySummaryProjection usdRow = result.stream()
+                .filter(r -> "USD".equals(r.getCcy())).findFirst().orElseThrow();
+        // Regresión directa del bug: los 10 USD nunca deben terminar sumados a los 10.000 ARS.
+        assertThat(arsRow.getTotalAmount()).isEqualByComparingTo("10000.0000");
+        assertThat(usdRow.getTotalAmount()).isEqualByComparingTo("10.0000");
+    }
+
+    @Test
+    @DisplayName("groupByCategory: excluye transacciones de cuentas con includeInCashflow=false")
+    void groupByCategory_excludesAccountNotIncludedInCashflow() {
+        Account excludedAccount = em.persistFlushFind(Account.builder()
+                .user(user).name("Cuenta excluida").kind("Banco").ccy("ARS")
+                .balance(new BigDecimal("0.0000")).includeInCashflow(false)
+                .createdAt(OffsetDateTime.now(ZoneOffset.UTC)).updatedAt(OffsetDateTime.now(ZoneOffset.UTC))
+                .build());
+        em.persistAndFlush(baseAccountTx(excludedAccount, TransactionType.EXPENSE, new BigDecimal("100.0000"))
+                .category(expenseCategory).build());
+
+        List<TransactionRepository.CategorySummaryProjection> result =
+                transactionRepository.groupByCategory(user.getId(), TransactionType.EXPENSE, from, to);
+
+        assertThat(result).isEmpty();
+    }
+
+    @Test
+    @DisplayName("groupByCategory: sigue incluyendo consumos de tarjeta sin cuenta (regresión del filtro includeInCashflow)")
+    void groupByCategory_stillIncludesCardTransactionsWithoutAccount() {
+        CreditCard card = persistCard();
+        Transaction cuota = Transaction.builder()
+                .user(user).card(card).description("Cuota").category(expenseCategory)
+                .amount(new BigDecimal("100.0000")).ccy("ARS")
+                .transactionDate(from).dueDate(from)
+                .type(TransactionType.EXPENSE)
+                .createdAt(OffsetDateTime.now(ZoneOffset.UTC)).build();
+        em.persistAndFlush(cuota);
+
+        List<TransactionRepository.CategorySummaryProjection> result =
+                transactionRepository.groupByCategory(user.getId(), TransactionType.EXPENSE, from, to);
+
+        assertThat(result).hasSize(1);
+        assertThat(result.get(0).getTotalAmount()).isEqualByComparingTo("100.0000");
     }
 
     @Test
@@ -601,5 +692,68 @@ class TransactionRepositoryTest {
 
         assertThat(result).extracting(Transaction::getId)
                 .containsExactlyInAnyOrder(cuota1.getId(), cuota2.getId());
+    }
+
+    // ─── findEarliestMovementDate (piso de navegación del cashflow) ────────────
+
+    @Test
+    @DisplayName("findEarliestMovementDate: devuelve null cuando el usuario no tiene movimientos")
+    void findEarliestMovementDate_nullWhenNoMovements() {
+        assertThat(transactionRepository.findEarliestMovementDate(user.getId())).isNull();
+    }
+
+    @Test
+    @DisplayName("findEarliestMovementDate: para cuenta usa transactionDate como ancla (ignora dueDate)")
+    void findEarliestMovementDate_accountUsesTransactionDate() {
+        Account account = persistAccount();
+        em.persistAndFlush(baseAccountTx(account, TransactionType.EXPENSE, new BigDecimal("100.0000"))
+                .transactionDate(LocalDate.of(2026, 3, 15)).dueDate(LocalDate.of(2026, 1, 1)).build());
+
+        assertThat(transactionRepository.findEarliestMovementDate(user.getId()))
+                .isEqualTo(LocalDate.of(2026, 3, 15));
+    }
+
+    @Test
+    @DisplayName("findEarliestMovementDate: para tarjeta usa dueDate como ancla (ignora transactionDate)")
+    void findEarliestMovementDate_cardUsesDueDate() {
+        CreditCard card = persistCard();
+        em.persistAndFlush(baseCardTx(card, LocalDate.of(2026, 5, 10), false)
+                .transactionDate(LocalDate.of(2026, 1, 1)).build());
+
+        assertThat(transactionRepository.findEarliestMovementDate(user.getId()))
+                .isEqualTo(LocalDate.of(2026, 5, 10));
+    }
+
+    @Test
+    @DisplayName("findEarliestMovementDate: toma el mínimo cruzando dueDate de tarjeta y transactionDate de cuenta")
+    void findEarliestMovementDate_minAcrossCardAndAccount() {
+        Account account = persistAccount();
+        CreditCard card = persistCard();
+        // Cuenta: transactionDate marzo. Tarjeta: dueDate febrero (más antiguo → gana).
+        em.persistAndFlush(baseAccountTx(account, TransactionType.EXPENSE, new BigDecimal("100.0000"))
+                .transactionDate(LocalDate.of(2026, 3, 20)).dueDate(LocalDate.of(2026, 3, 20)).build());
+        em.persistAndFlush(baseCardTx(card, LocalDate.of(2026, 2, 10), false).build());
+
+        assertThat(transactionRepository.findEarliestMovementDate(user.getId()))
+                .isEqualTo(LocalDate.of(2026, 2, 10));
+    }
+
+    @Test
+    @DisplayName("findEarliestMovementDate: ignora proyectados y soft-deleted")
+    void findEarliestMovementDate_ignoresProjectedAndDeleted() {
+        Account account = persistAccount();
+        // Proyectado en enero (debe ignorarse), soft-deleted en febrero (debe ignorarse),
+        // real en abril (el que debe ganar).
+        em.persistAndFlush(baseAccountTx(account, TransactionType.EXPENSE, new BigDecimal("100.0000"))
+                .transactionDate(LocalDate.of(2026, 1, 5)).dueDate(LocalDate.of(2026, 1, 5))
+                .isProjected(true).build());
+        em.persistAndFlush(baseAccountTx(account, TransactionType.EXPENSE, new BigDecimal("100.0000"))
+                .transactionDate(LocalDate.of(2026, 2, 5)).dueDate(LocalDate.of(2026, 2, 5))
+                .deletedAt(OffsetDateTime.now(ZoneOffset.UTC)).build());
+        em.persistAndFlush(baseAccountTx(account, TransactionType.EXPENSE, new BigDecimal("100.0000"))
+                .transactionDate(LocalDate.of(2026, 4, 5)).dueDate(LocalDate.of(2026, 4, 5)).build());
+
+        assertThat(transactionRepository.findEarliestMovementDate(user.getId()))
+                .isEqualTo(LocalDate.of(2026, 4, 5));
     }
 }

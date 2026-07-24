@@ -39,6 +39,11 @@ services:
       MAIL_PASSWORD: ${MAIL_PASSWORD}
       MAIL_FROM: ${MAIL_FROM}
       APP_FRONTEND_URL: ${APP_FRONTEND_URL}
+      PPI_API_BASE_URL: ${PPI_API_BASE_URL:-https://clientapi.portfoliopersonal.com}
+      PPI_AUTHORIZED_CLIENT: ${PPI_AUTHORIZED_CLIENT}
+      PPI_CLIENT_KEY: ${PPI_CLIENT_KEY}
+      PPI_API_KEY: ${PPI_API_KEY}
+      PPI_API_SECRET: ${PPI_API_SECRET}
       TZ: UTC
     depends_on:
       db:

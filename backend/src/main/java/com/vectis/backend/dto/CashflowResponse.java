@@ -64,4 +64,10 @@ public class CashflowResponse {
 
     @Schema(description = "Cotizacion OFICIAL (venta) al cierre del periodo. Null si no hay datos disponibles.", example = "1062.5000")
     private String oficialRateAtPeriod;
+
+    @Schema(description = "Año del mes más antiguo navegable hacia atrás en el cashflow", example = "2025")
+    private int earliestNavigableYear;
+
+    @Schema(description = "Mes (1-12) más antiguo navegable hacia atrás en el cashflow", example = "3")
+    private int earliestNavigableMonth;
 }

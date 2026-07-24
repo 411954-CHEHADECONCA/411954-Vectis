@@ -88,13 +88,14 @@ function cashflow(partial: Partial<CashflowResponse> = {}): CashflowResponse {
     year: 2026, month: 7, periodLabel: 'julio 2026', monthShort: 'jul',
     status: 'curso', isProjection: false, recurringMaterialized: true, needsConfirmation: false,
     hasLiquidityDeficit: false, liquidityDeficit: '0',
-    openingBalance: { total: '1000000', accounts: [] },
-    income: { total: '300000', totalBudgeted: '400000', byCategory: [] },
-    expenses: { total: '200000', totalBudgeted: '250000', byCategory: [] },
-    preInvestmentBalance: { balance: '1100000', operativeResult: '100000', savingRatePct: '33.3' },
-    investments: { total: '0', pctOfPreBalance: null, instruments: [] },
-    closingBalance: { total: '1100000', accounts: [] },
-    oficialRateAtPeriod: null, ...partial,
+    openingBalance: { total: { ars: 1000000, usd: 0 }, accounts: [] },
+    income: { total: { ars: 300000, usd: 0 }, totalBudgeted: { ars: 400000, usd: 0 }, byCategory: [] },
+    expenses: { total: { ars: 200000, usd: 0 }, totalBudgeted: { ars: 250000, usd: 0 }, byCategory: [] },
+    preInvestmentBalance: { balance: { ars: 1100000, usd: 0 }, operativeResult: { ars: 100000, usd: 0 }, savingRatePct: '33.3' },
+    investments: { total: { ars: 0, usd: 0 }, pctOfPreBalance: null, instruments: [] },
+    closingBalance: { total: { ars: 1100000, usd: 0 }, accounts: [] },
+    oficialRateAtPeriod: null,
+    earliestNavigableYear: 2026, earliestNavigableMonth: 6, ...partial,
   };
 }
 
@@ -276,5 +277,46 @@ describe('DashboardViewComponent', () => {
     expect(component.fmtPct(-5)).toBe('−5,0%');
     expect(component.fmtPct(null)).toBeNull();
     expect(component.fmtPct(Infinity)).toBeNull();
+  });
+
+  it('fmtPct sube a 2 decimales para variaciones chicas (|v| < 0,1) para no mostrar "+0,0%"', async () => {
+    const { component } = await setup();
+    expect(component.fmtPct(0.0116)).toBe('+0,01%');
+    expect(component.fmtPct(-0.05)).toBe('−0,05%');
+    expect(component.fmtPct(2.5)).toBe('+2,5%'); // valores normales siguen en 1 decimal
+  });
+
+  it('la fila expone el período comparado cuando el hueco entre valuaciones supera un día', async () => {
+    const investments: InvestmentResponse[] = [
+      inv({
+        id: 'bono', name: 'AL29', type: 'BONO', currency: 'USD', principal: 100,
+        movements: [{ id: 'm1', movementDate: '2026-06-01', type: 'SUSCRIPCION', amount: 100, units: 100, createdAt: '' }],
+        valuations: [
+          { id: 'v0', valuationDate: '2026-07-17', pricePerUnit: 1.0, source: 'MANUAL', createdAt: '' },
+          { id: 'v1', valuationDate: '2026-07-23', pricePerUnit: 1.2, source: 'MANUAL', createdAt: '' },
+        ],
+      }),
+    ];
+    const { component, fixture } = await setup({ investments });
+    const row = component.filasCartera()[0];
+    expect(component.showVarPeriodo(row)).toBeTrue();
+    expect(fixture.nativeElement.textContent).toContain('17/07 → 23/07');
+  });
+
+  it('la fila NO muestra período cuando el hueco entre valuaciones es de un solo día', async () => {
+    const investments: InvestmentResponse[] = [
+      inv({
+        id: 'bono', name: 'AL29', type: 'BONO', currency: 'USD', principal: 100,
+        movements: [{ id: 'm1', movementDate: '2026-06-01', type: 'SUSCRIPCION', amount: 100, units: 100, createdAt: '' }],
+        valuations: [
+          { id: 'v0', valuationDate: '2026-06-30', pricePerUnit: 1.0, source: 'MANUAL', createdAt: '' },
+          { id: 'v1', valuationDate: '2026-07-01', pricePerUnit: 1.2, source: 'MANUAL', createdAt: '' },
+        ],
+      }),
+    ];
+    const { component, fixture } = await setup({ investments });
+    const row = component.filasCartera()[0];
+    expect(component.showVarPeriodo(row)).toBeFalse();
+    expect(fixture.nativeElement.querySelector('.daily-change__periodo')).toBeNull();
   });
 });

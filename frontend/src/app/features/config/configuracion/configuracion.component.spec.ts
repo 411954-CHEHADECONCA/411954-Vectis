@@ -131,9 +131,9 @@ describe('ConfiguracionComponent', () => {
   });
 
   // ── Initialisation ─────────────────────────────────────────────────────────
-  it('renders the page title', () => {
-    const h1: HTMLElement = fixture.nativeElement.querySelector('.page-head__title');
-    expect(h1.textContent).toContain('Configuración');
+  it('renders the page lead', () => {
+    const lead: HTMLElement = fixture.nativeElement.querySelector('.page-head__lead');
+    expect(lead.textContent).toContain('Administrá tus cuentas');
   });
 
   it('loads categories on init', () => {

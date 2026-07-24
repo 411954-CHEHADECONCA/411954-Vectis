@@ -3,6 +3,7 @@ import { HttpClientTestingModule, HttpTestingController } from '@angular/common/
 import { By } from '@angular/platform-browser';
 import { CashflowComponent } from './cashflow.component';
 import { CashflowResponse } from '../../core/models/cashflow.models';
+import { CurrencyService } from '../../core/services/currency.service';
 import { environment } from '../../../environments/environment';
 
 const MOCK_DATA: CashflowResponse = {
@@ -16,23 +17,25 @@ const MOCK_DATA: CashflowResponse = {
   needsConfirmation:     false,
   hasLiquidityDeficit:   false,
   liquidityDeficit:      '0.0000',
-  openingBalance: { total: '8900000.0000', accounts: [
+  openingBalance: { total: { ars: 8900000, usd: 0 }, accounts: [
     { accountId: 'a1', name: 'Galicia', ccy: 'ARS', balance: '8900000.0000' },
   ]},
-  income:  { total: '1831420.0000', totalBudgeted: '0', byCategory: [
-    { categoryId: 'c1', name: 'Sueldo', icon: 'briefcase', color: '#52eacd', amount: '1831420.0000', pctOfTotal: '100.00', budgeted: null, pctOfBudget: null },
+  income:  { total: { ars: 1831420, usd: 0 }, totalBudgeted: { ars: 0, usd: 0 }, byCategory: [
+    { categoryId: 'c1', name: 'Sueldo', icon: 'briefcase', color: '#52eacd', amount: { ars: 1831420, usd: 0 }, pctOfTotal: '100.00', budgeted: null, pctOfBudget: null },
   ]},
-  expenses: { total: '1677400.0000', totalBudgeted: '460000.0000', byCategory: [
-    { categoryId: 'c2', name: 'Vivienda', icon: 'home', color: '#ffb4ab', amount: '480000.0000', pctOfTotal: '28.62', budgeted: '460000.0000', pctOfBudget: '104.35' },
+  expenses: { total: { ars: 1677400, usd: 0 }, totalBudgeted: { ars: 460000, usd: 0 }, byCategory: [
+    { categoryId: 'c2', name: 'Vivienda', icon: 'home', color: '#ffb4ab', amount: { ars: 480000, usd: 0 }, pctOfTotal: '28.62', budgeted: { ars: 460000, usd: 0 }, pctOfBudget: '104.35' },
   ]},
-  preInvestmentBalance: { balance: '9054020.0000', operativeResult: '153620.0000', savingRatePct: '8.39' },
-  investments: { total: '800000.0000', pctOfPreBalance: '8.84', instruments: [
-    { name: 'Inversiones', icon: 'trending-up', color: '#8b5cf6', amount: '800000.0000', teaPct: null },
+  preInvestmentBalance: { balance: { ars: 9054020, usd: 0 }, operativeResult: { ars: 153620, usd: 0 }, savingRatePct: '8.39' },
+  investments: { total: { ars: 800000, usd: 0 }, pctOfPreBalance: '8.84', instruments: [
+    { name: 'Inversiones', icon: 'trending-up', color: '#8b5cf6', amount: { ars: 800000, usd: 0 }, teaPct: null },
   ]},
-  closingBalance: { total: '8254020.0000', accounts: [
+  closingBalance: { total: { ars: 8254020, usd: 0 }, accounts: [
     { accountId: 'a1', name: 'Galicia', ccy: 'ARS', balance: '8254020.0000' },
   ]},
   oficialRateAtPeriod: '1062.5000',
+  earliestNavigableYear:  2026,
+  earliestNavigableMonth: 6,
 };
 
 describe('CashflowComponent', () => {
@@ -133,14 +136,35 @@ describe('CashflowComponent', () => {
       expect(component.canGoForward()).toBeFalse();
     });
 
-    it('canGoBack returns false when exactly 12 months before current month', () => {
-      const now = new Date();
-      let y = now.getFullYear();
-      let m = now.getMonth() + 1 - 12;
-      if (m < 1) { m += 12; y--; }
-      component.year.set(y);
-      component.month.set(m);
+    it('canGoBack is true while the viewed month is after the navigable floor', () => {
+      // Piso = jul 2025; mes visto = ago 2025 → todavía se puede retroceder
+      component.earliestNavigable.set({ year: 2025, month: 7 });
+      component.year.set(2025);
+      component.month.set(8);
+      expect(component.canGoBack()).toBeTrue();
+    });
+
+    it('canGoBack is false exactly at the navigable floor (mes más antiguo con movimientos)', () => {
+      component.earliestNavigable.set({ year: 2025, month: 7 });
+      component.year.set(2025);
+      component.month.set(7);
       expect(component.canGoBack()).toBeFalse();
+    });
+
+    it('canGoBack is false when the floor is not yet known (sin cargar)', () => {
+      component.earliestNavigable.set(null);
+      expect(component.canGoBack()).toBeFalse();
+    });
+
+    it('prevMonth does nothing once the viewed month reaches the floor', () => {
+      component.earliestNavigable.set({ year: 2025, month: 7 });
+      component.year.set(2025);
+      component.month.set(7);
+      const yearBefore  = component.year();
+      const monthBefore = component.month();
+      component.prevMonth();
+      expect(component.year()).toBe(yearBefore);
+      expect(component.month()).toBe(monthBefore);
     });
 
     it('nextMonth does nothing when canGoForward is false', () => {
@@ -331,13 +355,13 @@ describe('CashflowComponent', () => {
     });
 
     it('isClosingNegative is true when closingBalance total is negative', () => {
-      component['data'].set({ ...MOCK_DATA, closingBalance: { ...MOCK_DATA.closingBalance, total: '-500.0000' } });
+      component['data'].set({ ...MOCK_DATA, closingBalance: { ...MOCK_DATA.closingBalance, total: { ars: -500, usd: 0 } } });
       expect(component.isClosingNegative()).toBeTrue();
       expect(component.closingBalanceLabel()).toBe('Necesidad de liquidez');
     });
 
     it('isClosingNegative is false when closingBalance total is positive', () => {
-      component['data'].set({ ...MOCK_DATA, closingBalance: { ...MOCK_DATA.closingBalance, total: '1000.0000' } });
+      component['data'].set({ ...MOCK_DATA, closingBalance: { ...MOCK_DATA.closingBalance, total: { ars: 1000, usd: 0 } } });
       expect(component.isClosingNegative()).toBeFalse();
       expect(component.closingBalanceLabel()).toBe('Saldo final disponible');
     });
@@ -387,5 +411,49 @@ describe('CashflowComponent', () => {
       expect(component.data()).toEqual(updatedData);
       expect(component.needsConfirmation()).toBeFalse();
     }));
+  });
+
+  // ── Regresión: cashflow bimonetario (fmtMoney) ─────────────────────────────
+  // El bug original sumaba ARS y USD como si fueran la misma unidad (una amortización de
+  // 10,16 USD aparecía como $10). El backend ahora desglosa cada agregado por moneda
+  // (MoneyByCcy); fmtMoney es el punto único donde el frontend convierte y suma ambos
+  // buckets a la moneda seleccionada.
+  describe('fmtMoney — conversión bimonetaria (regresión del bug ARS+USD)', () => {
+    let currencyService: CurrencyService;
+
+    beforeEach(() => {
+      fixture.detectChanges();
+      flushCashflow();
+      currencyService = TestBed.inject(CurrencyService);
+      // periodRate() lee data().oficialRateAtPeriod; MOCK_DATA trae '1062.5000' por defecto,
+      // lo pisamos con una cotización redonda para que el cálculo sea fácil de verificar.
+      component.data.set({ ...MOCK_DATA, oficialRateAtPeriod: '1000.0000' });
+    });
+
+    it('con toggle en ARS, suma ars + (usd convertido a ars) — no colapsa USD a "mismo número"', () => {
+      currencyService.selected.set('ARS');
+      // 1000 ARS + 10 USD a 1000 = 1000 + 10000 = 11000
+      expect(component.fmtMoney({ ars: 1000, usd: 10 })).toBe('$ 11.000');
+    });
+
+    it('con toggle en USD, suma (ars convertido a usd) + usd', () => {
+      currencyService.selected.set('USD');
+      // 1000 ARS a 1000 = 1 USD; + 10 USD = 11 USD
+      expect(component.fmtMoney({ ars: 1000, usd: 10 })).toBe('US$ 11,00');
+    });
+
+    it('un monto puramente en USD ya no aparece truncado como si fuera ARS (bug original)', () => {
+      currencyService.selected.set('ARS');
+      // 10,16 USD a 1000 = 10160 ARS (antes del fix, se mostraba "$ 10" por tratar el monto como ARS)
+      expect(component.fmtMoney({ ars: 0, usd: 10.16 })).toBe('$ 10.160');
+    });
+
+    it('sin cotización disponible, cae al bucket ARS sin romper', () => {
+      component.data.set({ ...MOCK_DATA, oficialRateAtPeriod: null });
+      currencyService.selected.set('USD');
+      // Sin cotización oficial vigente (ni de período ni actual): convertHistorical no puede convertir.
+      (currencyService as unknown as { currentRateARS: () => string | null }).currentRateARS = () => null;
+      expect(component.fmtMoney({ ars: 1000, usd: 10 })).toBe('$ 1.000');
+    });
   });
 });

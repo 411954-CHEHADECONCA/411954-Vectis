@@ -15,6 +15,9 @@ public interface InvestmentValuationRepository extends JpaRepository<InvestmentV
 
     boolean existsByInvestmentAsset_IdAndValuationDate(UUID investmentId, LocalDate valuationDate);
 
+    /** Usado por los syncs de mercado para poder pisar valuaciones auto-generadas existentes. */
+    Optional<InvestmentValuation> findByInvestmentAsset_IdAndValuationDate(UUID investmentId, LocalDate valuationDate);
+
     /** Usado por MarketDataRefreshService para chequear frescura de precios PPI (LETRA/BONO/ON). */
     boolean existsBySourceAndValuationDate(String source, LocalDate valuationDate);
 

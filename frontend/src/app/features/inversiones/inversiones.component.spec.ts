@@ -531,7 +531,7 @@ describe('InversionesComponent', () => {
   });
 
   describe('gananciaMesEstimada / variacionEstimadaPct', () => {
-    it('el último día del mes coincide exactamente con gananciaMesActual (factor de proyección 1)', () => {
+    it('el último día del mes proyecta el rango [1°, hoy) exclusivo por el factor diasEnMes/(diasEnMes−1)', () => {
       const today = new Date();
       const ultimoDia = new Date(today.getFullYear(), today.getMonth() + 1, 0).getDate();
       if (today.getDate() !== ultimoDia) {
@@ -545,13 +545,16 @@ describe('InversionesComponent', () => {
         createdAt: '', updatedAt: '', movements: [], valuations: [],
       };
       component.assets.set([pf]);
-      expect(component.gananciaMesEstimada()).toBeCloseTo(component.gananciaMesActual(), 6);
+      // El rango del mes es [1°, hoy) exclusivo → getDate()−1 días medidos; incluso el último día
+      // se proyecta el día en curso, por eso el factor es diasEnMes/(diasEnMes−1), no 1.
+      const factor = ultimoDia / (ultimoDia - 1);
+      expect(component.gananciaMesEstimada()).toBeCloseTo(component.gananciaMesActual() * factor, 6);
     });
 
-    it('proyecta gananciaMesActual al total de días del mes según los días transcurridos', () => {
+    it('proyecta gananciaMesActual al total de días del mes según los días transcurridos [1°, hoy)', () => {
       const today = new Date();
       const diasEnMes  = new Date(today.getFullYear(), today.getMonth() + 1, 0).getDate();
-      const diasHoy    = today.getDate();
+      const diasHoy    = today.getDate() - 1;   // rango [1°, hoy) exclusivo
       const pf: InvestmentResponse = {
         id: 'pf-proy', name: 'PF', type: 'PLAZO_FIJO', currency: 'ARS',
         principal: 100000, purchaseDate: '2020-01-01', maturityDate: '2099-01-01',
@@ -560,8 +563,13 @@ describe('InversionesComponent', () => {
       };
       component.assets.set([pf]);
 
-      const esperado = component.gananciaMesActual() * (diasEnMes / diasHoy);
-      expect(component.gananciaMesEstimada()).toBeCloseTo(esperado, 6);
+      if (diasHoy <= 0) {
+        // Día 1: rango vacío, sin base para proyectar.
+        expect(component.gananciaMesEstimada()).toBe(0);
+      } else {
+        const esperado = component.gananciaMesActual() * (diasEnMes / diasHoy);
+        expect(component.gananciaMesEstimada()).toBeCloseTo(esperado, 6);
+      }
     });
 
     it('da 0 cuando gananciaMesActual es 0 (sin activos)', () => {
@@ -595,12 +603,55 @@ describe('InversionesComponent', () => {
         expect(component.variacionEstimadaPct()).toBeCloseTo(esperado, 6);
       }
     });
+
+    it('da null cuando la ganancia del mes anterior es insignificante frente al capital (evita %explosivo)', () => {
+      const isoDate = (d: Date) => [
+        d.getFullYear(), String(d.getMonth() + 1).padStart(2, '0'), String(d.getDate()).padStart(2, '0'),
+      ].join('-');
+      const today = new Date();
+      const primerDiaMes = isoDate(new Date(today.getFullYear(), today.getMonth(), 1));
+
+      // pfPrior aporta una ganancia diminuta el mes pasado (principal 100); pfHuge entró este mes
+      // (sin aporte al mes anterior) pero domina el capital → base de comparación < 0,1% del capital.
+      const base: InvestmentResponse = {
+        id: '', name: 'PF', type: 'PLAZO_FIJO', currency: 'ARS',
+        principal: 0, purchaseDate: '2020-01-01', maturityDate: '2099-01-01',
+        tna: 36, accountId: null, accountName: null, autoTrack: false, externalId: null, includeInCashflow: true,
+        createdAt: '', updatedAt: '', movements: [], valuations: [],
+      };
+      const pfPrior: InvestmentResponse = { ...base, id: 'pf-prior', principal: 100 };
+      const pfHuge:  InvestmentResponse = { ...base, id: 'pf-huge', principal: 10_000_000, purchaseDate: primerDiaMes };
+      component.assets.set([pfPrior, pfHuge]);
+
+      const anterior = component.gananciaMesAnterior();
+      const umbral   = component.capitalMostrado() * 0.001;
+      expect(Math.abs(anterior)).toBeGreaterThan(0);            // hay ganancia previa, pero...
+      expect(Math.abs(anterior)).toBeLessThanOrEqual(umbral);   // ...por debajo del umbral
+      expect(component.variacionEstimadaPct()).toBeNull();
+    });
   });
 
   describe('tasaEfectivaMensual / tasaRealMensual', () => {
     it('tasaEfectivaMensual da 0 si no hay capital activo (evita división por 0)', () => {
       component.assets.set([]);
       expect(component.tasaEfectivaMensual()).toBe(0);
+    });
+
+    it('tasaEfectivaMensual usa la ganancia estimada sobre el capital al inicio del mes', () => {
+      const pf: InvestmentResponse = {
+        id: 'pf-tem', name: 'PF', type: 'PLAZO_FIJO', currency: 'ARS',
+        principal: 1_000_000, purchaseDate: '2020-01-01', maturityDate: '2099-01-01',
+        tna: 60, accountId: null, accountName: null, autoTrack: false, externalId: null, includeInCashflow: true,
+        createdAt: '', updatedAt: '', movements: [], valuations: [],
+      };
+      component.assets.set([pf]);
+
+      // capitalInicioMes = valor actual − ganancia devengada este mes.
+      const capInicio = component.capitalMostrado() - component.gananciaMesActual();
+      expect(component.capitalInicioMes()).toBeCloseTo(capInicio, 6);
+
+      const esperado = capInicio > 0 ? (component.gananciaMesEstimada() / capInicio) * 100 : 0;
+      expect(component.tasaEfectivaMensual()).toBeCloseTo(esperado, 6);
     });
 
     it('tasaRealMensual da null si no hay datos de inflación disponibles', async () => {

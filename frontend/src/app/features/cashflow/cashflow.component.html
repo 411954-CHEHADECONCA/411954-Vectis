@@ -39,7 +39,6 @@
        ══════════════════════════════════════════════════════════════════════════ -->
   <div class="page-head">
     <div class="page-head__text">
-      <h1>Cash Flow</h1>
       @if (data()) {
         <p class="page-head__lead">{{ leadText() }}</p>
       } @else {
@@ -101,7 +100,7 @@
               {{ isClosingNegative() ? '- $' : '$' }}
             </span>
             <span class="month-kpi__big" [class.month-kpi__big--negative]="isClosingNegative()">
-              {{ fmtAmt(data()!.closingBalance.total) }}
+              {{ fmtMoneyAmt(data()!.closingBalance.total) }}
             </span>
           </div>
           @if (closingDelta() !== null) {
@@ -211,7 +210,7 @@
               <div class="step-hd__metric">
                 <span class="step-amount"
                   [class.step-amount--neutral]="!isOpeningNegative()"
-                  [class.step-amount--negative]="isOpeningNegative()">{{ isOpeningNegative() ? '− ' : '' }}{{ fmtARS(data()!.openingBalance.total) }}</span>
+                  [class.step-amount--negative]="isOpeningNegative()">{{ isOpeningNegative() ? '− ' : '' }}{{ fmtMoney(data()!.openingBalance.total) }}</span>
               </div>
             </div>
             <div class="acc-grid">
@@ -242,7 +241,7 @@
                 <span class="step-title">Ingresos contabilizados</span>
               </div>
               <div class="step-hd__metric">
-                <span class="step-amount step-amount--income">+ {{ fmtARS(data()!.income.total) }}</span>
+                <span class="step-amount step-amount--income">+ {{ fmtMoney(data()!.income.total) }}</span>
               </div>
             </div>
 
@@ -262,7 +261,7 @@
                   {{ fmtPct(budgetExecIncomePctValue().toString()) }}%
                 </span>
                 <span class="budget-exec-panel__amounts">
-                  {{ fmtARS(data()!.income.total) }} / {{ fmtARS(data()!.income.totalBudgeted) }}
+                  {{ fmtMoney(data()!.income.total) }} / {{ fmtMoney(data()!.income.totalBudgeted) }}
                 </span>
               </div>
             }
@@ -302,9 +301,9 @@
                           </span>
                         }
                         <div class="cat-amount-group">
-                          <span class="cat-amount">{{ fmtARS(cat.amount) }}</span>
+                          <span class="cat-amount">{{ fmtMoney(cat.amount) }}</span>
                           @if (cat.budgeted !== null) {
-                            <span class="cat-budget-caption">/ {{ fmtARS(cat.budgeted!) }}</span>
+                            <span class="cat-budget-caption">/ {{ fmtMoney(cat.budgeted!) }}</span>
                           }
                         </div>
                       </div>
@@ -334,7 +333,7 @@
                 </div>
                 <div class="step-hd__metric">
                   <span class="step-amount step-amount--neutral" [class.step-amount--negative]="isBalanceAfterIncomeNeg()">
-                    {{ isBalanceAfterIncomeNeg() ? '- ' : '' }}{{ fmtARS(balanceAfterIncome()) }}
+                    {{ isBalanceAfterIncomeNeg() ? '- ' : '' }}{{ fmtMoney(balanceAfterIncomeMoney()!) }}
                   </span>
                 </div>
               </div>
@@ -353,7 +352,7 @@
                 <span class="step-title">Egresos</span>
               </div>
               <div class="step-hd__metric">
-                <span class="step-amount step-amount--expense">− {{ fmtARS(data()!.expenses.total) }}</span>
+                <span class="step-amount step-amount--expense">− {{ fmtMoney(data()!.expenses.total) }}</span>
               </div>
             </div>
 
@@ -373,7 +372,7 @@
                   {{ fmtPct(budgetExecPctValue().toString()) }}%
                 </span>
                 <span class="budget-exec-panel__amounts">
-                  {{ fmtARS(data()!.expenses.total) }} / {{ fmtARS(data()!.expenses.totalBudgeted) }}
+                  {{ fmtMoney(data()!.expenses.total) }} / {{ fmtMoney(data()!.expenses.totalBudgeted) }}
                 </span>
               </div>
             }
@@ -413,9 +412,9 @@
                           </span>
                         }
                         <div class="cat-amount-group">
-                          <span class="cat-amount" style="color: var(--color-error);">{{ fmtARS(cat.amount) }}</span>
+                          <span class="cat-amount" style="color: var(--color-error);">{{ fmtMoney(cat.amount) }}</span>
                           @if (cat.budgeted !== null) {
-                            <span class="cat-budget-caption">/ {{ fmtARS(cat.budgeted!) }}</span>
+                            <span class="cat-budget-caption">/ {{ fmtMoney(cat.budgeted!) }}</span>
                           }
                         </div>
                       </div>
@@ -452,14 +451,14 @@
                   <span class="step-sub">
                     Resultado operativo&nbsp;
                     <strong [style.color]="isOperativeResultPositive() ? 'var(--color-primary)' : 'var(--color-error)'">
-                      {{ isOperativeResultPositive() ? '+' : '-' }} {{ fmtARS(data()!.preInvestmentBalance.operativeResult) }}
+                      {{ isOperativeResultPositive() ? '+' : '-' }} {{ fmtMoney(data()!.preInvestmentBalance.operativeResult) }}
                     </strong>
                     &nbsp;· tasa de ahorro {{ fmtPct(data()!.preInvestmentBalance.savingRatePct) }}%
                   </span>
                 </div>
                 <div class="step-hd__metric">
                   <span class="step-amount step-amount--neutral" [class.step-amount--negative]="isPreInvNegative()">
-                    {{ isPreInvNegative() ? '- ' : '' }}{{ fmtARS(data()!.preInvestmentBalance.balance) }}
+                    {{ isPreInvNegative() ? '- ' : '' }}{{ fmtMoney(data()!.preInvestmentBalance.balance) }}
                   </span>
                 </div>
               </div>
@@ -489,7 +488,7 @@
               </div>
               @if (data()!.investments.instruments.length > 0) {
                 <div class="step-hd__metric">
-                  <span class="step-amount step-amount--invest">− {{ fmtARS(data()!.investments.total) }}</span>
+                  <span class="step-amount step-amount--invest">− {{ fmtMoney(data()!.investments.total) }}</span>
                 </div>
               }
             </div>
@@ -514,7 +513,7 @@
                             <span class="tea-badge">TEA {{ fmtPct(inv.teaPct!) }}%</span>
                           }
                         </div>
-                        <span class="cat-amount">{{ fmtARS(inv.amount) }}</span>
+                        <span class="cat-amount">{{ fmtMoney(inv.amount) }}</span>
                       </div>
                       <div class="cat-bar-row">
                         <div class="cat-bar-track">
@@ -560,7 +559,7 @@
                   <span class="step-closing-amount"
                     [class.step-closing-amount--projected]="isProjection()"
                     [class.step-closing-amount--negative]="isClosingNegative()">
-                    {{ fmtAmt(data()!.closingBalance.total) }}
+                    {{ fmtMoneyAmt(data()!.closingBalance.total) }}
                   </span>
                 </div>
               </div>

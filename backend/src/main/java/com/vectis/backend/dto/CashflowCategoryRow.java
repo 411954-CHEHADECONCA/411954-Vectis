@@ -19,15 +19,15 @@ public record CashflowCategoryRow(
     @Schema(description = "Color de la categoría en formato hex", example = "#22c55e")
     String color,
 
-    @Schema(description = "Monto total de la categoría en el período", example = "25000.0000")
-    BigDecimal amount,
+    @Schema(description = "Monto total de la categoría en el período, desglosado por moneda")
+    MoneyByCcy amount,
 
-    @Schema(description = "Porcentaje sobre el total de la sección", example = "18.50")
+    @Schema(description = "Porcentaje sobre el total de la sección, calculado sobre montos normalizados a ARS con la cotización OFICIAL del período (ver oficialRateAtPeriod)", example = "18.50")
     BigDecimal pctOfTotal,
 
-    @Schema(description = "Monto presupuestado para la categoría (null si sin presupuesto)", example = "30000.0000", nullable = true)
-    BigDecimal budgeted,
+    @Schema(description = "Monto presupuestado para la categoría (null si sin presupuesto). Los presupuestos no tienen moneda propia (limitación conocida de CategoryBudget): siempre se tratan como ARS, con usd=0", example = "{\"ars\":30000.0000,\"usd\":0.0000}", nullable = true)
+    MoneyByCcy budgeted,
 
-    @Schema(description = "Porcentaje ejecutado del presupuesto (null si sin presupuesto)", example = "83.33", nullable = true)
+    @Schema(description = "Porcentaje ejecutado del presupuesto (null si sin presupuesto), calculado sobre el monto normalizado a ARS", example = "83.33", nullable = true)
     BigDecimal pctOfBudget
 ) {}

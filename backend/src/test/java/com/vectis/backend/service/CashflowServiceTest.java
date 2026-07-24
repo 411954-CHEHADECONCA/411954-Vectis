@@ -114,9 +114,9 @@ class CashflowServiceTest {
 
         assertThat(result.isProjection()).isFalse();
         assertThat(result.getStatus()).isEqualTo("curso");
-        assertThat(result.getIncome().total()).isEqualByComparingTo("50000.0000");
-        assertThat(result.getExpenses().total()).isEqualByComparingTo("20000.0000");
-        assertThat(result.getPreInvestmentBalance().operativeResult()).isEqualByComparingTo("30000.0000");
+        assertThat(result.getIncome().total().ars()).isEqualByComparingTo("50000.0000");
+        assertThat(result.getExpenses().total().ars()).isEqualByComparingTo("20000.0000");
+        assertThat(result.getPreInvestmentBalance().operativeResult().ars()).isEqualByComparingTo("30000.0000");
         assertThat(result.getOpeningBalance().accounts()).hasSize(1);
         assertThat(result.getClosingBalance().accounts()).hasSize(1);
         assertThat(result.getOpeningBalance().accounts().get(0).balance()).isEqualByComparingTo("110000.0000");
@@ -179,7 +179,7 @@ class CashflowServiceTest {
         CashflowResponse result = cashflowService.getCashflow(user, today.getYear(), today.getMonthValue());
 
         assertThat(result.getOpeningBalance().accounts()).isEmpty();
-        assertThat(result.getOpeningBalance().total()).isEqualByComparingTo(BigDecimal.ZERO);
+        assertThat(result.getOpeningBalance().total().ars()).isEqualByComparingTo(BigDecimal.ZERO);
         assertThat(result.getClosingBalance().accounts()).isEmpty();
     }
 
@@ -256,8 +256,8 @@ class CashflowServiceTest {
         assertThat(result.getIncome().byCategory().get(0).pctOfBudget())
                 .isNotNull()
                 .isEqualByComparingTo("83.33");
-        assertThat(result.getIncome().totalBudgeted()).isEqualByComparingTo("60000.0000");
-        assertThat(result.getExpenses().totalBudgeted()).isEqualByComparingTo(BigDecimal.ZERO);
+        assertThat(result.getIncome().totalBudgeted().ars()).isEqualByComparingTo("60000.0000");
+        assertThat(result.getExpenses().totalBudgeted().ars()).isEqualByComparingTo(BigDecimal.ZERO);
     }
 
     // ─── savingRate se calcula correctamente ──────────────────────────────────
@@ -352,9 +352,9 @@ class CashflowServiceTest {
         CashflowResponse result = cashflowService.getCashflow(user, year, month);
 
         // sectionTotal = effectiveTotal = 5000 (recurrente) + 8000 (presupuestado B) = 13000
-        assertThat(result.getExpenses().total()).isEqualByComparingTo("13000.0000");
+        assertThat(result.getExpenses().total().ars()).isEqualByComparingTo("13000.0000");
         // totalBudgeted = 10000 + 8000 = 18000
-        assertThat(result.getExpenses().totalBudgeted()).isEqualByComparingTo("18000.0000");
+        assertThat(result.getExpenses().totalBudgeted().ars()).isEqualByComparingTo("18000.0000");
 
         // 2 filas: Servicios (recurrente) + Entretenimiento (solo presupuesto)
         assertThat(result.getExpenses().byCategory()).hasSize(2);
@@ -364,13 +364,13 @@ class CashflowServiceTest {
         // Categoría A (recurrente): muestra pctOfBudget = 5000/10000 = 50%
         var serviciosRow = result.getExpenses().byCategory().stream()
                 .filter(r -> "Servicios".equals(r.name())).findFirst().orElseThrow();
-        assertThat(serviciosRow.budgeted()).isEqualByComparingTo("10000.0000");
+        assertThat(serviciosRow.budgeted().ars()).isEqualByComparingTo("10000.0000");
         assertThat(serviciosRow.pctOfBudget()).isEqualByComparingTo("50.00");
 
         // Categoría B (solo presupuesto): monto = presupuesto, pctOfBudget = 100%
         var entretenimientoRow = result.getExpenses().byCategory().stream()
                 .filter(r -> "Entretenimiento".equals(r.name())).findFirst().orElseThrow();
-        assertThat(entretenimientoRow.amount()).isEqualByComparingTo("8000.0000");
+        assertThat(entretenimientoRow.amount().ars()).isEqualByComparingTo("8000.0000");
         assertThat(entretenimientoRow.pctOfBudget()).isEqualByComparingTo("100.00");
     }
 
@@ -417,9 +417,9 @@ class CashflowServiceTest {
         CashflowResponse result = cashflowService.getCashflow(user, year, month);
 
         // total = recurringTotal = 100000
-        assertThat(result.getIncome().total()).isEqualByComparingTo("100000.0000");
+        assertThat(result.getIncome().total().ars()).isEqualByComparingTo("100000.0000");
         // no budget rows → totalBudgeted = 0
-        assertThat(result.getIncome().totalBudgeted()).isEqualByComparingTo(BigDecimal.ZERO);
+        assertThat(result.getIncome().totalBudgeted().ars()).isEqualByComparingTo(BigDecimal.ZERO);
         // 1 row
         assertThat(result.getIncome().byCategory()).hasSize(1);
         assertThat(result.getIncome().byCategory().get(0).name()).isEqualTo("Sueldo");
@@ -594,7 +594,7 @@ class CashflowServiceTest {
 
         assertThat(result.isProjection()).isTrue();
         // N+2 debe abrir con el cierre proyectado de N+1 = 100000 + 50000 - 30000 = 120000
-        assertThat(result.getOpeningBalance().total()).isEqualByComparingTo("120000.0000");
+        assertThat(result.getOpeningBalance().total().ars()).isEqualByComparingTo("120000.0000");
     }
 
     // ─── oficialRateAtPeriod ──────────────────────────────────────────────────
@@ -714,8 +714,8 @@ class CashflowServiceTest {
 
         assertThat(result.getInvestments().instruments()).hasSize(1);
         assertThat(result.getInvestments().instruments().get(0).name()).isEqualTo("LECAP S31G5");
-        assertThat(result.getInvestments().instruments().get(0).amount()).isEqualByComparingTo("500000.0000");
-        assertThat(result.getInvestments().total()).isEqualByComparingTo("500000.0000");
+        assertThat(result.getInvestments().instruments().get(0).amount().ars()).isEqualByComparingTo("500000.0000");
+        assertThat(result.getInvestments().total().ars()).isEqualByComparingTo("500000.0000");
     }
 
     @Test
@@ -747,9 +747,9 @@ class CashflowServiceTest {
 
         assertThat(result.getInvestments().instruments()).hasSize(1);
         assertThat(result.getInvestments().instruments().get(0).name()).isEqualTo("Otras inversiones (activo eliminado)");
-        assertThat(result.getInvestments().instruments().get(0).amount()).isEqualByComparingTo("1000000.0000");
+        assertThat(result.getInvestments().instruments().get(0).amount().ars()).isEqualByComparingTo("1000000.0000");
         assertThat(result.getInvestments().instruments().get(0).teaPct()).isNull();
-        assertThat(result.getInvestments().total()).isEqualByComparingTo("1000000.0000");
+        assertThat(result.getInvestments().total().ars()).isEqualByComparingTo("1000000.0000");
     }
 
     @Test
@@ -789,7 +789,7 @@ class CashflowServiceTest {
         CashflowResponse result = cashflowService.getCashflow(user, year, month);
 
         assertThat(result.getInvestments().instruments()).hasSize(2);
-        assertThat(result.getInvestments().total()).isEqualByComparingTo("1500000.0000");
+        assertThat(result.getInvestments().total().ars()).isEqualByComparingTo("1500000.0000");
     }
 
     @Test
@@ -832,7 +832,7 @@ class CashflowServiceTest {
         // "Destinado a inversiones" queda en el bruto suscripto (500.000): el rescate no resta acá,
         // se refleja aparte como ingreso (ver investments_rescateAppearsAsIncome).
         assertThat(result.getInvestments().instruments()).hasSize(1);
-        assertThat(result.getInvestments().instruments().get(0).amount()).isEqualByComparingTo("500000.0000");
+        assertThat(result.getInvestments().instruments().get(0).amount().ars()).isEqualByComparingTo("500000.0000");
     }
 
     @Test
@@ -868,10 +868,10 @@ class CashflowServiceTest {
 
         CashflowResponse result = cashflowService.getCashflow(user, year, month);
 
-        assertThat(result.getIncome().total()).isEqualByComparingTo("80000.0000");
+        assertThat(result.getIncome().total().ars()).isEqualByComparingTo("80000.0000");
         assertThat(result.getIncome().byCategory()).hasSize(1);
         assertThat(result.getIncome().byCategory().get(0).name()).isEqualTo("Rescates de inversión");
-        assertThat(result.getIncome().byCategory().get(0).amount()).isEqualByComparingTo("80000.0000");
+        assertThat(result.getIncome().byCategory().get(0).amount().ars()).isEqualByComparingTo("80000.0000");
         assertThat(result.getIncome().byCategory().get(0).categoryId()).isNull();
         // Ningún SUSCRIPCION en este caso: la sección de inversiones queda vacía.
         assertThat(result.getInvestments().instruments()).isEmpty();
@@ -915,11 +915,11 @@ class CashflowServiceTest {
         // Ni el capital ni el rendimiento del cobro tienen categoría propia, pero deben sumar igual
         // al total de "Ingresos" y por lo tanto al resultado operativo del mes (no debe quedar en cero
         // pese a que la cuenta efectivamente recibió $1.150.000).
-        assertThat(result.getIncome().total()).isEqualByComparingTo("1150000.0000");
+        assertThat(result.getIncome().total().ars()).isEqualByComparingTo("1150000.0000");
         assertThat(result.getIncome().byCategory())
                 .extracting("name")
                 .containsExactlyInAnyOrder("Cobro de inversión (capital)", "Cobro de inversión (rendimiento)");
-        assertThat(result.getPreInvestmentBalance().operativeResult()).isEqualByComparingTo("1150000.0000");
+        assertThat(result.getPreInvestmentBalance().operativeResult().ars()).isEqualByComparingTo("1150000.0000");
         // El cobro tampoco duplica su marca en la sección de "Inversiones" (esa sección sólo agrupa
         // el bruto SUSCRIPTO histórico, no el cobro).
         assertThat(result.getInvestments().instruments()).isEmpty();
@@ -960,11 +960,11 @@ class CashflowServiceTest {
 
         CashflowResponse result = cashflowService.getCashflow(user, year, month);
 
-        assertThat(result.getIncome().total()).isEqualByComparingTo("82700.0000");
+        assertThat(result.getIncome().total().ars()).isEqualByComparingTo("82700.0000");
         assertThat(result.getIncome().byCategory())
                 .extracting("name")
                 .containsExactlyInAnyOrder("Renta de inversión (cupones)", "Amortización de inversión");
-        assertThat(result.getPreInvestmentBalance().operativeResult()).isEqualByComparingTo("82700.0000");
+        assertThat(result.getPreInvestmentBalance().operativeResult().ars()).isEqualByComparingTo("82700.0000");
     }
 
     @Test
@@ -1003,7 +1003,7 @@ class CashflowServiceTest {
         CashflowResponse result = cashflowService.getCashflow(user, year, month);
 
         assertThat(result.getInvestments().instruments()).isEmpty();
-        assertThat(result.getInvestments().total()).isEqualByComparingTo(BigDecimal.ZERO);
+        assertThat(result.getInvestments().total().ars()).isEqualByComparingTo(BigDecimal.ZERO);
     }
 
     @Test
@@ -1029,7 +1029,7 @@ class CashflowServiceTest {
         CashflowResponse result = cashflowService.getCashflow(user, year, month);
 
         assertThat(result.getInvestments().instruments()).isEmpty();
-        assertThat(result.getInvestments().total()).isEqualByComparingTo(BigDecimal.ZERO);
+        assertThat(result.getInvestments().total().ars()).isEqualByComparingTo(BigDecimal.ZERO);
         assertThat(result.getInvestments().pctOfPreBalance()).isNull();
     }
 
@@ -1098,14 +1098,275 @@ class CashflowServiceTest {
         assertThat(result.getClosingBalance().accounts().get(0).balance()).isEqualByComparingTo("70000.0000");
     }
 
+    // ─── bug de moneda: cobro en USD no debe contarse como ARS (AF411954) ─────
+
+    @Test
+    @DisplayName("REGRESIÓN BUG: cobro de amortización de bono en USD queda en el bucket USD, no se suma como si fueran pesos")
+    void bugRegression_usdAmortizationDoesNotLeakIntoArsBucket() {
+        LocalDate today    = LocalDate.now();
+        int year  = today.getYear();
+        int month = today.getMonthValue();
+        LocalDate firstDay = today.withDayOfMonth(1);
+        LocalDate lastDay  = firstDay.withDayOfMonth(firstDay.lengthOfMonth());
+
+        given(monthPeriodService.getStatus(eq(user), eq(year), eq(month), any(LocalDate.class))).willReturn("curso");
+        given(monthPeriodRepository.findByUser_IdAndYearAndMonth(userId, year, month)).willReturn(Optional.empty());
+        given(accountRepository.findAllByUser_IdAndIncludeInCashflowTrue(userId)).willReturn(Collections.emptyList());
+        given(transactionRepository.netMovementsForAccounts(eq(userId), anyList(), any(LocalDate.class)))
+                .willReturn(Collections.emptyList());
+        given(transactionRepository.groupByCategory(eq(userId), any(TransactionType.class), any(LocalDate.class), any(LocalDate.class)))
+                .willReturn(Collections.emptyList());
+        given(categoryBudgetRepository.findLatestPerCategoryOnOrBefore(userId, firstDay)).willReturn(Collections.emptyList());
+
+        // Cotización OFICIAL del período: 1000 ARS/USD.
+        ExchangeRate rate = ExchangeRate.builder()
+                .id(UUID.randomUUID()).rateType("OFICIAL")
+                .buy(new BigDecimal("998.0000")).sell(new BigDecimal("1000.0000"))
+                .rateDate(lastDay).source("dolarapi.com").createdAt(OffsetDateTime.now()).build();
+        given(exchangeRateRepository.findByRateTypeAndRateDate("OFICIAL", lastDay)).willReturn(Optional.of(rate));
+
+        InvestmentAsset asset = InvestmentAsset.builder()
+                .id(UUID.randomUUID()).name("AL30")
+                .type(InvestmentAssetType.BONO).currency("USD")
+                .principal(BigDecimal.ZERO).tna(BigDecimal.ZERO)
+                .build();
+        // Exactamente el caso reportado: 10 USD de cobro de amortización.
+        Transaction amortizationUsd = Transaction.builder()
+                .investmentAsset(asset).investmentSourceType(InvestmentSourceType.AMORTIZATION)
+                .type(TransactionType.INCOME).ccy("USD")
+                .amount(new BigDecimal("10.0000")).build();
+
+        given(transactionRepository.findInvestmentTransactionsForCashflow(userId, firstDay, lastDay))
+                .willReturn(List.of(amortizationUsd));
+
+        CashflowResponse result = cashflowService.getCashflow(user, year, month);
+
+        // El bug: antes de este fix, "10 USD" terminaba sumado al bucket ARS del total de ingresos
+        // (apareciendo como "$10" en vez de "US$10"). Ahora debe quedar exclusivamente en el bucket USD.
+        assertThat(result.getIncome().total().ars()).isEqualByComparingTo(BigDecimal.ZERO);
+        assertThat(result.getIncome().total().usd()).isEqualByComparingTo("10.0000");
+
+        // Y el resultado operativo (que sí necesita un valor único para savingRatePct) debe normalizar
+        // esos 10 USD a 10.000 ARS usando la cotización OFICIAL del período (10 * 1000), no a 10 ARS.
+        assertThat(result.getPreInvestmentBalance().operativeResult().usd()).isEqualByComparingTo("10.0000");
+        assertThat(result.getPreInvestmentBalance().operativeResult().ars()).isEqualByComparingTo(BigDecimal.ZERO);
+        assertThat(result.getPreInvestmentBalance().savingRatePct()).isEqualByComparingTo("100.00");
+
+        var row = result.getIncome().byCategory().stream()
+                .filter(r -> "Amortización de inversión".equals(r.name())).findFirst().orElseThrow();
+        assertThat(row.amount().usd()).isEqualByComparingTo("10.0000");
+        assertThat(row.amount().ars()).isEqualByComparingTo(BigDecimal.ZERO);
+        // Única fila de la sección → 100% del total normalizado a ARS (10.000), no del bucket ARS crudo.
+        assertThat(row.pctOfTotal()).isEqualByComparingTo("100.00");
+    }
+
+    @Test
+    @DisplayName("pctOfTotal normaliza a ARS con la cotización OFICIAL cuando conviven filas ARS y USD en la misma sección")
+    void pctOfTotal_normalizesMixedCurrencyRowsUsingOficialRate() {
+        LocalDate today    = LocalDate.now();
+        int year  = today.getYear();
+        int month = today.getMonthValue();
+        LocalDate firstDay = today.withDayOfMonth(1);
+        LocalDate lastDay  = firstDay.withDayOfMonth(firstDay.lengthOfMonth());
+
+        given(monthPeriodService.getStatus(eq(user), eq(year), eq(month), any(LocalDate.class))).willReturn("curso");
+        given(monthPeriodRepository.findByUser_IdAndYearAndMonth(userId, year, month)).willReturn(Optional.empty());
+        given(accountRepository.findAllByUser_IdAndIncludeInCashflowTrue(userId)).willReturn(Collections.emptyList());
+        given(transactionRepository.netMovementsForAccounts(eq(userId), anyList(), any(LocalDate.class)))
+                .willReturn(Collections.emptyList());
+        given(categoryBudgetRepository.findLatestPerCategoryOnOrBefore(userId, firstDay)).willReturn(Collections.emptyList());
+        given(transactionRepository.findInvestmentTransactionsForCashflow(userId, firstDay, lastDay))
+                .willReturn(Collections.emptyList());
+
+        ExchangeRate rate = ExchangeRate.builder()
+                .id(UUID.randomUUID()).rateType("OFICIAL")
+                .buy(new BigDecimal("998.0000")).sell(new BigDecimal("1000.0000"))
+                .rateDate(lastDay).source("dolarapi.com").createdAt(OffsetDateTime.now()).build();
+        given(exchangeRateRepository.findByRateTypeAndRateDate("OFICIAL", lastDay)).willReturn(Optional.of(rate));
+
+        UUID salaryCatId = UUID.randomUUID();
+        UUID dividendCatId = UUID.randomUUID();
+        given(transactionRepository.groupByCategory(userId, TransactionType.INCOME, firstDay, lastDay))
+                .willReturn(List.of(
+                        proj(salaryCatId, "Sueldo", "briefcase", "#22c55e", new BigDecimal("5000.00"), "ARS"),
+                        proj(dividendCatId, "Dividendos", "coins", "#f59e0b", new BigDecimal("10.00"), "USD")));
+        given(transactionRepository.groupByCategory(userId, TransactionType.EXPENSE, firstDay, lastDay))
+                .willReturn(Collections.emptyList());
+
+        CashflowResponse result = cashflowService.getCashflow(user, year, month);
+
+        // total: 5000 ARS + 10 USD * 1000 = 15000 ARS normalizado.
+        var sueldoRow = result.getIncome().byCategory().stream()
+                .filter(r -> "Sueldo".equals(r.name())).findFirst().orElseThrow();
+        var dividendosRow = result.getIncome().byCategory().stream()
+                .filter(r -> "Dividendos".equals(r.name())).findFirst().orElseThrow();
+        assertThat(sueldoRow.pctOfTotal()).isEqualByComparingTo("33.33");
+        assertThat(dividendosRow.pctOfTotal()).isEqualByComparingTo("66.67");
+    }
+
+    @Test
+    @DisplayName("sin cotización OFICIAL disponible: los porcentajes degradan a considerar sólo el bucket ARS")
+    void pctOfTotal_degradesToArsOnlyWhenNoRateAvailable() {
+        LocalDate today    = LocalDate.now();
+        int year  = today.getYear();
+        int month = today.getMonthValue();
+        LocalDate firstDay = today.withDayOfMonth(1);
+        LocalDate lastDay  = firstDay.withDayOfMonth(firstDay.lengthOfMonth());
+
+        given(monthPeriodService.getStatus(eq(user), eq(year), eq(month), any(LocalDate.class))).willReturn("curso");
+        given(monthPeriodRepository.findByUser_IdAndYearAndMonth(userId, year, month)).willReturn(Optional.empty());
+        given(accountRepository.findAllByUser_IdAndIncludeInCashflowTrue(userId)).willReturn(Collections.emptyList());
+        given(transactionRepository.netMovementsForAccounts(eq(userId), anyList(), any(LocalDate.class)))
+                .willReturn(Collections.emptyList());
+        given(categoryBudgetRepository.findLatestPerCategoryOnOrBefore(userId, firstDay)).willReturn(Collections.emptyList());
+        given(transactionRepository.findInvestmentTransactionsForCashflow(userId, firstDay, lastDay))
+                .willReturn(Collections.emptyList());
+
+        given(exchangeRateRepository.findByRateTypeAndRateDate("OFICIAL", lastDay)).willReturn(Optional.empty());
+        given(exchangeRateRepository.findTopByRateTypeOrderByRateDateDesc("OFICIAL")).willReturn(Optional.empty());
+
+        UUID salaryCatId = UUID.randomUUID();
+        UUID dividendCatId = UUID.randomUUID();
+        given(transactionRepository.groupByCategory(userId, TransactionType.INCOME, firstDay, lastDay))
+                .willReturn(List.of(
+                        proj(salaryCatId, "Sueldo", "briefcase", "#22c55e", new BigDecimal("5000.00"), "ARS"),
+                        proj(dividendCatId, "Dividendos", "coins", "#f59e0b", new BigDecimal("10.00"), "USD")));
+        given(transactionRepository.groupByCategory(userId, TransactionType.EXPENSE, firstDay, lastDay))
+                .willReturn(Collections.emptyList());
+
+        CashflowResponse result = cashflowService.getCashflow(user, year, month);
+
+        assertThat(result.getOficialRateAtPeriod()).isNull();
+        // Degradado: sólo se considera el bucket ARS (5000) — la fila USD aporta 0 al total normalizado.
+        var sueldoRow = result.getIncome().byCategory().stream()
+                .filter(r -> "Sueldo".equals(r.name())).findFirst().orElseThrow();
+        var dividendosRow = result.getIncome().byCategory().stream()
+                .filter(r -> "Dividendos".equals(r.name())).findFirst().orElseThrow();
+        assertThat(sueldoRow.pctOfTotal()).isEqualByComparingTo("100.00");
+        assertThat(dividendosRow.pctOfTotal()).isEqualByComparingTo("0.00");
+    }
+
+    // ─── buildBalanceSection: saldos bimonetarios ─────────────────────────────
+
+    @Test
+    @DisplayName("openingBalance/closingBalance: cada cuenta suma a su propio bucket de moneda, ARS y USD nunca se mezclan")
+    void balanceSection_accountsSumIntoTheirOwnCurrencyBucket() {
+        LocalDate today    = LocalDate.now();
+        LocalDate firstDay = today.withDayOfMonth(1);
+        LocalDate lastDay  = firstDay.withDayOfMonth(firstDay.lengthOfMonth());
+
+        Account usdAccount = Account.builder()
+                .id(UUID.randomUUID()).user(user)
+                .name("Cuenta USD").kind("Banco").ccy("USD")
+                .balance(new BigDecimal("500.0000"))
+                .includeInCashflow(true)
+                .createdAt(OffsetDateTime.now()).updatedAt(OffsetDateTime.now())
+                .build();
+
+        given(monthPeriodService.getStatus(eq(user), eq(today.getYear()), eq(today.getMonthValue()), any(LocalDate.class)))
+                .willReturn("curso");
+        given(monthPeriodRepository.findByUser_IdAndYearAndMonth(userId, today.getYear(), today.getMonthValue()))
+                .willReturn(Optional.empty());
+        given(accountRepository.findAllByUser_IdAndIncludeInCashflowTrue(userId))
+                .willReturn(List.of(account, usdAccount));
+        given(transactionRepository.netMovementsForAccounts(eq(userId), anyList(), any(LocalDate.class)))
+                .willReturn(Collections.emptyList());
+        given(transactionRepository.groupByCategory(userId, TransactionType.INCOME,  firstDay, lastDay)).willReturn(Collections.emptyList());
+        given(transactionRepository.groupByCategory(userId, TransactionType.EXPENSE, firstDay, lastDay)).willReturn(Collections.emptyList());
+        given(categoryBudgetRepository.findLatestPerCategoryOnOrBefore(userId, firstDay)).willReturn(Collections.emptyList());
+
+        CashflowResponse result = cashflowService.getCashflow(user, today.getYear(), today.getMonthValue());
+
+        // account (ARS 100000) + usdAccount (USD 500), sin movimientos netos.
+        assertThat(result.getOpeningBalance().total().ars()).isEqualByComparingTo("100000.0000");
+        assertThat(result.getOpeningBalance().total().usd()).isEqualByComparingTo("500.0000");
+        assertThat(result.getOpeningBalance().accounts()).hasSize(2);
+    }
+
+    // ─── piso de navegación hacia atrás (earliestNavigable) ───────────────────
+
+    @Test
+    @DisplayName("earliestNavigable: sin movimientos → mes anterior al actual (solo actual + anterior navegables)")
+    void getCashflow_sinMovimientos_earliestNavigableEsMesAnterior() {
+        LocalDate today = LocalDate.now();
+        int year  = today.getYear();
+        int month = today.getMonthValue();
+        LocalDate firstDay = today.withDayOfMonth(1);
+
+        given(monthPeriodService.getStatus(eq(user), eq(year), eq(month), any(LocalDate.class))).willReturn("curso");
+        given(monthPeriodRepository.findByUser_IdAndYearAndMonth(userId, year, month)).willReturn(Optional.empty());
+        given(accountRepository.findAllByUser_IdAndIncludeInCashflowTrue(userId)).willReturn(Collections.emptyList());
+        given(transactionRepository.groupByCategory(eq(userId), any(), any(LocalDate.class), any(LocalDate.class))).willReturn(Collections.emptyList());
+        given(categoryBudgetRepository.findLatestPerCategoryOnOrBefore(userId, firstDay)).willReturn(Collections.emptyList());
+        // Sin movimientos reales
+        given(transactionRepository.findEarliestMovementDate(userId)).willReturn(null);
+
+        CashflowResponse result = cashflowService.getCashflow(user, year, month);
+
+        LocalDate prevMonth = today.withDayOfMonth(1).minusMonths(1);
+        assertThat(result.getEarliestNavigableYear()).isEqualTo(prevMonth.getYear());
+        assertThat(result.getEarliestNavigableMonth()).isEqualTo(prevMonth.getMonthValue());
+    }
+
+    @Test
+    @DisplayName("earliestNavigable: con primer movimiento varios meses atrás → ese mes es el piso")
+    void getCashflow_conMovimientoAntiguo_earliestNavigableEsEseMonth() {
+        LocalDate today = LocalDate.now();
+        int year  = today.getYear();
+        int month = today.getMonthValue();
+        LocalDate firstDay = today.withDayOfMonth(1);
+
+        given(monthPeriodService.getStatus(eq(user), eq(year), eq(month), any(LocalDate.class))).willReturn("curso");
+        given(monthPeriodRepository.findByUser_IdAndYearAndMonth(userId, year, month)).willReturn(Optional.empty());
+        given(accountRepository.findAllByUser_IdAndIncludeInCashflowTrue(userId)).willReturn(Collections.emptyList());
+        given(transactionRepository.groupByCategory(eq(userId), any(), any(LocalDate.class), any(LocalDate.class))).willReturn(Collections.emptyList());
+        given(categoryBudgetRepository.findLatestPerCategoryOnOrBefore(userId, firstDay)).willReturn(Collections.emptyList());
+        // Primer movimiento real 5 meses atrás
+        LocalDate earliest = today.withDayOfMonth(1).minusMonths(5).plusDays(9);
+        given(transactionRepository.findEarliestMovementDate(userId)).willReturn(earliest);
+
+        CashflowResponse result = cashflowService.getCashflow(user, year, month);
+
+        assertThat(result.getEarliestNavigableYear()).isEqualTo(earliest.getYear());
+        assertThat(result.getEarliestNavigableMonth()).isEqualTo(earliest.getMonthValue());
+    }
+
+    @Test
+    @DisplayName("earliestNavigable: si el primer movimiento es del mes actual, el piso sigue siendo el mes anterior")
+    void getCashflow_primerMovimientoMesActual_earliestNavigableEsMesAnterior() {
+        LocalDate today = LocalDate.now();
+        int year  = today.getYear();
+        int month = today.getMonthValue();
+        LocalDate firstDay = today.withDayOfMonth(1);
+
+        given(monthPeriodService.getStatus(eq(user), eq(year), eq(month), any(LocalDate.class))).willReturn("curso");
+        given(monthPeriodRepository.findByUser_IdAndYearAndMonth(userId, year, month)).willReturn(Optional.empty());
+        given(accountRepository.findAllByUser_IdAndIncludeInCashflowTrue(userId)).willReturn(Collections.emptyList());
+        given(transactionRepository.groupByCategory(eq(userId), any(), any(LocalDate.class), any(LocalDate.class))).willReturn(Collections.emptyList());
+        given(categoryBudgetRepository.findLatestPerCategoryOnOrBefore(userId, firstDay)).willReturn(Collections.emptyList());
+        // Primer (y único) movimiento es de este mismo mes
+        given(transactionRepository.findEarliestMovementDate(userId)).willReturn(firstDay.plusDays(3));
+
+        CashflowResponse result = cashflowService.getCashflow(user, year, month);
+
+        LocalDate prevMonth = firstDay.minusMonths(1);
+        assertThat(result.getEarliestNavigableYear()).isEqualTo(prevMonth.getYear());
+        assertThat(result.getEarliestNavigableMonth()).isEqualTo(prevMonth.getMonthValue());
+    }
+
     // ─── helpers ──────────────────────────────────────────────────────────────
 
     private CategorySummaryProjection proj(UUID catId, String name, String icon, String color, BigDecimal amount) {
+        return proj(catId, name, icon, color, amount, "ARS");
+    }
+
+    private CategorySummaryProjection proj(UUID catId, String name, String icon, String color, BigDecimal amount, String ccy) {
         return new CategorySummaryProjection() {
             @Override public UUID getCategoryId()        { return catId;  }
             @Override public String getCategoryName()    { return name;   }
             @Override public String getCategoryIcon()    { return icon;   }
             @Override public String getCategoryColor()   { return color;  }
+            @Override public String getCcy()             { return ccy;    }
             @Override public BigDecimal getTotalAmount() { return amount; }
         };
     }
