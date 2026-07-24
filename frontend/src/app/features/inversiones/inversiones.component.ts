@@ -359,7 +359,10 @@ export class InversionesComponent implements OnInit {
   });
 
   readonly gananciaMesEstimada = computed(() => {
-    const diasTranscurridos = this.todayMidnight().getDate();
+    // El rango del mes actual es [1° del mes, hoy) EXCLUSIVO (ver mesActualRango), o sea
+    // getDate() − 1 días efectivamente medidos. Dividir por getDate() (que cuenta hoy)
+    // sobreestimaba los días base y subestimaba la proyección: se alinea el divisor al rango.
+    const diasTranscurridos = this.todayMidnight().getDate() - 1;
     return diasTranscurridos > 0
       ? this.gananciaMesActual() * (this.diasEnMesActual() / diasTranscurridos)
       : 0;
@@ -367,13 +370,22 @@ export class InversionesComponent implements OnInit {
 
   readonly variacionEstimadaPct = computed<number | null>(() => {
     const anterior = this.gananciaMesAnterior();
-    if (anterior === 0) return null;
+    // Sin base de comparación significativa (mes anterior ≈ 0, o cartera de composición
+    // distinta), el % se dispara y engaña. Umbral: 0,1% del capital → se omite el badge.
+    const umbral = this.capitalMostrado() * 0.001;
+    if (Math.abs(anterior) <= umbral) return null;
     return ((this.gananciaMesEstimada() - anterior) / Math.abs(anterior)) * 100;
   });
 
+  /** Valor de la cartera al inicio del mes ≈ valor actual − ganancia devengada este mes. */
+  readonly capitalInicioMes = computed(() => this.capitalMostrado() - this.gananciaMesActual());
+
   readonly tasaEfectivaMensual = computed(() => {
-    const cap = this.capitalMostrado();
-    return cap > 0 ? (this.gananciaMesActual() / cap) * 100 : 0;
+    // Rendimiento proyectado a mes COMPLETO (gananciaMesEstimada) sobre el capital al INICIO
+    // del mes (el que generó la ganancia), para que sea comparable con el IPC mensual en
+    // tasaRealMensual. Usar la ganancia parcial contra IPC de mes completo mezclaba horizontes.
+    const cap = this.capitalInicioMes();
+    return cap > 0 ? (this.gananciaMesEstimada() / cap) * 100 : 0;
   });
 
   readonly tasaRealMensual = computed<number | null>(() => {

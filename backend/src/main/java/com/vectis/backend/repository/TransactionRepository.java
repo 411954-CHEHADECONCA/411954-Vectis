@@ -34,12 +34,23 @@ public interface TransactionRepository extends JpaRepository<Transaction, UUID> 
         String getCategoryName();
         String getCategoryIcon();
         String getCategoryColor();
+        String getCcy();
         BigDecimal getTotalAmount();
     }
 
     /**
-     * Suma de montos agrupada por categoría para un tipo (INCOME/EXPENSE) y período.
+     * Suma de montos agrupada por categoría <b>y moneda</b> para un tipo (INCOME/EXPENSE) y período.
      * Criterio de fecha idéntico al de {@link #search}: tarjeta por dueDate, cuenta por transactionDate.
+     *
+     * <p>Bimonetario: {@code ccy} está en el {@code GROUP BY}, así que una misma categoría puede
+     * devolver hasta dos filas (una ARS, una USD) — el consumidor ({@link com.vectis.backend.service.CashflowService})
+     * las reconstituye en un {@code MoneyByCcy} por categoría. Antes de este fix la suma colapsaba
+     * ambas monedas en un único {@code BigDecimal}, tratando USD como si fuera ARS (ver bug de cobro
+     * de amortización de bonos apareciendo con el monto de USD pero como pesos).
+     *
+     * <p>Sin {@code ORDER BY}: el orden por monto pasa al servicio, que ordena sobre el monto ya
+     * normalizado a ARS con la cotización del período (una sola moneda por fila ya no garantiza que
+     * "mayor SUM(t.amount)" signifique "mayor monto real").
      *
      * <p>Excluye explícitamente las transacciones vinculadas a un activo de inversión
      * ({@code investmentAsset IS NOT NULL}), aunque tengan una categoría asignada manualmente
@@ -52,22 +63,31 @@ public interface TransactionRepository extends JpaRepository<Transaction, UUID> 
      * transacciones sin categoría en una fila propia en vez de excluirlas — el {@code INNER JOIN}
      * implícito que generaba navegar {@code t.category.id} directamente en el SELECT las hacía
      * desaparecer del desglose (aunque sí sumaban al saldo real de la cuenta).
+     *
+     * <p>{@code account} también es opcional (las transacciones de tarjeta tienen {@code account = null}):
+     * {@code LEFT JOIN t.account a} + {@code (t.account IS NULL OR a.includeInCashflow = true)} excluye
+     * los movimientos de cuentas fuera del cashflow sin perder los consumos de tarjeta. Navegar
+     * {@code t.account.includeInCashflow} directamente en el WHERE generaría un INNER JOIN implícito
+     * que descartaría toda fila con {@code account = null} <b>antes</b> de evaluar el OR — por eso el
+     * LEFT JOIN explícito es obligatorio acá, no cosmético.
      */
     @Query("""
         SELECT c.id                                AS categoryId,
                COALESCE(c.name, 'Sin categoría')    AS categoryName,
                COALESCE(c.icon, 'circle')           AS categoryIcon,
                COALESCE(c.color, '#9ed1c5')         AS categoryColor,
+               t.ccy                                AS ccy,
                SUM(t.amount)                        AS totalAmount
         FROM Transaction t
         LEFT JOIN t.category c
+        LEFT JOIN t.account a
         WHERE t.user.id = :userId AND t.deletedAt IS NULL AND t.type = :type
           AND t.transferGroupId IS NULL
           AND t.investmentAsset IS NULL
+          AND (t.account IS NULL OR a.includeInCashflow = true)
           AND ((t.card IS NOT NULL AND t.dueDate         BETWEEN :from AND :to)
             OR (t.card IS NULL    AND t.transactionDate  BETWEEN :from AND :to))
-        GROUP BY c.id, c.name, c.icon, c.color
-        ORDER BY SUM(t.amount) DESC
+        GROUP BY c.id, c.name, c.icon, c.color, t.ccy
         """)
     List<CategorySummaryProjection> groupByCategory(@Param("userId") UUID userId,
                                                     @Param("type") TransactionType type,
@@ -96,10 +116,17 @@ public interface TransactionRepository extends JpaRepository<Transaction, UUID> 
      * duplicaría en el cashflow. Sin este resguardo, una huérfana categorizada aparecería dos veces:
      * una vez en "Otros ingresos/egresos" y otra en "Cobro de inversión (…)" o "Destinado a
      * inversiones" (ver {@link com.vectis.backend.service.CashflowService#buildInvestmentSection}).
+     *
+     * <p>Mismo filtro de {@code includeInCashflow} que {@link #groupByCategory}, con el mismo cuidado:
+     * {@code LEFT JOIN t.account a} explícito — nunca navegar {@code t.account.includeInCashflow}
+     * directo en el WHERE, porque generaría un INNER JOIN implícito que perdería las transacciones sin
+     * cuenta (el principal de Plazo Fijo y los cobros vinculados directo al activo pueden no tener
+     * {@code account} seteado).
      */
     @EntityGraph(attributePaths = {"investmentAsset"})
     @Query("""
         SELECT t FROM Transaction t
+        LEFT JOIN t.account a
         WHERE t.user.id = :userId AND t.deletedAt IS NULL
           AND t.investmentSourceType IN (
               com.vectis.backend.domain.entity.InvestmentSourceType.SUSCRIPCION,
@@ -109,6 +136,7 @@ public interface TransactionRepository extends JpaRepository<Transaction, UUID> 
               com.vectis.backend.domain.entity.InvestmentSourceType.COUPON_RENT,
               com.vectis.backend.domain.entity.InvestmentSourceType.AMORTIZATION)
           AND (t.investmentAsset IS NOT NULL OR t.category IS NULL)
+          AND (t.account IS NULL OR a.includeInCashflow = true)
           AND t.transactionDate BETWEEN :from AND :to
         ORDER BY t.investmentAsset.id
         """)
@@ -340,4 +368,27 @@ public interface TransactionRepository extends JpaRepository<Transaction, UUID> 
     int softDeleteByTransferGroupId(@Param("groupId") UUID groupId,
                                      @Param("userId")  UUID userId,
                                      @Param("now")     OffsetDateTime now);
+
+    /**
+     * Fecha efectiva del primer movimiento real del usuario. Respeta la regla de fecha del repo:
+     * transacciones de tarjeta anclan en {@code dueDate}, las de cuenta en {@code transactionDate}.
+     * Excluye proyectados ({@code isProjected = false}) y borrados. Devuelve {@code null} si el
+     * usuario no tiene ningún movimiento real. Usada por
+     * {@link com.vectis.backend.service.CashflowService} para fijar el piso de navegación del cashflow.
+     *
+     * <p>A diferencia de {@link #groupByCategory} y {@link #sumByType}, <b>no</b> excluye legs de
+     * transferencia ({@code transferGroupId}) ni movimientos de inversión ({@code investmentAsset}):
+     * el piso representa "el mes más antiguo con actividad registrada", sin importar su naturaleza —
+     * una transferencia o una suscripción también son actividad real del usuario en ese mes y deben
+     * hacer navegable ese período. (Aquellas queries sí los excluyen porque contaminarían los totales
+     * de ingreso/egreso; acá sólo interesa la fecha, no el monto.)
+     */
+    @Query("""
+        SELECT MIN(CASE WHEN t.card IS NOT NULL THEN t.dueDate ELSE t.transactionDate END)
+        FROM Transaction t
+        WHERE t.user.id = :userId
+          AND t.deletedAt IS NULL
+          AND t.isProjected = false
+        """)
+    LocalDate findEarliestMovementDate(@Param("userId") UUID userId);
 }

@@ -77,16 +77,21 @@
 }
 
 .legal-section {
-  padding-top: 40px;
-  margin-top: -16px;
   scroll-margin-top: 88px;
 
-  &:first-child {
-    padding-top: 0;
-  }
-
+  // El separador vive sólo entre secciones. El espacio se reparte simétrico a
+  // ambos lados del borde (margin arriba, padding abajo) para que la línea nunca
+  // se superponga con el último renglón de la sección anterior.
   & + .legal-section {
-    border-top: 1px solid var(--color-outline-variant);
+    margin-top: 40px;
+    padding-top: 40px;
+    border-top: 1px solid transparent;
+    border-image: linear-gradient(
+        to right,
+        var(--color-outline-variant),
+        transparent
+      )
+      1;
   }
 
   h2 {

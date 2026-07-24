@@ -6,7 +6,7 @@
     <span class="index-title">Índice</span>
     <ol>
       @for (section of sections; track section.id) {
-        <li><a [href]="'#' + section.id">{{ section.title }}</a></li>
+        <li><a [routerLink]="[]" [fragment]="section.id">{{ section.title }}</a></li>
       }
     </ol>
   </nav>

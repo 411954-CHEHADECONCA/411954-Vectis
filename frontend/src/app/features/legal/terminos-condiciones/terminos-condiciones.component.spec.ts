@@ -38,7 +38,13 @@ describe('TerminosCondicionesComponent', () => {
 
     component.sections.forEach((section, i) => {
       expect(indexLinks[i].nativeElement.textContent.trim()).toBe(section.title);
-      expect(indexLinks[i].nativeElement.getAttribute('href')).toBe(`#${section.id}`);
+      // RouterLink + fragment resuelve el href contra la ruta activa, así que se
+      // valida el fragmento y no la base (que en test es '/' y en la app '/terminos').
+      // Un href crudo '#id' se resolvería contra <base href="/"> y sacaría al
+      // usuario de la página, redirigiéndolo al login.
+      expect(indexLinks[i].nativeElement.getAttribute('href')).toMatch(
+        new RegExp(`#${section.id}$`),
+      );
     });
   });
 

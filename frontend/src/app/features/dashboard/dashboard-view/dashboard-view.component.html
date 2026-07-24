@@ -249,8 +249,13 @@
                   </td>
                   <td class="col-num">
                     <span class="daily-change" [class.daily-change--up]="deltaUp(row.varPct)" [class.daily-change--down]="!deltaUp(row.varPct)">
-                      <span>{{ row.varAmount < 0 ? '−' : '+' }}{{ currencyService.symbol() }} {{ fmt(row.varAmount < 0 ? -row.varAmount : row.varAmount) }}</span>
-                      <span class="daily-change__pct">{{ fmtPct(row.varPct) }}</span>
+                      <span class="daily-change__row">
+                        <span>{{ row.varAmount < 0 ? '−' : '+' }}{{ currencyService.symbol() }} {{ fmt(row.varAmount < 0 ? -row.varAmount : row.varAmount) }}</span>
+                        <span class="daily-change__pct">{{ fmtPct(row.varPct) }}</span>
+                      </span>
+                      @if (showVarPeriodo(row)) {
+                        <span class="daily-change__periodo">{{ fmtFecha(row.varFrom ?? null) }} → {{ fmtFecha(row.varTo ?? null) }}</span>
+                      }
                     </span>
                   </td>
                 </tr>
