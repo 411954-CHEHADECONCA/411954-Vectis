@@ -107,16 +107,16 @@ export class PortfolioSummaryService {
    *  - Con ≥2 valuaciones: compara las dos más recientes (precio de mercado).
    *  - Con <2 valuaciones (FCI / PLAZO_FIJO / sin serie): devengado diario por TNA.
    */
-  dailyChange(asset: InvestmentResponse): { amount: number; pct: number } {
+  dailyChange(asset: InvestmentResponse): { amount: number; pct: number; fromDate?: string; toDate?: string } {
     const vals = [...(asset.valuations ?? [])].sort((a, b) => b.valuationDate.localeCompare(a.valuationDate));
     if (vals.length >= 2) {
       const latest = vals[0].pricePerUnit;
       const prev = vals[1].pricePerUnit;
       const pct = prev !== 0 ? latest / prev - 1 : 0;
       const amount = this.cuotapartesHeld(asset) * (latest - prev);
-      return { amount, pct };
+      return { amount, pct, fromDate: vals[1].valuationDate, toDate: vals[0].valuationDate };
     }
-    // Sin serie de precios: devengado por TNA (1 día).
+    // Sin serie de precios: devengado por TNA (1 día real, sin rango que mostrar).
     const dailyRate = (asset.tna ?? 0) / 100 / 365;
     return { amount: this.currentValue(asset) * dailyRate, pct: dailyRate };
   }

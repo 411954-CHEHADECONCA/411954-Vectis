@@ -35,14 +35,14 @@ import {
   CashflowAccountBalance,
   CashflowCategoryRow,
   CashflowResponse,
+  MoneyByCcy,
 } from '../../core/models/cashflow.models';
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
 
 /** Formato AR: punto de miles, coma decimal, con signo opcional. */
-function fmtARS(value: string | number, sign?: '+' | '-'): string {
-  const n = typeof value === 'string' ? parseFloat(value) : value;
-  const abs = Math.abs(n);
+function fmtARS(value: number, sign?: '+' | '-'): string {
+  const abs = Math.abs(value);
   const formatted = abs.toLocaleString('es-AR', {
     minimumFractionDigits: 0,
     maximumFractionDigits: 2,
@@ -51,9 +51,8 @@ function fmtARS(value: string | number, sign?: '+' | '-'): string {
   return `${prefix}$ ${formatted}`;
 }
 
-function fmtUSD(value: string | number): string {
-  const n = typeof value === 'string' ? parseFloat(value) : value;
-  return `US$ ${Math.abs(n).toLocaleString('es-AR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
+function fmtUSD(value: number): string {
+  return `US$ ${Math.abs(value).toLocaleString('es-AR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
 }
 
 function fmtBalance(balance: string, ccy: string): string {
@@ -102,6 +101,9 @@ export class CashflowComponent implements OnInit {
   readonly month   = signal(new Date().getMonth() + 1);
   readonly data     = signal<CashflowResponse | null>(null);
   readonly prevData = signal<CashflowResponse | null>(null);
+  // Piso de navegación hacia atrás (mes más antiguo con movimientos, o el mes anterior).
+  // Absoluto: lo fija el backend en cada respuesta. Null hasta la primera carga.
+  readonly earliestNavigable = signal<{ year: number; month: number } | null>(null);
   readonly loading            = signal(false);
   readonly error              = signal<string | null>(null);
   readonly periodActionLoading = signal(false);
@@ -113,7 +115,13 @@ export class CashflowComponent implements OnInit {
     return (this.year() - now.getFullYear()) * 12 + (this.month() - (now.getMonth() + 1));
   });
 
-  readonly canGoBack    = computed(() => this.monthsDiffFromNow() > -12);
+  // Sólo se puede retroceder mientras el mes visto sea posterior al piso (dirigido por datos).
+  readonly canGoBack = computed(() => {
+    const floor = this.earliestNavigable();
+    if (!floor) return false;
+    const diff = (this.year() - floor.year) * 12 + (this.month() - floor.month);
+    return diff > 0;
+  });
   readonly canGoForward = computed(() => this.monthsDiffFromNow() < 3);
 
   readonly isProjection      = computed(() => this.data()?.isProjection ?? false);
@@ -130,55 +138,77 @@ export class CashflowComponent implements OnInit {
     }
   });
 
-  readonly hasBudgetsValue = computed(() =>
-    parseFloat(this.data()?.expenses.totalBudgeted ?? '0') > 0
-  );
+  readonly hasBudgetsValue = computed(() => this.moneyIsPositive(this.data()?.expenses.totalBudgeted));
   readonly budgetExecPctValue = computed(() => {
     const d = this.data();
     if (!d) return 0;
-    const budgeted = parseFloat(d.expenses.totalBudgeted);
+    const budgeted = this.toSelected(d.expenses.totalBudgeted) ?? this.rawSum(d.expenses.totalBudgeted);
     if (budgeted === 0) return 0;
-    return (parseFloat(d.expenses.total) / budgeted) * 100;
+    const total = this.toSelected(d.expenses.total) ?? this.rawSum(d.expenses.total);
+    return (total / budgeted) * 100;
   });
   readonly budgetExecBarWidth = computed(() => `${Math.min(this.budgetExecPctValue(), 100)}%`);
   readonly budgetExecIsOver   = computed(() => this.budgetExecPctValue() > 100);
 
-  readonly hasBudgetsIncome = computed(() =>
-    parseFloat(this.data()?.income.totalBudgeted ?? '0') > 0
-  );
+  readonly hasBudgetsIncome = computed(() => this.moneyIsPositive(this.data()?.income.totalBudgeted));
   readonly budgetExecIncomePctValue = computed(() => {
     const d = this.data();
     if (!d) return 0;
-    const budgeted = parseFloat(d.income.totalBudgeted);
+    const budgeted = this.toSelected(d.income.totalBudgeted) ?? this.rawSum(d.income.totalBudgeted);
     if (budgeted === 0) return 0;
-    return (parseFloat(d.income.total) / budgeted) * 100;
+    const total = this.toSelected(d.income.total) ?? this.rawSum(d.income.total);
+    return (total / budgeted) * 100;
   });
   readonly budgetExecIncomeBarWidth = computed(() => `${Math.min(this.budgetExecIncomePctValue(), 100)}%`);
   readonly budgetExecIncomeIsOver   = computed(() => this.budgetExecIncomePctValue() >= 100);
-  readonly isOperativeResultPositive = computed(() =>
-    parseFloat(this.data()?.preInvestmentBalance.operativeResult ?? '0') >= 0
-  );
+  readonly isOperativeResultPositive = computed(() => {
+    const d = this.data();
+    if (!d) return true;
+    return this.signedTotal(d.preInvestmentBalance.operativeResult) >= 0;
+  });
 
-  readonly isOpeningNegative       = computed(() => parseFloat(this.data()?.openingBalance.total          ?? '0') < 0);
-  readonly isClosingNegative       = computed(() => parseFloat(this.data()?.closingBalance.total          ?? '0') < 0);
-  readonly isPreInvNegative        = computed(() => parseFloat(this.data()?.preInvestmentBalance.balance  ?? '0') < 0);
-  readonly isBalanceAfterIncomeNeg = computed(() => parseFloat(this.balanceAfterIncome()) < 0);
-  readonly closingBalanceLabel     = computed(() =>
+  readonly isOpeningNegative = computed(() => {
+    const d = this.data();
+    return d ? this.signedTotal(d.openingBalance.total) < 0 : false;
+  });
+  readonly isClosingNegative = computed(() => {
+    const d = this.data();
+    return d ? this.signedTotal(d.closingBalance.total) < 0 : false;
+  });
+  readonly isPreInvNegative = computed(() => {
+    const d = this.data();
+    return d ? this.signedTotal(d.preInvestmentBalance.balance) < 0 : false;
+  });
+  readonly isBalanceAfterIncomeNeg = computed(() => {
+    const m = this.balanceAfterIncomeMoney();
+    return m ? this.signedTotal(m) < 0 : false;
+  });
+  readonly closingBalanceLabel = computed(() =>
     this.isClosingNegative() ? 'Necesidad de liquidez' : 'Saldo final disponible'
   );
 
+  /** Diferencia de saldo de cierre vs. el mes anterior, ya convertida a la moneda seleccionada
+   *  (cada período usa su propia cotización histórica). Null si no hay cotización disponible. */
   readonly closingDelta = computed(() => {
     const curr = this.data();
     const prev = this.prevData();
     if (!curr || !prev) return null;
-    return parseFloat(curr.closingBalance.total) - parseFloat(prev.closingBalance.total);
+    const currVal = this.toSelected(curr.closingBalance.total, curr.oficialRateAtPeriod);
+    const prevVal = this.toSelected(prev.closingBalance.total, prev.oficialRateAtPeriod);
+    if (currVal === null || prevVal === null) return null;
+    return currVal - prevVal;
   });
   readonly closingDeltaPositive = computed(() => (this.closingDelta() ?? 0) >= 0);
   readonly prevMonthShort       = computed(() => this.prevData()?.monthShort ?? '');
-  readonly balanceAfterIncome = computed(() => {
+
+  /** Saldo inicial + ingresos, sumado bucket a bucket (misma moneda con misma moneda). */
+  readonly balanceAfterIncomeMoney = computed<MoneyByCcy | null>(() => {
     const d = this.data();
-    if (!d) return '0.0000';
-    return (parseFloat(d.openingBalance.total) + parseFloat(d.income.total)).toFixed(4);
+    if (!d) return null;
+    return {
+      ars: d.openingBalance.total.ars + d.income.total.ars,
+      usd: d.openingBalance.total.usd + d.income.total.usd,
+    };
   });
 
   // ── Setup ─────────────────────────────────────────────────────────────────
@@ -204,6 +234,10 @@ export class CashflowComponent implements OnInit {
     ).subscribe(({ current, prev }) => {
       this.data.set(current);
       this.prevData.set(prev);
+      this.earliestNavigable.set({
+        year: current.earliestNavigableYear,
+        month: current.earliestNavigableMonth,
+      });
       this.loading.set(false);
     });
   }
@@ -247,9 +281,57 @@ export class CashflowComponent implements OnInit {
     }
   }
 
-  // ── Formatting helpers (exposed to template) ──────────────────────────────
+  // ── Conversión bimonetaria ────────────────────────────────────────────────
+  // El backend ya no devuelve totales colapsados a un único número: cada agregado viene
+  // desglosado por moneda (MoneyByCcy). Convertir y sumar ambos buckets a la moneda
+  // seleccionada es responsabilidad del consumidor (mismo patrón que `toSelected` en
+  // dashboard-view.component.ts, vía CurrencyService.convertHistorical).
 
   private periodRate(): string | null { return this.data()?.oficialRateAtPeriod ?? null; }
+
+  /** Convierte y suma ambos buckets a la moneda seleccionada. `rate` por defecto es la cotización
+   *  del período activo; se puede pasar explícitamente la de otro período (ej. mes anterior).
+   *  Null si hace falta convertir y no hay cotización disponible. */
+  private toSelected(money: MoneyByCcy, rate: string | null = this.periodRate()): number | null {
+    const ars = this.currencyService.convertHistorical(money.ars, 'ARS', rate);
+    const usd = this.currencyService.convertHistorical(money.usd, 'USD', rate);
+    if (ars === null || usd === null) return null;
+    return ars + usd;
+  }
+
+  /** Suma cruda de ambos buckets, sin convertir — sólo como último recurso cuando no hay
+   *  cotización (mismo criterio de gracia que usaba el código anterior a este cambio). */
+  private rawSum(money: MoneyByCcy): number {
+    return money.ars + money.usd;
+  }
+
+  /** Signo del total, tolerante a falta de cotización (para checks de negativo/positivo). */
+  private signedTotal(money: MoneyByCcy): number {
+    return this.toSelected(money) ?? this.rawSum(money);
+  }
+
+  private moneyIsPositive(money: MoneyByCcy | undefined): boolean {
+    return !!money && this.rawSum(money) > 0;
+  }
+
+  // ── Formatting helpers (exposed to template) ──────────────────────────────
+
+  /** Monto bimonetario formateado con símbolo, en la moneda seleccionada. */
+  fmtMoney(money: MoneyByCcy): string {
+    const total = this.toSelected(money);
+    if (total === null) {
+      // Sin cotización disponible: no se puede convertir, se muestra el bucket ARS tal cual.
+      return fmtARS(money.ars);
+    }
+    return this.currencyService.selected() === 'USD' ? fmtUSD(total) : fmtARS(total);
+  }
+
+  /** Sólo el número formateado, sin símbolo (para stat-cards donde el símbolo va aparte). */
+  fmtMoneyAmt(money: MoneyByCcy): string {
+    const total = this.toSelected(money);
+    const v = total !== null ? Math.abs(total) : Math.abs(money.ars);
+    return v.toLocaleString('es-AR', { minimumFractionDigits: 0, maximumFractionDigits: 2 });
+  }
 
   fmtBalance(balance: string, ccy: string): string {
     const n = parseFloat(balance);
@@ -258,24 +340,8 @@ export class CashflowComponent implements OnInit {
     return fmtBalance(String(converted), this.currencyService.selected());
   }
 
-  fmtARS(value: string): string {
-    const n = parseFloat(value);
-    const converted = this.currencyService.convertHistorical(n, 'ARS', this.periodRate());
-    if (converted === null) return fmtARS(value);
-    if (this.currencyService.selected() === 'USD') return fmtUSD(converted);
-    return fmtARS(converted);
-  }
-
   fmtPct(value: string): string  { return fmtPct(value); }
   parseFloat(value: string): number { return parseFloat(value); }
-
-  /** Solo el número formateado, sin símbolo (para stat-cards donde el símbolo va aparte). */
-  fmtAmt(value: string): string {
-    const n = Math.abs(parseFloat(value));
-    const converted = this.currencyService.convertHistorical(n, 'ARS', this.periodRate());
-    const v = converted !== null ? Math.abs(converted) : n;
-    return v.toLocaleString('es-AR', { minimumFractionDigits: 0, maximumFractionDigits: 2 });
-  }
 
   barWidth(pct: string): string {
     return `${Math.min(parseFloat(pct), 100)}%`;
@@ -284,9 +350,7 @@ export class CashflowComponent implements OnInit {
   fmtDeltaAmt(): string {
     const d = this.closingDelta();
     if (d === null) return '';
-    const converted = this.currencyService.convertHistorical(Math.abs(d), 'ARS', this.periodRate());
-    const v = converted !== null ? Math.abs(converted) : Math.abs(d);
-    return v.toLocaleString('es-AR', { minimumFractionDigits: 0, maximumFractionDigits: 0 });
+    return Math.abs(d).toLocaleString('es-AR', { minimumFractionDigits: 0, maximumFractionDigits: 0 });
   }
 
   varianceLabel(pctOfBudget: string): string {
@@ -326,12 +390,13 @@ export class CashflowComponent implements OnInit {
   trackByCategoryId(_i: number, row: CashflowCategoryRow): string | null { return row.categoryId; }
   trackByAccountId(_i: number, acc: CashflowAccountBalance): string      { return acc.accountId; }
 
-  invPct(invAmount: string): string {
+  invPct(invAmount: MoneyByCcy): string {
     const d = this.data();
     if (!d) return '0';
-    const total = parseFloat(d.investments.total);
+    const total = this.toSelected(d.investments.total) ?? this.rawSum(d.investments.total);
     if (total === 0) return '0';
-    return ((parseFloat(invAmount) / total) * 100).toFixed(2);
+    const amt = this.toSelected(invAmount) ?? this.rawSum(invAmount);
+    return ((amt / total) * 100).toFixed(2);
   }
 
   budgetMarkerPct(pctOfTotal: string | null, pctOfBudget: string | null): string {

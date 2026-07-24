@@ -9,7 +9,7 @@ import { InvestmentService } from '../../../core/services/investment.service';
 import { PortfolioSummaryService } from '../../../core/services/portfolio-summary.service';
 import { AccountResponse } from '../../../core/models/account.models';
 import { CardOverview } from '../../../core/models/card-projection.models';
-import { CashflowResponse } from '../../../core/models/cashflow.models';
+import { CashflowResponse, MoneyByCcy } from '../../../core/models/cashflow.models';
 import { ASSET_TYPE_LABELS, InvestmentResponse } from '../../../core/models/investment.models';
 
 type Ccy = 'ARS' | 'USD';
@@ -25,6 +25,8 @@ interface CarteraRow {
   pesoPct:       number;
   varPct:        number;
   varAmount:     number;   // diferencia de valuación, en la moneda seleccionada
+  varFrom?:      string;   // fecha ISO de la valuación anterior comparada
+  varTo?:        string;   // fecha ISO de la valuación más reciente comparada
 }
 
 @Component({
@@ -129,6 +131,8 @@ export class DashboardViewComponent {
         pesoPct: 0,
         varPct: change.pct * 100,
         varAmount,
+        varFrom: change.fromDate,
+        varTo: change.toDate,
       };
     }).sort((x, y) => y.valor - x.valor);
     const total = rows.reduce((s, r) => s + r.valor, 0);
@@ -168,7 +172,7 @@ export class DashboardViewComponent {
     this.liquidez() + this.valorCartera() - this.deudaTarjetas());
 
   private readonly patrimonioDeltaAbs = computed(() =>
-    this.convertArs(parseFloat(this.cashflow()?.preInvestmentBalance.operativeResult ?? '0')));
+    this.toSelectedMoney(this.cashflow()?.preInvestmentBalance.operativeResult));
 
   readonly patrimonioDeltaPct = computed<number | null>(() => {
     const d = this.patrimonioDeltaAbs();
@@ -180,10 +184,10 @@ export class DashboardViewComponent {
   readonly hasCashflow = computed(() => this.cashflow() !== null);
   readonly periodoLabel = computed(() => this.cashflow()?.periodLabel ?? '');
 
-  readonly ingresosMes  = computed(() => this.convertArs(this.cf('income')));
-  readonly egresosMes   = computed(() => this.convertArs(this.cf('expenses')));
+  readonly ingresosMes  = computed(() => this.cf('income'));
+  readonly egresosMes   = computed(() => this.cf('expenses'));
   readonly resultadoMes = computed(() =>
-    this.convertArs(parseFloat(this.cashflow()?.preInvestmentBalance.operativeResult ?? '0')));
+    this.toSelectedMoney(this.cashflow()?.preInvestmentBalance.operativeResult));
   readonly tasaAhorroPct = computed(() =>
     parseFloat(this.cashflow()?.preInvestmentBalance.savingRatePct ?? '0'));
 
@@ -191,15 +195,15 @@ export class DashboardViewComponent {
   readonly egresosPctPpto  = computed(() => this.pctPresupuesto('expenses'));
 
   private cf(section: 'income' | 'expenses'): number {
-    return parseFloat(this.cashflow()?.[section].total ?? '0');
+    return this.toSelectedMoney(this.cashflow()?.[section].total);
   }
 
   private pctPresupuesto(section: 'income' | 'expenses'): number | null {
     const cf = this.cashflow();
     if (!cf) return null;
-    const budget = parseFloat(cf[section].totalBudgeted);
+    const budget = this.toSelectedMoney(cf[section].totalBudgeted);
     if (!isFinite(budget) || budget === 0) return null;
-    return (parseFloat(cf[section].total) / budget) * 100;
+    return (this.toSelectedMoney(cf[section].total) / budget) * 100;
   }
 
   // ── Ratio de Cobertura Inmediata ──────────────────────────────────────────────
@@ -227,8 +231,7 @@ export class DashboardViewComponent {
     }, 0);
   });
 
-  private readonly ingresoMes = computed(() =>
-    this.convertArs(parseFloat(this.cashflow()?.income.total ?? '0')));
+  private readonly ingresoMes = computed(() => this.toSelectedMoney(this.cashflow()?.income.total));
 
   readonly ingresoComprometidoPct = computed<number | null>(() => {
     const ingreso = this.ingresoMes();
@@ -251,6 +254,15 @@ export class DashboardViewComponent {
       return ars + (this.currencyService.convert(usd, 'USD') ?? 0);
     }
     return (this.currencyService.convert(ars, 'ARS') ?? 0) + usd;
+  }
+
+  /** Convierte y suma ambos buckets de un agregado bimonetario del cashflow (MoneyByCcy)
+   *  a la moneda seleccionada. El cashflow ya no colapsa sus totales a un único número ARS:
+   *  cada sección viene desglosada por moneda, así que mezclarlos sin convertir reproduciría
+   *  el bug original (montos en USD apareciendo como si fueran pesos). */
+  private toSelectedMoney(money: MoneyByCcy | undefined): number {
+    if (!money) return 0;
+    return this.toSelected(money.ars, money.usd);
   }
 
   private convertFrom(amount: number, ccy: Ccy): number {
@@ -282,10 +294,15 @@ export class DashboardViewComponent {
     return ccy === 'USD' ? 'US$' : '$';
   }
 
-  /** Porcentaje con signo y coma decimal, o null si no aplica. */
+  /**
+   * Porcentaje con signo y coma decimal, o null si no aplica.
+   * Para variaciones chicas (|v| < 0,1) sube a 2 decimales — con 1 decimal
+   * una variación real de +0,0116% se redondea a "+0,0%" y parece un dato roto.
+   */
   fmtPct(v: number | null, decimals = 1): string | null {
     if (v === null || !isFinite(v)) return null;
-    const abs = Math.abs(v).toLocaleString('es-AR', { minimumFractionDigits: decimals, maximumFractionDigits: decimals });
+    const effectiveDecimals = Math.abs(v) < 0.1 ? Math.max(decimals, 2) : decimals;
+    const abs = Math.abs(v).toLocaleString('es-AR', { minimumFractionDigits: effectiveDecimals, maximumFractionDigits: effectiveDecimals });
     return `${v < 0 ? '−' : '+'}${abs}%`;
   }
 
@@ -299,6 +316,15 @@ export class DashboardViewComponent {
     if (!iso) return '';
     const [, m, d] = iso.split('-');
     return `${d}/${m}`;
+  }
+
+  /** True cuando el hueco entre las fechas comparadas es mayor a 1 día (la variación no es realmente "diaria"). */
+  showVarPeriodo(row: CarteraRow): boolean {
+    if (!row.varFrom || !row.varTo) return false;
+    const from = new Date(row.varFrom).getTime();
+    const to = new Date(row.varTo).getTime();
+    const diffDays = (to - from) / (1000 * 60 * 60 * 24);
+    return diffDays > 1;
   }
 
   deltaUp(v: number | null): boolean {

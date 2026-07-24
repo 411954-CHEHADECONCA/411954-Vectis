@@ -163,13 +163,17 @@ describe('PortfolioSummaryService', () => {
       const change = service.dailyChange(asset);
       expect(change.pct).toBeCloseTo(0.2, 6);       // 1.2/1.0 − 1
       expect(change.amount).toBeCloseTo(20, 6);      // 100 × (1.2 − 1.0)
+      expect(change.fromDate).toBe('2026-06-30');
+      expect(change.toDate).toBe('2026-07-01');
     });
 
-    it('con <2 valuaciones usa el devengado diario por TNA', () => {
+    it('con <2 valuaciones usa el devengado diario por TNA y no expone rango de fechas', () => {
       const asset = inv({ type: 'PLAZO_FIJO', principal: 3650, tna: 10 });
       const change = service.dailyChange(asset);
       expect(change.pct).toBeCloseTo(0.1 / 365, 8);  // TNA/365
       expect(change.amount).toBeCloseTo(1, 6);        // 3650 × 0.1/365
+      expect(change.fromDate).toBeUndefined();
+      expect(change.toDate).toBeUndefined();
     });
 
     it('dailyChangeByCurrency separa por moneda y omite COBRADA', () => {

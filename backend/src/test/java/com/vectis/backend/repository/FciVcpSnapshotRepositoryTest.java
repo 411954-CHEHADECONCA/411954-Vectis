@@ -60,4 +60,42 @@ class FciVcpSnapshotRepositoryTest {
 
         assertThat(result).isEmpty();
     }
+
+    @Test
+    @DisplayName("findTopByFondoAndFechaLessThanEqualOrderByFechaDesc: devuelve el snapshot más reciente ≤ fecha")
+    void findTopByFondoAndFechaLessThanEqualOrderByFechaDesc_returnsMostRecentBeforeOrEqual() {
+        em.persistAndFlush(baseSnapshot(LocalDate.of(2026, 7, 1)).build());
+        em.persistAndFlush(baseSnapshot(LocalDate.of(2026, 7, 15)).build());
+        em.persistAndFlush(baseSnapshot(LocalDate.of(2026, 7, 21)).build());
+        // fecha posterior a la buscada, no debe influir
+        em.persistAndFlush(baseSnapshot(LocalDate.of(2026, 7, 30)).build());
+
+        Optional<FciVcpSnapshot> result = fciVcpSnapshotRepository
+                .findTopByFondoAndFechaLessThanEqualOrderByFechaDesc("Pionero Ahorro Pesos", LocalDate.of(2026, 7, 24));
+
+        assertThat(result).isPresent();
+        assertThat(result.get().getFecha()).isEqualTo(LocalDate.of(2026, 7, 21));
+    }
+
+    @Test
+    @DisplayName("findTopByFondoAndFechaLessThanEqualOrderByFechaDesc: vacío si no hay snapshots ≤ fecha")
+    void findTopByFondoAndFechaLessThanEqualOrderByFechaDesc_emptyWhenNoneBeforeOrEqual() {
+        em.persistAndFlush(baseSnapshot(LocalDate.of(2026, 7, 30)).build());
+
+        Optional<FciVcpSnapshot> result = fciVcpSnapshotRepository
+                .findTopByFondoAndFechaLessThanEqualOrderByFechaDesc("Pionero Ahorro Pesos", LocalDate.of(2026, 7, 24));
+
+        assertThat(result).isEmpty();
+    }
+
+    @Test
+    @DisplayName("findTopByFondoAndFechaLessThanEqualOrderByFechaDesc: vacío si el fondo no coincide")
+    void findTopByFondoAndFechaLessThanEqualOrderByFechaDesc_emptyWhenFondoMismatch() {
+        em.persistAndFlush(baseSnapshot(LocalDate.of(2026, 7, 1)).build());
+
+        Optional<FciVcpSnapshot> result = fciVcpSnapshotRepository
+                .findTopByFondoAndFechaLessThanEqualOrderByFechaDesc("Otro Fondo", LocalDate.of(2026, 7, 24));
+
+        assertThat(result).isEmpty();
+    }
 }

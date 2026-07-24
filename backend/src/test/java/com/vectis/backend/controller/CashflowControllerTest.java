@@ -240,13 +240,13 @@ class CashflowControllerTest {
 
     private CashflowResponse buildResponse(int year, int month, boolean isProjection, String status) {
         CashflowBalanceSection emptyBalance = new CashflowBalanceSection(
-                BigDecimal.ZERO, Collections.emptyList());
+                MoneyByCcy.zero(), Collections.emptyList());
         CashflowFlowSection emptyFlow = new CashflowFlowSection(
-                BigDecimal.ZERO, BigDecimal.ZERO, Collections.emptyList());
+                MoneyByCcy.zero(), MoneyByCcy.zero(), Collections.emptyList());
         CashflowSubtotal subtotal = new CashflowSubtotal(
-                BigDecimal.ZERO, BigDecimal.ZERO, BigDecimal.ZERO);
+                MoneyByCcy.zero(), MoneyByCcy.zero(), BigDecimal.ZERO);
         CashflowInvestmentSection emptyInvestments = new CashflowInvestmentSection(
-                BigDecimal.ZERO, null, Collections.emptyList());
+                MoneyByCcy.zero(), null, Collections.emptyList());
 
         return CashflowResponse.builder()
                 .year(year)

@@ -17,6 +17,8 @@ public interface FciVcpSnapshotRepository extends JpaRepository<FciVcpSnapshot, 
 
     Optional<FciVcpSnapshot> findByFondoAndFecha(String fondo, LocalDate fecha);
 
+    Optional<FciVcpSnapshot> findTopByFondoAndFechaLessThanEqualOrderByFechaDesc(String fondo, LocalDate fecha);
+
     List<FciVcpSnapshot> findByCategoriaAndFecha(String categoria, LocalDate fecha);
 
     @Query(value = "SELECT MAX(fecha) FROM fci_vcp_snapshots", nativeQuery = true)

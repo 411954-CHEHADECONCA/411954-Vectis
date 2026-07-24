@@ -1,3 +1,18 @@
+/**
+ * Monto desglosado por moneda. Todo agregado del cashflow es bimonetario (ARS y USD conviven en la
+ * misma cuenta de usuario): ningún total puede colapsarse a un único número sin asumir implícitamente
+ * que todo es ARS — ese fue exactamente el bug de amortizaciones en USD apareciendo como pesos.
+ * Espeja `PortfolioByCurrency` (ver `PortfolioSummaryService`): la conversión ARS↔USD la resuelve
+ * el consumidor con `CurrencyService`, nunca este tipo.
+ *
+ * Serializado por Jackson como número JSON (BigDecimal sin @JsonSerialize a string), verificado
+ * contra InvestmentControllerTest (jsonPath con comparación numérica tipada).
+ */
+export interface MoneyByCcy {
+  ars: number;
+  usd: number;
+}
+
 export interface CashflowAccountBalance {
   accountId: string;
   name:      string;
@@ -6,7 +21,7 @@ export interface CashflowAccountBalance {
 }
 
 export interface CashflowBalanceSection {
-  total:    string;
+  total:    MoneyByCcy;
   accounts: CashflowAccountBalance[];
 }
 
@@ -15,21 +30,21 @@ export interface CashflowCategoryRow {
   name:         string;
   icon:         string;
   color:        string;
-  amount:       string;
+  amount:       MoneyByCcy;
   pctOfTotal:   string;
-  budgeted:     string | null;
+  budgeted:     MoneyByCcy | null;
   pctOfBudget:  string | null;
 }
 
 export interface CashflowFlowSection {
-  total:          string;
-  totalBudgeted:  string;
+  total:          MoneyByCcy;
+  totalBudgeted:  MoneyByCcy;
   byCategory:     CashflowCategoryRow[];
 }
 
 export interface CashflowSubtotal {
-  balance:          string;
-  operativeResult:  string;
+  balance:          MoneyByCcy;
+  operativeResult:  MoneyByCcy;
   savingRatePct:    string;
 }
 
@@ -37,12 +52,12 @@ export interface CashflowInvestmentRow {
   name:   string;
   icon:   string;
   color:  string;
-  amount: string;
+  amount: MoneyByCcy;
   teaPct: string | null;
 }
 
 export interface CashflowInvestmentSection {
-  total:           string;
+  total:           MoneyByCcy;
   pctOfPreBalance: string | null;
   instruments:     CashflowInvestmentRow[];
 }
@@ -65,4 +80,6 @@ export interface CashflowResponse {
   investments:          CashflowInvestmentSection;
   closingBalance:       CashflowBalanceSection;
   oficialRateAtPeriod:  string | null;
+  earliestNavigableYear:  number;
+  earliestNavigableMonth: number;
 }
